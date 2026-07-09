@@ -16,6 +16,8 @@ class SupabaseDirectoryService {
   // Active realtime channels — tracked so we can unsubscribe on dispose.
   final List<RealtimeChannel> _channels = [];
   
+  String? _cachedUserId;
+  
   // ===========================================================================
   // Auth
   // ===========================================================================
@@ -28,11 +30,13 @@ class SupabaseDirectoryService {
   /// Signs in with email + password.
   Future<AuthResponse> signIn(String email, String password) async {
     final res = await _client.auth.signInWithPassword(email: email, password: password);
+    _cachedUserId = null; // reset cache
     return res;
   }
 
   /// Signs the current user out.
   Future<void> signOut() async {
+    _cachedUserId = null;
     await _client.auth.signOut();
   }
 
@@ -54,6 +58,18 @@ class SupabaseDirectoryService {
   Stream<AuthState> get authStateChanges =>
       _client.auth.onAuthStateChange;
 
+  /// Checks if the current auth user has a profile in the users table.
+  Future<bool> checkProfileExists() async {
+    final user = currentUser;
+    if (user == null) return false;
+    try {
+      final rows = await _client.from('users').select('user_id').eq('auth_id', user.id).limit(1);
+      return rows.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // ===========================================================================
   // User directory
   // ===========================================================================
@@ -69,11 +85,11 @@ class SupabaseDirectoryService {
     required String publicEncryptionKey,
   }) async {
     await _client.from('users').insert({
-      'id': uid,
+      'auth_id': uid,
       'username': username,
       'display_name': displayName,
-      'public_signing_key': publicSigningKey,
-      'public_encryption_key': publicEncryptionKey,
+      'signing_public_key': publicSigningKey,
+      'encryption_public_key': publicEncryptionKey,
     });
   }
 
@@ -92,7 +108,7 @@ class SupabaseDirectoryService {
     final rows = await _client
         .from('users')
         .select()
-        .eq('id', userId)
+        .eq('user_id', userId)
         .limit(1);
     return rows.isEmpty ? null : rows.first;
   }
@@ -104,7 +120,7 @@ class SupabaseDirectoryService {
         .from('users')
         .select()
         .ilike('username', '%$query%')
-        .neq('id', authId)
+        .neq('auth_id', authId)
         .limit(20);
   }
 
@@ -120,23 +136,23 @@ class SupabaseDirectoryService {
     if (username != null) updates['username'] = username;
     if (updates.isEmpty) return;
 
-    await _client.from('users').update(updates).eq('id', authId);
+    await _client.from('users').update(updates).eq('auth_id', authId);
   }
 
   /// Sets the user's online presence and updates `last_seen`.
   Future<void> updateOnlineStatus(bool isOnline) async {
     final authId = _requireAuthId();
     await _client.from('users').update({
-      'is_online': isOnline,
+      'status': isOnline ? 'online' : 'offline',
       'last_seen': DateTime.now().toUtc().toIso8601String(),
-    }).eq('id', authId);
+    }).eq('auth_id', authId);
   }
 
   /// Returns `true` if no other user has claimed [username].
   Future<bool> isUsernameAvailable(String username) async {
     final rows = await _client
         .from('users')
-        .select('id')
+        .select('user_id')
         .eq('username', username)
         .limit(1);
     return rows.isEmpty;
@@ -148,9 +164,9 @@ class SupabaseDirectoryService {
 
   /// Adds [contactUserId] to the current user's contact list.
   Future<void> addContact(String contactUserId, {String? nickname}) async {
-    final myUserId = _requireAuthId();
+    final myUserId = await _getMyUserId();
     await _client.from('contacts').insert({
-      'user_id': myUserId,
+      'owner_user_id': myUserId,
       'contact_user_id': contactUserId,
       'nickname': nickname,
     });
@@ -158,21 +174,21 @@ class SupabaseDirectoryService {
 
   /// Removes [contactUserId] from the current user's contact list.
   Future<void> removeContact(String contactUserId) async {
-    final myUserId = _requireAuthId();
+    final myUserId = await _getMyUserId();
     await _client
         .from('contacts')
         .delete()
-        .eq('user_id', myUserId)
+        .eq('owner_user_id', myUserId)
         .eq('contact_user_id', contactUserId);
   }
 
   /// Returns the current user's contacts with joined user profile data.
   Future<List<Map<String, dynamic>>> getContacts() async {
-    final myUserId = _requireAuthId();
+    final myUserId = await _getMyUserId();
     return _client
         .from('contacts')
         .select('*, users!contacts_contact_user_id_fkey(*)')
-        .eq('user_id', myUserId)
+        .eq('owner_user_id', myUserId)
         .order('created_at', ascending: true);
   }
 
@@ -186,13 +202,13 @@ class SupabaseDirectoryService {
     String calleeId,
     String sdpOffer,
   ) async {
-    final myUserId = _requireAuthId();
+    final myUserId = await _getMyUserId();
     final rows = await _client
         .from('signaling_sessions')
         .insert({
-          'caller_id': myUserId,
-          'callee_id': calleeId,
-          'sdp_offer': sdpOffer,
+          'caller_user_id': myUserId,
+          'callee_user_id': calleeId,
+          'offer_sdp': sdpOffer,
           'status': 'pending',
         })
         .select('session_id');
@@ -205,17 +221,17 @@ class SupabaseDirectoryService {
     String sdpAnswer,
   ) async {
     await _client.from('signaling_sessions').update({
-      'sdp_answer': sdpAnswer,
+      'answer_sdp': sdpAnswer,
       'status': 'answered',
-    }).eq('id', sessionId);
+    }).eq('session_id', sessionId);
   }
 
   /// Marks the signaling session as `completed`.
   Future<void> completeSignalingSession(String sessionId) async {
     await _client
         .from('signaling_sessions')
-        .update({'status': 'completed'})
-        .eq('id', sessionId);
+        .update({'status': 'connected'})
+        .eq('session_id', sessionId);
   }
 
   /// Inserts a trickle-ICE candidate into the relay table.
@@ -224,19 +240,20 @@ class SupabaseDirectoryService {
     String targetUserId,
     Map<String, dynamic> candidate,
   ) async {
-    final myUserId = _requireAuthId();
+    final myUserId = await _getMyUserId();
     await _client.from('ice_candidates').insert({
       'session_id': sessionId,
-      'sender_id': myUserId,
-      'target_user_id': targetUserId,
-      'candidate': candidate,
+      'from_user_id': myUserId,
+      'candidate': candidate['candidate'] ?? candidate.toString(), // ensure string format
+      'sdp_mline_index': candidate['sdpMLineIndex'],
+      'sdp_mid': candidate['sdpMid'],
     });
   }
 
   /// Listens (via Supabase Realtime) for **new** signaling sessions where the
   /// current user is the callee and the status is `pending`.
   Stream<Map<String, dynamic>> listenForSignalingSessions() async* {
-    final myUserId = _requireAuthId();
+    final myUserId = await _getMyUserId();
     final controller = StreamController<Map<String, dynamic>>();
 
     final channel = _client
@@ -266,7 +283,7 @@ class SupabaseDirectoryService {
 
   /// Listens for new ICE candidates in a particular signaling session.
   Stream<Map<String, dynamic>> listenForIceCandidates(String sessionId) async* {
-    final myUserId = _requireAuthId();
+    final myUserId = await _getMyUserId();
     final controller = StreamController<Map<String, dynamic>>();
 
     final channel = _client
@@ -283,7 +300,7 @@ class SupabaseDirectoryService {
           callback: (payload) {
             final row = payload.newRecord;
             // Only forward candidates not from us.
-            if (row['sender_id'] != myUserId) {
+            if (row['from_user_id'] != myUserId) {
               controller.add(row);
             }
           },
@@ -309,7 +326,7 @@ class SupabaseDirectoryService {
     await _client
         .from('signaling_sessions')
         .delete()
-        .eq('id', sessionId);
+        .eq('session_id', sessionId);
   }
 
   // ===========================================================================
@@ -321,28 +338,28 @@ class SupabaseDirectoryService {
     String recipientId,
     String encryptedPayload,
   ) async {
-    final myUserId = _requireAuthId();
+    final myUserId = await _getMyUserId();
     await _client.from('relay_queue').insert({
-      'sender_id': myUserId,
-      'recipient_id': recipientId,
-      'encrypted_payload': encryptedPayload,
+      'sender_user_id': myUserId,
+      'recipient_user_id': recipientId,
+      'encrypted_blob': encryptedPayload,
     });
   }
 
   /// Fetches all pending relay messages addressed to the current user,
   /// ordered oldest-first.
   Future<List<Map<String, dynamic>>> fetchRelayMessages() async {
-    final myUserId = _requireAuthId();
+    final myUserId = await _getMyUserId();
     return _client
         .from('relay_queue')
         .select()
-        .eq('recipient_id', myUserId)
+        .eq('recipient_user_id', myUserId)
         .order('created_at', ascending: true);
   }
 
   /// Deletes a relay message after it has been decrypted and stored locally.
   Future<void> deleteRelayMessage(String messageId) async {
-    await _client.from('relay_queue').delete().eq('id', messageId);
+    await _client.from('relay_queue').delete().eq('message_id', messageId);
   }
 
   // ===========================================================================
@@ -368,5 +385,14 @@ class SupabaseDirectoryService {
       throw StateError('SupabaseDirectoryService: No authenticated user');
     }
     return user.id;
+  }
+
+  /// Fetches and caches the user_id (primary key of users table) for the current auth_id.
+  Future<String> _getMyUserId() async {
+    if (_cachedUserId != null) return _cachedUserId!;
+    final authId = _requireAuthId();
+    final response = await _client.from('users').select('user_id').eq('auth_id', authId).single();
+    _cachedUserId = response['user_id'] as String;
+    return _cachedUserId!;
   }
 }

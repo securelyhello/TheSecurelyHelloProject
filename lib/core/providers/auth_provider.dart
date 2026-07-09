@@ -58,6 +58,15 @@ class AuthProvider extends ChangeNotifier {
     // Check current session
     final currentUser = _directoryService.currentUser;
     if (currentUser != null) {
+      final exists = await _directoryService.checkProfileExists();
+      if (!exists) {
+        await _directoryService.signOut();
+        _user = null;
+        _setStatus(AuthStatus.unauthenticated);
+        _setLoading(false);
+        return;
+      }
+
       _user = currentUser;
       await _loadIdentity();
       if (_identity != null) {
@@ -267,13 +276,22 @@ class AuthProvider extends ChangeNotifier {
     switch (event) {
       case AuthChangeEvent.signedIn:
         if (session?.user != null) {
-          _user = session!.user;
-          _loadIdentity().then((_) {
-            if (_identity != null) {
-              _setStatus(AuthStatus.authenticated);
-            } else {
-              _setStatus(AuthStatus.needsProfile);
+          _directoryService.checkProfileExists().then((exists) {
+            if (!exists) {
+              _directoryService.signOut();
+              _user = null;
+              _setStatus(AuthStatus.unauthenticated);
+              return;
             }
+
+            _user = session!.user;
+            _loadIdentity().then((_) {
+              if (_identity != null) {
+                _setStatus(AuthStatus.authenticated);
+              } else {
+                _setStatus(AuthStatus.needsProfile);
+              }
+            });
           });
         }
         break;

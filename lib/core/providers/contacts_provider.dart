@@ -31,13 +31,13 @@ class Contact {
     // Handle joined query format: contacts joined with users
     final userData = map['contact_user'] as Map<String, dynamic>? ?? map;
     return Contact(
-      userId: userData['id']?.toString() ?? map['contact_user_id']?.toString() ?? '',
+      userId: userData['user_id']?.toString() ?? map['contact_user_id']?.toString() ?? '',
       username: userData['username']?.toString() ?? '',
       displayName: userData['display_name']?.toString() ?? '',
       avatarUrl: null, // Removed from schema
-      publicSigningKey: userData['public_signing_key']?.toString() ?? '',
-      publicEncryptionKey: userData['public_encryption_key']?.toString() ?? '',
-      isOnline: userData['is_online'] == true,
+      publicSigningKey: userData['signing_public_key']?.toString() ?? '',
+      publicEncryptionKey: userData['encryption_public_key']?.toString() ?? '',
+      isOnline: userData['status'] == 'online',
       lastSeen: userData['last_seen'] != null
           ? DateTime.tryParse(userData['last_seen'].toString())
           : null,
@@ -72,11 +72,11 @@ class UserSearchResult {
     bool isAlreadyContact = false,
   }) {
     return UserSearchResult(
-      userId: map['id']?.toString() ?? '',
+      userId: map['user_id']?.toString() ?? '',
       username: map['username']?.toString() ?? '',
       displayName: map['display_name']?.toString() ?? '',
       avatarUrl: null, // Removed from schema
-      isOnline: map['is_online'] == true,
+      isOnline: map['status'] == 'online',
       isAlreadyContact: isAlreadyContact,
     );
   }
@@ -169,10 +169,10 @@ class ContactsProvider extends ChangeNotifier {
         final currentUserId = _directoryService.currentUser?.id;
 
         _searchResults = results
-            .where((r) => r['id'].toString() != currentUserId) // Exclude self
+            .where((r) => r['auth_id'].toString() != currentUserId) // Exclude self
             .map((r) => UserSearchResult.fromMap(
                   r,
-                  isAlreadyContact: contactIds.contains(r['id'].toString()),
+                  isAlreadyContact: contactIds.contains(r['user_id'].toString()),
                 ))
             .toList();
       } catch (e) {
