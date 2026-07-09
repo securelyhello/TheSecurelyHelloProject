@@ -77,17 +77,28 @@ class ContactRequestsScreen extends StatelessWidget {
                         icon: const Icon(LucideIcons.check, color: Color(0xFF00E5CC)),
                         onPressed: () async {
                           final success = await provider.acceptContactRequest(req.id);
-                          if (success && context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Request accepted from @${sender.username}')),
-                            );
+                          if (context.mounted) {
+                            if (success) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Request accepted from @${sender.username}')),
+                              );
+                            } else if (provider.errorMessage != null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(provider.errorMessage!), backgroundColor: Colors.red),
+                              );
+                            }
                           }
                         },
                       ),
                       IconButton(
                         icon: const Icon(LucideIcons.x, color: Color(0xFFEF4444)),
                         onPressed: () async {
-                          await provider.rejectContactRequest(req.id);
+                          final success = await provider.rejectContactRequest(req.id);
+                          if (!success && context.mounted && provider.errorMessage != null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(provider.errorMessage!), backgroundColor: Colors.red),
+                            );
+                          }
                         },
                       ),
                     ],

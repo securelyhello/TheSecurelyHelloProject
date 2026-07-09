@@ -189,12 +189,10 @@ class SupabaseDirectoryService {
 
   /// Fetches all pending contact requests (both sent and received).
   Future<List<Map<String, dynamic>>> fetchPendingRequests() async {
-    final myUserId = await getMyUserId();
     final rows = await _client
         .from('contact_requests')
         .select('*, sender:users!contact_requests_sender_user_id_fkey(*), receiver:users!contact_requests_receiver_user_id_fkey(*)')
-        .eq('status', 'pending')
-        .or('sender_user_id.eq.$myUserId,receiver_user_id.eq.$myUserId');
+        .eq('status', 'pending');
     return rows;
   }
 
@@ -254,7 +252,7 @@ class SupabaseDirectoryService {
         .from('contacts')
         .select('*, users!contacts_contact_user_id_fkey(*)')
         .eq('owner_user_id', myUserId)
-        .order('created_at', ascending: true);
+        .order('added_at', ascending: true);
   }
 
   // ===========================================================================

@@ -170,11 +170,17 @@ class _AddContactScreenState extends State<AddContactScreen> {
               onPressed: () async {
                 if (result.requestId != null) {
                   final success = await provider.acceptContactRequest(result.requestId!);
-                  if (success && context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Request accepted')),
-                    );
-                    provider.searchUsers(_searchController.text);
+                  if (context.mounted) {
+                    if (success) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Request accepted')),
+                      );
+                      provider.searchUsers(_searchController.text);
+                    } else if (provider.errorMessage != null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(provider.errorMessage!), backgroundColor: Colors.red),
+                      );
+                    }
                   }
                 }
               },
@@ -184,8 +190,14 @@ class _AddContactScreenState extends State<AddContactScreen> {
               onPressed: () async {
                 if (result.requestId != null) {
                   final success = await provider.rejectContactRequest(result.requestId!);
-                  if (success && context.mounted) {
-                    provider.searchUsers(_searchController.text);
+                  if (context.mounted) {
+                    if (success) {
+                      provider.searchUsers(_searchController.text);
+                    } else if (provider.errorMessage != null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(provider.errorMessage!), backgroundColor: Colors.red),
+                      );
+                    }
                   }
                 }
               },
@@ -197,14 +209,20 @@ class _AddContactScreenState extends State<AddContactScreen> {
           icon: const Icon(LucideIcons.userPlus, color: Color(0xFF00E5CC)),
           onPressed: () async {
             final success = await provider.sendContactRequest(result.userId);
-            if (success && context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Contact request sent to @${result.username}'),
-                  backgroundColor: const Color(0xFF34D399),
-                ),
-              );
-              provider.searchUsers(_searchController.text);
+            if (context.mounted) {
+              if (success) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Contact request sent to @${result.username}'),
+                    backgroundColor: const Color(0xFF34D399),
+                  ),
+                );
+                provider.searchUsers(_searchController.text);
+              } else if (provider.errorMessage != null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(provider.errorMessage!), backgroundColor: Colors.red),
+                );
+              }
             }
           },
         );

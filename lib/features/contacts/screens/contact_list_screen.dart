@@ -63,6 +63,18 @@ class ContactListScreen extends StatelessWidget {
       child: CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
+          if (provider.errorMessage != null)
+            SliverToBoxAdapter(
+              child: Container(
+                margin: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(12),
+                color: Colors.red.withValues(alpha: 0.2),
+                child: Text(
+                  'Error: ${provider.errorMessage}',
+                  style: const TextStyle(color: Colors.redAccent),
+                ),
+              ),
+            ),
           SliverToBoxAdapter(
             child: InkWell(
               onTap: () => Navigator.pushNamed(context, '/contact-requests'),
