@@ -56,23 +56,95 @@ class ContactListScreen extends StatelessWidget {
       return SkeletonLoader.contactList();
     }
 
-    if (provider.contacts.isEmpty) {
-      return Center(
-        child: EmptyStateWidget.noContacts(
-          onAction: () => Navigator.pushNamed(context, '/add-contact'),
-        ),
-      );
-    }
-
     return RefreshIndicator(
       color: const Color(0xFF00E5CC),
       backgroundColor: const Color(0xFF1A1A2E),
       onRefresh: () => provider.loadContacts(),
-      child: ListView.builder(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        itemCount: provider.contacts.length,
-        itemBuilder: (context, index) {
-          final contact = provider.contacts[index];
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverToBoxAdapter(
+            child: InkWell(
+              onTap: () => Navigator.pushNamed(context, '/contact-requests'),
+              child: Container(
+                margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A1A2E),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: provider.receivedRequests.isNotEmpty
+                        ? const Color(0xFF00E5CC).withValues(alpha: 0.3)
+                        : Colors.transparent,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      LucideIcons.inbox,
+                      color: provider.receivedRequests.isNotEmpty
+                          ? const Color(0xFF00E5CC)
+                          : const Color(0xFF6B6B80),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Contact Requests',
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    if (provider.receivedRequests.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF00E5CC),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${provider.receivedRequests.length}',
+                          style: GoogleFonts.inter(
+                            color: const Color(0xFF0A0A0F),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      )
+                    else
+                      Text(
+                        '0 pending',
+                        style: GoogleFonts.inter(
+                          color: const Color(0xFF6B6B80),
+                          fontSize: 14,
+                        ),
+                      ),
+                    const SizedBox(width: 8),
+                    const Icon(LucideIcons.chevronRight, color: Color(0xFF6B6B80), size: 20),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          
+          if (provider.contacts.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                child: EmptyStateWidget.noContacts(
+                  onAction: () => Navigator.pushNamed(context, '/add-contact'),
+                ),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final contact = provider.contacts[index];
           
           return InkWell(
             onTap: () async {
@@ -128,6 +200,11 @@ class ContactListScreen extends StatelessWidget {
             ),
           );
         },
+        childCount: provider.contacts.length,
+      ),
+    ),
+  ),
+],
       ),
     );
   }

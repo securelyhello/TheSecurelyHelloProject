@@ -121,40 +121,93 @@ class _AddContactScreenState extends State<AddContactScreen> {
               color: const Color(0xFFB8B8CC),
             ),
           ),
-          trailing: result.isAlreadyContact
-              ? Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1A1A2E),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    'Added',
-                    style: GoogleFonts.inter(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: const Color(0xFF6B6B80),
-                    ),
-                  ),
-                )
-              : IconButton(
-                  icon: const Icon(LucideIcons.userPlus, color: Color(0xFF00E5CC)),
-                  onPressed: () async {
-                    final success = await provider.addContact(result.userId);
-                    if (success && context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('@${result.username} added to contacts'),
-                          backgroundColor: const Color(0xFF34D399),
-                        ),
-                      );
-                      // Update search to reflect added status
-                      provider.searchUsers(_searchController.text);
-                    }
-                  },
-                ),
+          trailing: _buildTrailing(context, result, provider),
         );
       },
     );
+  }
+
+  Widget _buildTrailing(BuildContext context, UserSearchResult result, ContactsProvider provider) {
+    switch (result.relationship) {
+      case ContactRelationship.contact:
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1A1A2E),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            'Added',
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: const Color(0xFF6B6B80),
+            ),
+          ),
+        );
+      case ContactRelationship.requestSent:
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1A1A2E),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            'Requested',
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: const Color(0xFF00E5CC).withValues(alpha: 0.7),
+            ),
+          ),
+        );
+      case ContactRelationship.requestReceived:
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(LucideIcons.check, color: Color(0xFF00E5CC)),
+              onPressed: () async {
+                if (result.requestId != null) {
+                  final success = await provider.acceptContactRequest(result.requestId!);
+                  if (success && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Request accepted')),
+                    );
+                    provider.searchUsers(_searchController.text);
+                  }
+                }
+              },
+            ),
+            IconButton(
+              icon: const Icon(LucideIcons.x, color: Color(0xFFEF4444)),
+              onPressed: () async {
+                if (result.requestId != null) {
+                  final success = await provider.rejectContactRequest(result.requestId!);
+                  if (success && context.mounted) {
+                    provider.searchUsers(_searchController.text);
+                  }
+                }
+              },
+            ),
+          ],
+        );
+      case ContactRelationship.none:
+        return IconButton(
+          icon: const Icon(LucideIcons.userPlus, color: Color(0xFF00E5CC)),
+          onPressed: () async {
+            final success = await provider.sendContactRequest(result.userId);
+            if (success && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Contact request sent to @${result.username}'),
+                  backgroundColor: const Color(0xFF34D399),
+                ),
+              );
+              provider.searchUsers(_searchController.text);
+            }
+          },
+        );
+    }
   }
 }

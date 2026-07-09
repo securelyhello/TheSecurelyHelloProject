@@ -49,6 +49,42 @@ class Contact {
   String get displayLabel => nickname?.isNotEmpty == true ? nickname! : displayName;
 }
 
+enum ContactRelationship {
+  none,
+  contact,
+  requestSent,
+  requestReceived,
+}
+
+class ContactRequest {
+  final String id;
+  final String senderId;
+  final String receiverId;
+  final String status;
+  final UserSearchResult? sender;
+  final UserSearchResult? receiver;
+
+  ContactRequest({
+    required this.id,
+    required this.senderId,
+    required this.receiverId,
+    required this.status,
+    this.sender,
+    this.receiver,
+  });
+
+  factory ContactRequest.fromMap(Map<String, dynamic> map) {
+    return ContactRequest(
+      id: map['id'],
+      senderId: map['sender_user_id'],
+      receiverId: map['receiver_user_id'],
+      status: map['status'],
+      sender: map['sender'] != null ? UserSearchResult.fromMap(map['sender']) : null,
+      receiver: map['receiver'] != null ? UserSearchResult.fromMap(map['receiver']) : null,
+    );
+  }
+}
+
 /// Search result from Supabase user directory.
 class UserSearchResult {
   final String userId;
@@ -56,7 +92,8 @@ class UserSearchResult {
   final String displayName;
   final String? avatarUrl;
   final bool isOnline;
-  final bool isAlreadyContact;
+  final ContactRelationship relationship;
+  final String? requestId;
 
   const UserSearchResult({
     required this.userId,
@@ -64,12 +101,14 @@ class UserSearchResult {
     required this.displayName,
     this.avatarUrl,
     this.isOnline = false,
-    this.isAlreadyContact = false,
+    this.relationship = ContactRelationship.none,
+    this.requestId,
   });
 
   factory UserSearchResult.fromMap(
     Map<String, dynamic> map, {
-    bool isAlreadyContact = false,
+    ContactRelationship relationship = ContactRelationship.none,
+    String? requestId,
   }) {
     return UserSearchResult(
       userId: map['user_id']?.toString() ?? '',
@@ -77,7 +116,8 @@ class UserSearchResult {
       displayName: map['display_name']?.toString() ?? '',
       avatarUrl: null, // Removed from schema
       isOnline: map['status'] == 'online',
-      isAlreadyContact: isAlreadyContact,
+      relationship: relationship,
+      requestId: requestId,
     );
   }
 }
@@ -89,6 +129,9 @@ class ContactsProvider extends ChangeNotifier {
 
   List<Contact> _contacts = [];
   List<UserSearchResult> _searchResults = [];
+  List<ContactRequest> _sentRequests = [];
+  List<ContactRequest> _receivedRequests = [];
+
   bool _isLoading = false;
   bool _isSearching = false;
   String? _errorMessage;
@@ -100,9 +143,24 @@ class ContactsProvider extends ChangeNotifier {
   })  : _directoryService = directoryService,
         _localStorage = localStorage;
 
+  StreamSubscription? _requestsSub;
+  final _newRequestController = StreamController<String>.broadcast();
+  Stream<String> get onNewRequest => _newRequestController.stream;
+
+  void init() {
+    _requestsSub?.cancel();
+    _requestsSub = _directoryService.listenForContactRequests().listen((event) {
+      loadContacts(); // reload to get the joined sender profile
+      _newRequestController.add('You have a new contact request!');
+    });
+  }
+
   // -- Getters --
   List<Contact> get contacts => List.unmodifiable(_contacts);
   List<UserSearchResult> get searchResults => List.unmodifiable(_searchResults);
+  List<ContactRequest> get sentRequests => List.unmodifiable(_sentRequests);
+  List<ContactRequest> get receivedRequests => List.unmodifiable(_receivedRequests);
+  
   bool get isLoading => _isLoading;
   bool get isSearching => _isSearching;
   String? get errorMessage => _errorMessage;
@@ -140,6 +198,15 @@ class ContactsProvider extends ChangeNotifier {
           lastSeen: contact.lastSeen?.millisecondsSinceEpoch,
         );
       }
+
+      // Load pending requests
+      final reqData = await _directoryService.fetchPendingRequests();
+      final allRequests = reqData.map((r) => ContactRequest.fromMap(r)).toList();
+      
+      final myUserId = await _directoryService.getMyUserId();
+      _sentRequests = allRequests.where((r) => r.senderId == myUserId).toList();
+      _receivedRequests = allRequests.where((r) => r.receiverId == myUserId).toList();
+      
     } catch (e) {
       _errorMessage = 'Failed to load contacts: $e';
     }
@@ -166,14 +233,37 @@ class ContactsProvider extends ChangeNotifier {
       try {
         final results = await _directoryService.searchUsers(query.trim());
         final contactIds = _contacts.map((c) => c.userId).toSet();
-        final currentUserId = _directoryService.currentUser?.id;
+        final currentAuthId = _directoryService.currentUser?.id;
 
         _searchResults = results
-            .where((r) => r['auth_id'].toString() != currentUserId) // Exclude self
-            .map((r) => UserSearchResult.fromMap(
-                  r,
-                  isAlreadyContact: contactIds.contains(r['user_id'].toString()),
-                ))
+            .where((r) => r['auth_id'].toString() != currentAuthId) // Exclude self
+            .map((r) {
+              final userId = r['user_id'].toString();
+              
+              ContactRelationship relationship = ContactRelationship.none;
+              String? requestId;
+              
+              if (contactIds.contains(userId)) {
+                relationship = ContactRelationship.contact;
+              } else {
+                final sent = _sentRequests.where((req) => req.receiverId == userId).toList();
+                final received = _receivedRequests.where((req) => req.senderId == userId).toList();
+                
+                if (sent.isNotEmpty) {
+                  relationship = ContactRelationship.requestSent;
+                  requestId = sent.first.id;
+                } else if (received.isNotEmpty) {
+                  relationship = ContactRelationship.requestReceived;
+                  requestId = received.first.id;
+                }
+              }
+
+              return UserSearchResult.fromMap(
+                r,
+                relationship: relationship,
+                requestId: requestId,
+              );
+            })
             .toList();
       } catch (e) {
         _errorMessage = 'Search failed: $e';
@@ -194,7 +284,7 @@ class ContactsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Add a user as a contact.
+  /// Add a user as a contact (legacy behavior, you may remove this if unneeded).
   Future<bool> addContact(String contactUserId, {String? nickname}) async {
     _errorMessage = null;
 
@@ -204,6 +294,48 @@ class ContactsProvider extends ChangeNotifier {
       return true;
     } catch (e) {
       _errorMessage = 'Failed to add contact: $e';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Send a contact request to a user.
+  Future<bool> sendContactRequest(String receiverUserId) async {
+    _errorMessage = null;
+    try {
+      await _directoryService.sendContactRequest(receiverUserId);
+      await loadContacts(); // refresh lists
+      return true;
+    } catch (e) {
+      _errorMessage = 'Failed to send request: $e';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Accept an incoming contact request.
+  Future<bool> acceptContactRequest(String requestId) async {
+    _errorMessage = null;
+    try {
+      await _directoryService.acceptContactRequest(requestId);
+      await loadContacts(); // refresh lists
+      return true;
+    } catch (e) {
+      _errorMessage = 'Failed to accept request: $e';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Reject an incoming contact request.
+  Future<bool> rejectContactRequest(String requestId) async {
+    _errorMessage = null;
+    try {
+      await _directoryService.rejectContactRequest(requestId);
+      await loadContacts(); // refresh lists
+      return true;
+    } catch (e) {
+      _errorMessage = 'Failed to reject request: $e';
       notifyListeners();
       return false;
     }
@@ -246,6 +378,8 @@ class ContactsProvider extends ChangeNotifier {
   @override
   void dispose() {
     _searchDebounce?.cancel();
+    _requestsSub?.cancel();
+    _newRequestController.close();
     super.dispose();
   }
 }

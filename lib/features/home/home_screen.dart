@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -16,6 +17,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
+  StreamSubscription<String>? _newRequestSub;
   
   final List<Widget> _screens = const [
     ConversationListScreen(),
@@ -28,9 +30,35 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     // Load initial data
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ContactsProvider>().loadContacts();
+      final contactsProvider = context.read<ContactsProvider>();
+      contactsProvider.loadContacts();
       context.read<ChatProvider>().init();
+      
+      _newRequestSub = contactsProvider.onNewRequest.listen((msg) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(msg),
+              backgroundColor: const Color(0xFF34D399),
+              action: SnackBarAction(
+                label: 'View',
+                textColor: Colors.white,
+                onPressed: () {
+                  setState(() => _currentIndex = 1); // Switch to Contacts tab
+                  Navigator.pushNamed(context, '/contact-requests');
+                },
+              ),
+            ),
+          );
+        }
+      });
     });
+  }
+
+  @override
+  void dispose() {
+    _newRequestSub?.cancel();
+    super.dispose();
   }
 
   @override

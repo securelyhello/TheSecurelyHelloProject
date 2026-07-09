@@ -159,12 +159,77 @@ class SupabaseDirectoryService {
   }
 
   // ===========================================================================
+  // Contact Requests
+  // ===========================================================================
+
+  /// Sends a contact request to [receiverUserId].
+  Future<void> sendContactRequest(String receiverUserId) async {
+    final myUserId = await getMyUserId();
+    await _client.from('contact_requests').insert({
+      'sender_user_id': myUserId,
+      'receiver_user_id': receiverUserId,
+      'status': 'pending',
+    });
+  }
+
+  /// Accepts a contact request using the secure RPC.
+  Future<void> acceptContactRequest(String requestId) async {
+    await _client.rpc('accept_contact_request', params: {
+      'request_id': requestId,
+    });
+  }
+
+  /// Rejects a contact request by updating its status to 'rejected'.
+  Future<void> rejectContactRequest(String requestId) async {
+    await _client.from('contact_requests').update({
+      'status': 'rejected',
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    }).eq('id', requestId);
+  }
+
+  /// Fetches all pending contact requests (both sent and received).
+  Future<List<Map<String, dynamic>>> fetchPendingRequests() async {
+    final myUserId = await getMyUserId();
+    final rows = await _client
+        .from('contact_requests')
+        .select('*, sender:users!contact_requests_sender_user_id_fkey(*), receiver:users!contact_requests_receiver_user_id_fkey(*)')
+        .eq('status', 'pending')
+        .or('sender_user_id.eq.$myUserId,receiver_user_id.eq.$myUserId');
+    return rows;
+  }
+
+  /// Listens for new incoming contact requests via Supabase Realtime.
+  Stream<Map<String, dynamic>> listenForContactRequests() async* {
+    final myUserId = await getMyUserId();
+    final controller = StreamController<Map<String, dynamic>>();
+
+    final channel = _client
+        .channel('public:contact_requests:receiver_$myUserId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'contact_requests',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'receiver_user_id',
+            value: myUserId,
+          ),
+          callback: (payload) {
+            controller.add(payload.newRecord);
+          },
+        )
+        .subscribe();
+
+    yield* controller.stream;
+  }
+
+  // ===========================================================================
   // Contacts
   // ===========================================================================
 
   /// Adds [contactUserId] to the current user's contact list.
   Future<void> addContact(String contactUserId, {String? nickname}) async {
-    final myUserId = await _getMyUserId();
+    final myUserId = await getMyUserId();
     await _client.from('contacts').insert({
       'owner_user_id': myUserId,
       'contact_user_id': contactUserId,
@@ -174,7 +239,7 @@ class SupabaseDirectoryService {
 
   /// Removes [contactUserId] from the current user's contact list.
   Future<void> removeContact(String contactUserId) async {
-    final myUserId = await _getMyUserId();
+    final myUserId = await getMyUserId();
     await _client
         .from('contacts')
         .delete()
@@ -184,7 +249,7 @@ class SupabaseDirectoryService {
 
   /// Returns the current user's contacts with joined user profile data.
   Future<List<Map<String, dynamic>>> getContacts() async {
-    final myUserId = await _getMyUserId();
+    final myUserId = await getMyUserId();
     return _client
         .from('contacts')
         .select('*, users!contacts_contact_user_id_fkey(*)')
@@ -202,7 +267,7 @@ class SupabaseDirectoryService {
     String calleeId,
     String sdpOffer,
   ) async {
-    final myUserId = await _getMyUserId();
+    final myUserId = await getMyUserId();
     final rows = await _client
         .from('signaling_sessions')
         .insert({
@@ -240,7 +305,7 @@ class SupabaseDirectoryService {
     String targetUserId,
     Map<String, dynamic> candidate,
   ) async {
-    final myUserId = await _getMyUserId();
+    final myUserId = await getMyUserId();
     await _client.from('ice_candidates').insert({
       'session_id': sessionId,
       'from_user_id': myUserId,
@@ -253,7 +318,7 @@ class SupabaseDirectoryService {
   /// Listens (via Supabase Realtime) for **new** signaling sessions where the
   /// current user is the callee and the status is `pending`.
   Stream<Map<String, dynamic>> listenForSignalingSessions() async* {
-    final myUserId = await _getMyUserId();
+    final myUserId = await getMyUserId();
     final controller = StreamController<Map<String, dynamic>>();
 
     final channel = _client
@@ -283,7 +348,7 @@ class SupabaseDirectoryService {
 
   /// Listens for new ICE candidates in a particular signaling session.
   Stream<Map<String, dynamic>> listenForIceCandidates(String sessionId) async* {
-    final myUserId = await _getMyUserId();
+    final myUserId = await getMyUserId();
     final controller = StreamController<Map<String, dynamic>>();
 
     final channel = _client
@@ -338,7 +403,7 @@ class SupabaseDirectoryService {
     String recipientId,
     String encryptedPayload,
   ) async {
-    final myUserId = await _getMyUserId();
+    final myUserId = await getMyUserId();
     await _client.from('relay_queue').insert({
       'sender_user_id': myUserId,
       'recipient_user_id': recipientId,
@@ -349,7 +414,7 @@ class SupabaseDirectoryService {
   /// Fetches all pending relay messages addressed to the current user,
   /// ordered oldest-first.
   Future<List<Map<String, dynamic>>> fetchRelayMessages() async {
-    final myUserId = await _getMyUserId();
+    final myUserId = await getMyUserId();
     return _client
         .from('relay_queue')
         .select()
@@ -388,7 +453,7 @@ class SupabaseDirectoryService {
   }
 
   /// Fetches and caches the user_id (primary key of users table) for the current auth_id.
-  Future<String> _getMyUserId() async {
+  Future<String> getMyUserId() async {
     if (_cachedUserId != null) return _cachedUserId!;
     final authId = _requireAuthId();
     final response = await _client.from('users').select('user_id').eq('auth_id', authId).single();

@@ -19,6 +19,7 @@ import 'package:securelyhello/features/auth/screens/signup_screen.dart';
 import 'package:securelyhello/features/auth/screens/verify_email_screen.dart';
 import 'package:securelyhello/features/home/home_screen.dart';
 import 'package:securelyhello/features/contacts/screens/add_contact_screen.dart';
+import 'package:securelyhello/features/contacts/screens/contact_requests_screen.dart';
 import 'package:securelyhello/features/chat/screens/chat_screen.dart';
 
 Future<void> main() async {
@@ -113,7 +114,7 @@ class SecurelyHelloApp extends StatelessWidget {
           create: (_) => ContactsProvider(
             directoryService: directoryService,
             localStorage: localStorage,
-          ),
+          )..init(),
         ),
         ChangeNotifierProvider(
           create: (_) => ChatProvider(
@@ -139,6 +140,7 @@ class SecurelyHelloApp extends StatelessWidget {
           '/verify-email': (context) => const VerifyEmailScreen(),
           '/home': (context) => const HomeScreen(),
           '/add-contact': (context) => const AddContactScreen(),
+          '/contact-requests': (context) => const ContactRequestsScreen(),
         },
         onGenerateRoute: (settings) {
           // Handle routes with arguments
