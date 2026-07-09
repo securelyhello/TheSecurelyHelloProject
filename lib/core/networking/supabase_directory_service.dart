@@ -28,13 +28,11 @@ class SupabaseDirectoryService {
   /// Signs in with email + password.
   Future<AuthResponse> signIn(String email, String password) async {
     final res = await _client.auth.signInWithPassword(email: email, password: password);
-    _cachedUserId = null; // reset cache
     return res;
   }
 
   /// Signs the current user out.
   Future<void> signOut() async {
-    _cachedUserId = null;
     await _client.auth.signOut();
   }
 
@@ -74,8 +72,8 @@ class SupabaseDirectoryService {
       'id': uid,
       'username': username,
       'display_name': displayName,
-      'signing_public_key': publicSigningKey,
-      'encryption_public_key': publicEncryptionKey,
+      'public_signing_key': publicSigningKey,
+      'public_encryption_key': publicEncryptionKey,
     });
   }
 

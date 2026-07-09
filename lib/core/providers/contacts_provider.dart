@@ -177,6 +177,7 @@ class ContactsProvider extends ChangeNotifier {
             .toList();
       } catch (e) {
         _errorMessage = 'Search failed: $e';
+        debugPrint('Search failed: $e');
         _searchResults = [];
       }
 
