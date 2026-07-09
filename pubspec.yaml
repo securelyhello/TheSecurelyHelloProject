@@ -1,0 +1,51 @@
+name: securelyhello
+description: "Securely Hello — P2P encrypted chat. Messages never touch a server."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Backend & Auth
+  supabase_flutter: ^2.15.3
+
+  # P2P Transport
+  flutter_webrtc: ^1.4.1
+
+  # Cryptography (NaCl — Ed25519 + X25519)
+  pinenacl: ^0.6.0
+
+  # Local Storage
+  sqflite: ^2.4.2+1
+  path_provider: ^2.1.5
+  shared_preferences: ^2.3.4
+
+  # State Management
+  provider: ^6.1.5+1
+
+  # Environment
+  flutter_dotenv: ^6.0.1
+
+  # UI
+  google_fonts: ^8.1.0
+  lucide_icons_flutter: 3.1.14
+
+  # Utilities
+  uuid: ^4.5.3
+  intl: ^0.20.2
+  path: ^1.9.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - .env
