@@ -17,6 +17,8 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   late Animation<double> _scaleAnimation;
   late Animation<double> _fadeAnimation;
 
+  bool _animationCompleted = false;
+
   @override
   void initState() {
     super.initState();
@@ -42,18 +44,40 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
     _controller.forward();
 
-    // After animation, check auth state
-    Future.delayed(const Duration(milliseconds: 2500), _checkAuth);
+    // After animation, set flag and check auth state
+    Future.delayed(const Duration(milliseconds: 2500), () {
+      if (!mounted) return;
+      _animationCompleted = true;
+      _checkAndNavigate();
+    });
   }
 
-  void _checkAuth() {
+  void _checkAndNavigate() {
+    if (!_animationCompleted || !mounted) return;
+    
+    final authProvider = context.read<AuthProvider>();
+    
+    // If still initializing, listen for changes
+    if (authProvider.isLoading || authProvider.status == AuthStatus.initial) {
+      authProvider.addListener(_authListener);
+    } else {
+      _navigate(authProvider.status);
+    }
+  }
+
+  void _authListener() {
+    final authProvider = context.read<AuthProvider>();
+    if (!authProvider.isLoading && authProvider.status != AuthStatus.initial) {
+      authProvider.removeListener(_authListener);
+      _navigate(authProvider.status);
+    }
+  }
+
+  void _navigate(AuthStatus status) {
     if (!mounted) return;
-    
-    final authStatus = context.read<AuthProvider>().status;
-    
-    if (authStatus == AuthStatus.authenticated) {
+    if (status == AuthStatus.authenticated) {
       Navigator.of(context).pushReplacementNamed('/home');
-    } else if (authStatus == AuthStatus.needsVerification) {
+    } else if (status == AuthStatus.needsVerification) {
       Navigator.of(context).pushReplacementNamed('/verify-email');
     } else {
       Navigator.of(context).pushReplacementNamed('/login');
