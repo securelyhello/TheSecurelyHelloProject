@@ -1,26 +1,21 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:flutter/services.dart';
 
-import 'package:securelyhello/shared/theme/app_colors.dart';
-import 'package:securelyhello/shared/theme/app_typography.dart';
+import 'package:securelyhello/shared/theme/app_theme.dart';
+import 'package:securelyhello/shared/utils/chat_time_format.dart';
+import 'package:securelyhello/shared/widgets/message_status_icon.dart';
 
-/// Delivery status of a sent message.
-enum MessageStatus {
-  /// Message is being transmitted.
-  sending,
+export 'package:securelyhello/shared/widgets/message_status_icon.dart'
+    show MessageStatus;
 
-  /// Server / peer acknowledged receipt of the ciphertext.
-  sent,
-
-  /// Recipient device received the message.
-  delivered,
-
-  /// Recipient opened / read the message.
-  read,
-}
-
-/// A single chat bubble with asymmetric corner radii, delivery-status
-/// indicators, entrance animation, and timestamp.
+/// A chat bubble.
+///
+/// * Consecutive messages from the same side form a group: inner corners are
+///   tightened and only the last bubble of a group carries a tail.
+/// * Time and (for outgoing messages) the delivery tick sit inside the bubble
+///   at the bottom-right, flowing on the last line of text when it fits.
+/// * URLs are highlighted; tapping one copies it.
 class MessageBubble extends StatefulWidget {
   const MessageBubble({
     super.key,
@@ -28,175 +23,329 @@ class MessageBubble extends StatefulWidget {
     required this.timestamp,
     required this.isSent,
     this.status = MessageStatus.sent,
-    this.showTail = true,
+    this.isFirstInGroup = true,
+    this.isLastInGroup = true,
+    this.animateIn = false,
+    this.highlighted = false,
+    this.onTap,
+    this.onLongPress,
+    this.onSecondaryTapDown,
   });
 
-  /// The message body.
   final String message;
-
-  /// When the message was created / received.
   final DateTime timestamp;
 
-  /// `true` → right-aligned teal bubble; `false` → left-aligned dark bubble.
+  /// `true` → outgoing (right); `false` → incoming (left).
   final bool isSent;
 
-  /// Delivery status (only rendered for sent messages).
+  /// Delivery status (only rendered for outgoing messages).
   final MessageStatus status;
 
-  /// Whether the bubble shows the "tail" corner variant.
-  final bool showTail;
+  final bool isFirstInGroup;
+  final bool isLastInGroup;
+
+  /// Play a short entrance animation (for messages that just arrived).
+  final bool animateIn;
+
+  /// Briefly tinted, e.g. while its action menu is open.
+  final bool highlighted;
+
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+
+  /// Right-click on desktop / web.
+  final GestureTapDownCallback? onSecondaryTapDown;
 
   @override
   State<MessageBubble> createState() => _MessageBubbleState();
 }
 
-class _MessageBubbleState extends State<MessageBubble>
-    with SingleTickerProviderStateMixin {
-  bool _visible = false;
+class _MessageBubbleState extends State<MessageBubble> {
+  static final _urlPattern = RegExp(
+    r'''((?:https?:\/\/|www\.)[^\s<>"']+[^\s<>"'.,;:!?)\]])''',
+    caseSensitive: false,
+  );
+
+  final List<TapGestureRecognizer> _recognizers = [];
+  late bool _visible = !widget.animateIn;
 
   @override
   void initState() {
     super.initState();
-    // Trigger the entrance animation on the next frame.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) setState(() => _visible = true);
-    });
-  }
-
-  // ─── Status icon ───────────────────────────────────────────────────
-  Widget _buildStatusIcon() {
-    switch (widget.status) {
-      case MessageStatus.sending:
-        return Icon(
-          LucideIcons.clock,
-          size: 13,
-          color: AppColors.textHint,
-        );
-      case MessageStatus.sent:
-        return Icon(
-          LucideIcons.check,
-          size: 13,
-          color: AppColors.textHint,
-        );
-      case MessageStatus.delivered:
-        return Icon(
-          LucideIcons.checkCheck,
-          size: 13,
-          color: AppColors.textHint,
-        );
-      case MessageStatus.read:
-        return Icon(
-          LucideIcons.checkCheck,
-          size: 13,
-          color: AppColors.accent,
-        );
+    if (!_visible) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _visible = true);
+      });
     }
   }
 
-  // ─── Timestamp ─────────────────────────────────────────────────────
-  String _formattedTime() {
-    final h = widget.timestamp.hour.toString().padLeft(2, '0');
-    final m = widget.timestamp.minute.toString().padLeft(2, '0');
-    return '$h:$m';
+  @override
+  void dispose() {
+    _disposeRecognizers();
+    super.dispose();
+  }
+
+  void _disposeRecognizers() {
+    for (final r in _recognizers) {
+      r.dispose();
+    }
+    _recognizers.clear();
+  }
+
+  List<InlineSpan> _textSpans(TextStyle base, Color linkColor) {
+    _disposeRecognizers();
+    final text = widget.message;
+    final spans = <InlineSpan>[];
+    var last = 0;
+    for (final m in _urlPattern.allMatches(text)) {
+      if (m.start > last) {
+        spans.add(TextSpan(text: text.substring(last, m.start)));
+      }
+      final url = m.group(0)!;
+      final recognizer = TapGestureRecognizer()
+        ..onTap = () {
+          Clipboard.setData(ClipboardData(text: url));
+          ScaffoldMessenger.maybeOf(context)
+            ?..hideCurrentSnackBar()
+            ..showSnackBar(const SnackBar(content: Text('Link copied')));
+        };
+      _recognizers.add(recognizer);
+      spans.add(
+        TextSpan(
+          text: url,
+          style: base.copyWith(
+            color: linkColor,
+            decoration: TextDecoration.underline,
+            decorationColor: linkColor,
+          ),
+          recognizer: recognizer,
+          mouseCursor: SystemMouseCursors.click,
+        ),
+      );
+      last = m.end;
+    }
+    if (last < text.length) spans.add(TextSpan(text: text.substring(last)));
+    return spans;
+  }
+
+  BorderRadius _radius() {
+    const r = Radius.circular(AppRadius.bubble);
+    const g = Radius.circular(AppRadius.bubbleGrouped);
+    final top = widget.isFirstInGroup ? r : g;
+    // The tail replaces the bottom corner on the last bubble of a group.
+    final bottom = widget.isLastInGroup ? const Radius.circular(2) : g;
+    return widget.isSent
+        ? BorderRadius.only(
+            topLeft: r,
+            bottomLeft: r,
+            topRight: top,
+            bottomRight: bottom,
+          )
+        : BorderRadius.only(
+            topRight: r,
+            bottomRight: r,
+            topLeft: top,
+            bottomLeft: bottom,
+          );
   }
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.sizeOf(context).width;
-    final maxBubbleWidth = screenWidth * 0.75;
+    final p = context.palette;
+    final theme = Theme.of(context);
+    final use24h = MediaQuery.alwaysUse24HourFormatOf(context);
+    final isSent = widget.isSent;
 
-    // Asymmetric corner radii.
-    final borderRadius = widget.isSent
-        ? BorderRadius.only(
-            topLeft: const Radius.circular(18),
-            topRight: const Radius.circular(18),
-            bottomLeft: const Radius.circular(18),
-            bottomRight: Radius.circular(widget.showTail ? 4 : 18),
-          )
-        : BorderRadius.only(
-            topLeft: const Radius.circular(18),
-            topRight: const Radius.circular(18),
-            bottomLeft: Radius.circular(widget.showTail ? 4 : 18),
-            bottomRight: const Radius.circular(18),
-          );
+    final bg = isSent ? p.bubbleOut : p.bubbleIn;
+    final fg = isSent ? p.bubbleOutText : p.bubbleInText;
+    final meta = isSent ? p.bubbleOutMeta : p.bubbleInMeta;
 
-    final bubbleColor =
-        widget.isSent ? AppColors.sentBubble : AppColors.receivedBubble;
-    final bubbleBorder =
-        widget.isSent ? AppColors.sentBubbleBorder : AppColors.receivedBubbleBorder;
+    final textStyle = (theme.textTheme.bodyLarge ?? const TextStyle()).copyWith(
+      color: fg,
+      fontSize: 15.5,
+      height: 1.35,
+      letterSpacing: 0.1,
+    );
+    final metaStyle = (theme.textTheme.labelSmall ?? const TextStyle())
+        .copyWith(color: meta, fontSize: 11, height: 1.0, letterSpacing: 0.2);
 
-    final slide = widget.isSent ? const Offset(0.15, 0) : const Offset(-0.15, 0);
+    final timeText = ChatTimeFormat.time(widget.timestamp, use24h: use24h);
+    final metaRow = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(timeText, style: metaStyle),
+        if (isSent) ...[
+          const SizedBox(width: 3),
+          MessageStatusIcon(
+            status: widget.status,
+            color: meta,
+            readColor: p.tickRead,
+            errorColor: p.danger,
+            size: 15,
+          ),
+        ],
+      ],
+    );
 
-    return AnimatedSlide(
-      offset: _visible ? Offset.zero : slide,
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeOutCubic,
-      child: AnimatedOpacity(
-        opacity: _visible ? 1.0 : 0.0,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-        child: Align(
-          alignment:
-              widget.isSent ? Alignment.centerRight : Alignment.centerLeft,
-          child: Container(
-            constraints: BoxConstraints(maxWidth: maxBubbleWidth),
-            margin: EdgeInsets.only(
-              left: widget.isSent ? 48 : 8,
-              right: widget.isSent ? 8 : 48,
-              bottom: 4,
-            ),
-            decoration: BoxDecoration(
-              color: bubbleColor,
-              borderRadius: borderRadius,
-              border: Border.all(
-                color: bubbleBorder.withAlpha(widget.isSent ? 51 : 40),
-                width: 1,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.shadow.withAlpha(25),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisSize: MainAxisSize.min,
+    // Reserve room for the meta row on the last line of text.
+    final timePainter = TextPainter(
+      text: TextSpan(text: timeText, style: metaStyle),
+      textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout();
+    final metaWidth = timePainter.width + (isSent ? 20 : 0) + 10;
+    timePainter.dispose();
+
+    final body = Stack(
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 2),
+          child: Text.rich(
+            TextSpan(
+              style: textStyle,
               children: [
-                // Message text
-                Text(
-                  widget.message,
-                  style: AppTypography.bodyMedium.copyWith(
-                    color: widget.isSent
-                        ? AppColors.textPrimary
-                        : AppColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                // Timestamp + status row
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _formattedTime(),
-                      style: AppTypography.labelSmall.copyWith(
-                        fontSize: 10,
-                        color: AppColors.textHint,
-                      ),
-                    ),
-                    if (widget.isSent) ...[
-                      const SizedBox(width: 4),
-                      _buildStatusIcon(),
-                    ],
-                  ],
-                ),
+                ..._textSpans(textStyle, p.link),
+                WidgetSpan(child: SizedBox(width: metaWidth, height: 12)),
               ],
             ),
           ),
         ),
+        Positioned(right: 0, bottom: 0, child: metaRow),
+      ],
+    );
+
+    final bubble = AnimatedContainer(
+      duration: AppMotion.fast,
+      padding: const EdgeInsets.fromLTRB(11, 7, 9, 6),
+      decoration: BoxDecoration(
+        color: widget.highlighted
+            ? Color.alphaBlend(p.accent.withAlpha(40), bg)
+            : bg,
+        borderRadius: _radius(),
+        boxShadow: theme.brightness == Brightness.light
+            ? const [
+                BoxShadow(
+                  color: Color(0x14000000),
+                  blurRadius: 1.5,
+                  offset: Offset(0, 1),
+                ),
+              ]
+            : null,
+      ),
+      child: body,
+    );
+
+    final withTail = widget.isLastInGroup
+        ? CustomPaint(
+            painter: _TailPainter(
+              color: widget.highlighted
+                  ? Color.alphaBlend(p.accent.withAlpha(40), bg)
+                  : bg,
+              isSent: isSent,
+            ),
+            child: bubble,
+          )
+        : bubble;
+
+    final failed = isSent && widget.status == MessageStatus.failed;
+
+    Widget content = LayoutBuilder(
+      builder: (context, constraints) {
+        final maxW = (constraints.maxWidth * 0.8)
+            .clamp(0.0, AppBreakpoints.bubbleMaxWidth)
+            .toDouble();
+        return Align(
+          alignment: isSent ? Alignment.centerRight : Alignment.centerLeft,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxW),
+            child: Column(
+              crossAxisAlignment: isSent
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: widget.onTap,
+                  onLongPress: widget.onLongPress == null
+                      ? null
+                      : () {
+                          HapticFeedback.selectionClick();
+                          widget.onLongPress!();
+                        },
+                  onSecondaryTapDown: widget.onSecondaryTapDown,
+                  child: withTail,
+                ),
+                if (failed)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3, right: 4),
+                    child: Text(
+                      'Not sent · Tap to retry',
+                      style: metaStyle.copyWith(
+                        color: p.danger,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    content = Padding(
+      padding: EdgeInsets.only(left: isSent ? 48 : 10, right: isSent ? 10 : 48),
+      child: content,
+    );
+
+    if (!widget.animateIn) return content;
+    return AnimatedSlide(
+      offset: _visible ? Offset.zero : const Offset(0, 0.25),
+      duration: AppMotion.medium,
+      curve: AppMotion.curve,
+      child: AnimatedOpacity(
+        opacity: _visible ? 1 : 0,
+        duration: AppMotion.medium,
+        curve: AppMotion.curve,
+        child: content,
       ),
     );
   }
+}
+
+/// Small curved tail drawn outside the bubble's bottom corner.
+class _TailPainter extends CustomPainter {
+  _TailPainter({required this.color, required this.isSent});
+
+  final Color color;
+  final bool isSent;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = color;
+    final path = Path();
+    final b = size.height;
+    if (isSent) {
+      final x = size.width;
+      path
+        ..moveTo(x - 10, b)
+        ..lineTo(x + 6, b)
+        ..quadraticBezierTo(x + 1, b - 2, x, b - 10)
+        ..lineTo(x - 10, b - 10)
+        ..close();
+    } else {
+      path
+        ..moveTo(10, b)
+        ..lineTo(-6, b)
+        ..quadraticBezierTo(-1, b - 2, 0, b - 10)
+        ..lineTo(10, b - 10)
+        ..close();
+    }
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_TailPainter old) =>
+      old.color != color || old.isSent != isSent;
 }

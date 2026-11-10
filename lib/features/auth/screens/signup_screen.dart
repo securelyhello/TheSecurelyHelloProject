@@ -26,6 +26,15 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _isCheckingUsername = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Don't carry an error over from the screen we came from.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<AuthProvider>().clearError();
+    });
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
@@ -64,12 +73,7 @@ class _SignupScreenState extends State<SignupScreen> {
     );
     
     if (success && mounted) {
-      final authStatus = context.read<AuthProvider>().status;
-      if (authStatus == AuthStatus.needsVerification) {
-        Navigator.of(context).pushReplacementNamed('/verify-email');
-      } else {
-        Navigator.of(context).pushReplacementNamed('/home');
-      }
+      Navigator.of(context).pushReplacementNamed('/home');
     }
   }
 
@@ -152,6 +156,9 @@ class _SignupScreenState extends State<SignupScreen> {
                         : null,
                   validator: (v) {
                     if (v!.length < 3) return 'Min 3 characters';
+                    if (!RegExp(r'^[a-zA-Z0-9_]{3,30}$').hasMatch(v.trim())) {
+                      return 'Letters, numbers and _ only (max 30)';
+                    }
                     if (_isUsernameAvailable == false) return 'Username is taken';
                     return null;
                   },
@@ -174,14 +181,14 @@ class _SignupScreenState extends State<SignupScreen> {
                       });
                     },
                   ),
-                  validator: (v) => v!.length < 6 ? 'Password too short' : null,
+                  validator: (v) => v!.length < 8 ? 'At least 8 characters' : null,
                 ),
                 const SizedBox(height: 8),
                 // Simple password strength indicator
                 Row(
                   children: List.generate(4, (index) {
                     final length = _passwordController.text.length;
-                    final active = length > index * 2;
+                    final active = length > index * 3;
                     return Expanded(
                       child: Container(
                         height: 4,

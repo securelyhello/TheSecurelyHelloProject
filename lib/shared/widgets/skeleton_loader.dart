@@ -1,38 +1,25 @@
 import 'package:flutter/material.dart';
 
-import 'package:securelyhello/shared/theme/app_colors.dart';
+import 'package:securelyhello/shared/theme/app_theme.dart';
 
-/// A shimmer / skeleton loader with a smooth gradient-sweep animation.
+/// Shimmering placeholder layouts shown while lists load.
 ///
-/// Use one of the named constructors for pre-built placeholder layouts:
-/// - [SkeletonLoader.chatList] — chat-list screen placeholder.
-/// - [SkeletonLoader.messageList] — conversation screen placeholder.
-/// - [SkeletonLoader.contactList] — contacts screen placeholder.
+/// - [SkeletonLoader.chatList] — chat list rows.
+/// - [SkeletonLoader.messageList] — conversation bubbles.
+/// - [SkeletonLoader.contactList] — contact rows.
 class SkeletonLoader extends StatefulWidget {
-  /// Creates a generic skeleton with the supplied [child] wrapped in a
-  /// shimmer gradient overlay.
-  const SkeletonLoader({
-    super.key,
-    required this.child,
-  });
+  const SkeletonLoader({super.key, required this.child});
 
-  /// The static skeleton layout to animate.
   final Widget child;
 
-  /// 6 rows — avatar circle + two text lines each.
-  factory SkeletonLoader.chatList() => SkeletonLoader(
-        child: _SkeletonChatList(),
-      );
+  factory SkeletonLoader.chatList({int rows = 8}) =>
+      SkeletonLoader(child: _SkeletonRows(rows: rows, avatar: 52, lines: 2));
 
-  /// Alternating left / right message bubbles.
-  factory SkeletonLoader.messageList() => SkeletonLoader(
-        child: _SkeletonMessageList(),
-      );
+  factory SkeletonLoader.messageList() =>
+      const SkeletonLoader(child: _SkeletonMessageList());
 
-  /// 8 rows — avatar circle + single text line.
-  factory SkeletonLoader.contactList() => SkeletonLoader(
-        child: _SkeletonContactList(),
-      );
+  factory SkeletonLoader.contactList({int rows = 10}) =>
+      SkeletonLoader(child: _SkeletonRows(rows: rows, avatar: 44, lines: 2));
 
   @override
   State<SkeletonLoader> createState() => _SkeletonLoaderState();
@@ -40,20 +27,10 @@ class SkeletonLoader extends StatefulWidget {
 
 class _SkeletonLoaderState extends State<SkeletonLoader>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _animation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat();
-    _animation = Tween<double>(begin: -2, end: 2).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOutSine),
-    );
-  }
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1400),
+  )..repeat();
 
   @override
   void dispose() {
@@ -63,45 +40,43 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _animation,
-      builder: (context, child) {
-        return ShaderMask(
-          shaderCallback: (bounds) {
-            return LinearGradient(
-              begin: Alignment(_animation.value - 1, 0),
-              end: Alignment(_animation.value + 1, 0),
-              colors: const [
-                AppColors.shimmerBase,
-                AppColors.shimmerHighlight,
-                AppColors.shimmerBase,
-              ],
-              stops: const [0.0, 0.5, 1.0],
-            ).createShader(bounds);
-          },
-          blendMode: BlendMode.srcATop,
-          child: widget.child,
-        );
-      },
+    final p = context.palette;
+    return Semantics(
+      label: 'Loading',
+      child: ExcludeSemantics(
+        child: ClipRect(
+          child: SingleChildScrollView(
+            physics: const NeverScrollableScrollPhysics(),
+            child: AnimatedBuilder(
+              animation: _controller,
+              child: widget.child,
+              builder: (context, child) {
+                final v = _controller.value * 4 - 2;
+                return ShaderMask(
+                  blendMode: BlendMode.srcATop,
+                  shaderCallback: (bounds) => LinearGradient(
+                    begin: Alignment(v - 1, 0),
+                    end: Alignment(v + 1, 0),
+                    colors: [p.shimmerBase, p.shimmerHighlight, p.shimmerBase],
+                    stops: const [0.0, 0.5, 1.0],
+                  ).createShader(bounds),
+                  child: child,
+                );
+              },
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Pre-built skeleton layouts
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// A placeholder bone element.
 class _Bone extends StatelessWidget {
-  const _Bone({
-    required this.width,
-    required this.height,
-    this.borderRadius = 6,
-  });
+  const _Bone({required this.width, required this.height, this.radius = 6});
 
   final double width;
   final double height;
-  final double borderRadius;
+  final double radius;
 
   @override
   Widget build(BuildContext context) {
@@ -109,147 +84,96 @@ class _Bone extends StatelessWidget {
       width: width,
       height: height,
       decoration: BoxDecoration(
-        color: AppColors.shimmerBase,
-        borderRadius: BorderRadius.circular(borderRadius),
+        color: context.palette.shimmerBase,
+        borderRadius: BorderRadius.circular(radius),
       ),
     );
   }
 }
 
-class _CircleBone extends StatelessWidget {
-  const _CircleBone({required this.diameter});
-
-  final double diameter;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: diameter,
-      height: diameter,
-      decoration: const BoxDecoration(
-        color: AppColors.shimmerBase,
-        shape: BoxShape.circle,
-      ),
-    );
-  }
-}
-
-// ─── Chat list skeleton ──────────────────────────────────────────────────
-class _SkeletonChatList extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Column(
-        children: List.generate(6, (index) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Row(
-              children: [
-                const _CircleBone(diameter: 48),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _Bone(
-                        width: 100 + (index % 3) * 30.0,
-                        height: 14,
-                      ),
-                      const SizedBox(height: 8),
-                      _Bone(
-                        width: 160 + (index % 2) * 40.0,
-                        height: 12,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const _Bone(width: 36, height: 10),
-              ],
-            ),
-          );
-        }),
-      ),
-    );
-  }
-}
-
-// ─── Message list skeleton ───────────────────────────────────────────────
-class _SkeletonMessageList extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final bubbles = <_BubbleSpec>[
-      _BubbleSpec(isSent: false, widthFraction: 0.65, height: 52),
-      _BubbleSpec(isSent: true, widthFraction: 0.55, height: 44),
-      _BubbleSpec(isSent: false, widthFraction: 0.45, height: 36),
-      _BubbleSpec(isSent: true, widthFraction: 0.70, height: 60),
-      _BubbleSpec(isSent: false, widthFraction: 0.50, height: 44),
-      _BubbleSpec(isSent: true, widthFraction: 0.40, height: 36),
-      _BubbleSpec(isSent: false, widthFraction: 0.60, height: 52),
-      _BubbleSpec(isSent: true, widthFraction: 0.50, height: 44),
-    ];
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Column(
-        children: bubbles.map((spec) {
-          return Align(
-            alignment:
-                spec.isSent ? Alignment.centerRight : Alignment.centerLeft,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: FractionallySizedBox(
-                widthFactor: spec.widthFraction,
-                child: _Bone(
-                  width: double.infinity,
-                  height: spec.height,
-                  borderRadius: 16,
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-}
-
-class _BubbleSpec {
-  const _BubbleSpec({
-    required this.isSent,
-    required this.widthFraction,
-    required this.height,
+class _SkeletonRows extends StatelessWidget {
+  const _SkeletonRows({
+    required this.rows,
+    required this.avatar,
+    required this.lines,
   });
 
-  final bool isSent;
-  final double widthFraction;
-  final double height;
-}
+  final int rows;
+  final double avatar;
+  final int lines;
 
-// ─── Contact list skeleton ───────────────────────────────────────────────
-class _SkeletonContactList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Column(
-        children: List.generate(8, (index) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Row(
-              children: [
-                const _CircleBone(diameter: 44),
-                const SizedBox(width: 12),
-                _Bone(
-                  width: 110 + (index % 4) * 20.0,
-                  height: 14,
+    return Column(
+      children: List.generate(rows, (i) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              _Bone(width: avatar, height: avatar, radius: avatar / 2),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _Bone(width: 90 + (i % 3) * 34.0, height: 13),
+                    if (lines > 1) ...[
+                      const SizedBox(height: 9),
+                      _Bone(width: 150 + (i % 2) * 50.0, height: 11),
+                    ],
+                  ],
                 ),
-              ],
-            ),
-          );
-        }),
-      ),
+              ),
+              if (lines > 1) const _Bone(width: 34, height: 10),
+            ],
+          ),
+        );
+      }),
+    );
+  }
+}
+
+class _SkeletonMessageList extends StatelessWidget {
+  const _SkeletonMessageList();
+
+  static const _specs = <(bool, double, double)>[
+    (false, 0.62, 44),
+    (false, 0.40, 36),
+    (true, 0.55, 44),
+    (false, 0.48, 36),
+    (true, 0.70, 58),
+    (true, 0.36, 36),
+    (false, 0.58, 50),
+    (true, 0.46, 36),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, c) {
+        final w = c.maxWidth.isFinite ? c.maxWidth : 400.0;
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          child: Column(
+            children: [
+              for (final (sent, frac, h) in _specs)
+                Align(
+                  alignment: sent
+                      ? Alignment.centerRight
+                      : Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: _Bone(
+                      width: (w - 24) * frac,
+                      height: h,
+                      radius: AppRadius.bubble,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:securelyhello/core/networking/supabase_directory_service.dart';
+import 'package:securelyhello/core/chat/chat_service.dart';
+import 'package:securelyhello/core/networking/directory_service.dart';
 import 'package:securelyhello/core/storage/local_storage.dart';
 
 /// Represents a contact with full profile data.
@@ -45,6 +46,18 @@ class Contact {
     );
   }
 
+  Contact withPresence({required bool isOnline, DateTime? lastSeen}) => Contact(
+        userId: userId,
+        username: username,
+        displayName: displayName,
+        avatarUrl: avatarUrl,
+        publicSigningKey: publicSigningKey,
+        publicEncryptionKey: publicEncryptionKey,
+        isOnline: isOnline,
+        lastSeen: lastSeen ?? this.lastSeen,
+        nickname: nickname,
+      );
+
   /// The display label — nickname if set, otherwise display name.
   String get displayLabel => nickname?.isNotEmpty == true ? nickname! : displayName;
 }
@@ -85,7 +98,7 @@ class ContactRequest {
   }
 }
 
-/// Search result from Supabase user directory.
+/// Search result from the user directory.
 class UserSearchResult {
   final String userId;
   final String username;
@@ -124,8 +137,9 @@ class UserSearchResult {
 
 /// Manages the user's contact list and search functionality.
 class ContactsProvider extends ChangeNotifier {
-  final SupabaseDirectoryService _directoryService;
+  final DirectoryService _directoryService;
   final LocalStorage _localStorage;
+  final ChatService _chatService;
 
   List<Contact> _contacts = [];
   List<UserSearchResult> _searchResults = [];
@@ -136,23 +150,84 @@ class ContactsProvider extends ChangeNotifier {
   bool _isSearching = false;
   String? _errorMessage;
   Timer? _searchDebounce;
+  String _lastSearch = '';
 
   ContactsProvider({
-    required SupabaseDirectoryService directoryService,
+    required DirectoryService directoryService,
     required LocalStorage localStorage,
+    required ChatService chatService,
   })  : _directoryService = directoryService,
-        _localStorage = localStorage;
+        _localStorage = localStorage,
+        _chatService = chatService;
 
-  StreamSubscription? _requestsSub;
+  final List<StreamSubscription<dynamic>> _subs = [];
+  String? _myUserId;
+  bool _loading = false;
+  bool _reloadQueued = false;
   final _newRequestController = StreamController<String>.broadcast();
   Stream<String> get onNewRequest => _newRequestController.stream;
 
+  /// Subscribes to pushes from the server. Call after sign-in.
   void init() {
-    _requestsSub?.cancel();
-    _requestsSub = _directoryService.listenForContactRequests().listen((event) {
-      loadContacts(); // reload to get the joined sender profile
-      _newRequestController.add('You have a new contact request!');
+    for (final s in _subs) {
+      s.cancel();
+    }
+    _subs
+      ..clear()
+      ..add(_directoryService.contactEvents.listen(_onContactEvent))
+      ..add(_directoryService.presenceEvents.listen(_onPresence))
+      // After a reconnect, pick up whatever changed while we were away.
+      ..add(_directoryService.realtimeState.listen((up) {
+        if (up && _myUserId != null) loadContacts(silent: true);
+      }));
+  }
+
+  Future<void> _onContactEvent(ContactEvent event) async {
+    if (event.type == 'keys_changed') return; // ChatService refreshes keys
+    await loadContacts(silent: true);
+    if (event.type == 'contact_request') {
+      _newRequestController.add('You have a new contact request');
+    } else if (event.type == 'contact_request_update' &&
+        event.status == 'accepted') {
+      _newRequestController.add('Your contact request was accepted');
+    }
+  }
+
+  void _onPresence(PresenceEvent event) {
+    final i = _contacts.indexWhere((c) => c.userId == event.userId);
+    if (i < 0) return;
+    if (_contacts[i].isOnline == event.online && event.lastSeen == null) return;
+    _contacts[i] = _contacts[i]
+        .withPresence(isOnline: event.online, lastSeen: event.lastSeen);
+    _sortContacts();
+    notifyListeners();
+  }
+
+  void _sortContacts() {
+    _contacts.sort((a, b) {
+      if (a.isOnline != b.isOnline) return a.isOnline ? -1 : 1;
+      return a.displayLabel
+          .toLowerCase()
+          .compareTo(b.displayLabel.toLowerCase());
     });
+  }
+
+  /// Clears everything (sign-out).
+  Future<void> reset() async {
+    for (final s in _subs) {
+      await s.cancel();
+    }
+    _subs.clear();
+    _searchDebounce?.cancel();
+    _myUserId = null;
+    _contacts = [];
+    _searchResults = [];
+    _sentRequests = [];
+    _receivedRequests = [];
+    _errorMessage = null;
+    _isLoading = false;
+    _isSearching = false;
+    notifyListeners();
   }
 
   // -- Getters --
@@ -167,52 +242,78 @@ class ContactsProvider extends ChangeNotifier {
   int get contactCount => _contacts.length;
   int get onlineCount => _contacts.where((c) => c.isOnline).length;
 
-  /// Load contacts from Supabase.
-  Future<void> loadContacts() async {
-    _isLoading = true;
-    _errorMessage = null;
-    notifyListeners();
-
-    try {
-      final contactsData = await _directoryService.getContacts();
-      _contacts = contactsData.map((data) => Contact.fromMap(data)).toList();
-
-      // Sort: online first, then alphabetical
-      _contacts.sort((a, b) {
-        if (a.isOnline != b.isOnline) {
-          return a.isOnline ? -1 : 1;
-        }
-        return a.displayLabel.toLowerCase().compareTo(b.displayLabel.toLowerCase());
-      });
-
-      // Cache contacts locally
-      for (final contact in _contacts) {
-        await _localStorage.cacheContact(
-          userId: contact.userId,
-          username: contact.username,
-          displayName: contact.displayName,
-          avatarUrl: contact.avatarUrl,
-          publicSigningKey: contact.publicSigningKey,
-          publicEncryptionKey: contact.publicEncryptionKey,
-          isOnline: contact.isOnline,
-          lastSeen: contact.lastSeen?.millisecondsSinceEpoch,
-        );
-      }
-
-      // Load pending requests
-      final reqData = await _directoryService.fetchPendingRequests();
-      final allRequests = reqData.map((r) => ContactRequest.fromMap(r)).toList();
-      
-      final myUserId = await _directoryService.getMyUserId();
-      _sentRequests = allRequests.where((r) => r.senderId == myUserId).toList();
-      _receivedRequests = allRequests.where((r) => r.receiverId == myUserId).toList();
-      
-    } catch (e) {
-      _errorMessage = 'Failed to load contacts: $e';
+  /// Load contacts and pending requests from the server.
+  ///
+  /// [silent] skips the loading flag (background refreshes after a push).
+  Future<void> loadContacts({bool silent = false}) async {
+    if (_loading) {
+      _reloadQueued = true;
+      return;
+    }
+    _loading = true;
+    if (!silent) {
+      _isLoading = true;
+      _errorMessage = null;
+      notifyListeners();
     }
 
+    try {
+      do {
+        _reloadQueued = false;
+        await _loadOnce();
+      } while (_reloadQueued);
+      if (silent) _errorMessage = null;
+    } catch (e) {
+      // A background refresh failing is not worth an error banner.
+      if (!silent || _contacts.isEmpty) {
+        _errorMessage = e is ApiException || e is NetworkException
+            ? e.toString()
+            : 'Failed to load contacts';
+      }
+      debugPrint('loadContacts failed: $e');
+    }
+
+    _loading = false;
     _isLoading = false;
     notifyListeners();
+  }
+
+  Future<void> _loadOnce() async {
+    final myUserId = _directoryService.myUserId;
+    final results = await Future.wait([
+      _directoryService.getContacts(),
+      _directoryService.fetchPendingRequests(),
+    ]);
+    // Signed out (or switched account) while the requests were in flight.
+    if (_directoryService.myUserId != myUserId || myUserId == null) return;
+
+    _contacts = results[0].map(Contact.fromMap).toList();
+    _sortContacts();
+
+    final allRequests = results[1].map(ContactRequest.fromMap).toList();
+    _myUserId = myUserId;
+    _sentRequests = allRequests.where((r) => r.senderId == myUserId).toList();
+    _receivedRequests =
+        allRequests.where((r) => r.receiverId == myUserId).toList();
+
+    // Cache contacts locally and flag changed safety numbers.
+    for (final contact in List.of(_contacts)) {
+      if (!_localStorage.isOpen) break;
+      final keysChanged = await _localStorage.cacheContact(
+        userId: contact.userId,
+        username: contact.username,
+        displayName: contact.displayName,
+        avatarUrl: contact.avatarUrl,
+        publicSigningKey: contact.publicSigningKey,
+        publicEncryptionKey: contact.publicEncryptionKey,
+        isOnline: contact.isOnline,
+        lastSeen: contact.lastSeen?.millisecondsSinceEpoch,
+      );
+      if (keysChanged) {
+        await _chatService.noteSafetyNumberChanged(
+            contact.userId, contact.displayLabel);
+      }
+    }
   }
 
   /// Search users by username with debounce.
@@ -227,16 +328,19 @@ class ContactsProvider extends ChangeNotifier {
     }
 
     _isSearching = true;
+    _errorMessage = null;
     notifyListeners();
 
+    final term = query.trim();
+    _lastSearch = term;
     _searchDebounce = Timer(const Duration(milliseconds: 400), () async {
       try {
-        final results = await _directoryService.searchUsers(query.trim());
+        final results = await _directoryService.searchUsers(term);
+        if (_lastSearch != term) return; // a newer search superseded this one
         final contactIds = _contacts.map((c) => c.userId).toSet();
-        final currentAuthId = _directoryService.currentUser?.id;
 
         _searchResults = results
-            .where((r) => r['auth_id'].toString() != currentAuthId) // Exclude self
+            .where((r) => r['user_id'] != _directoryService.myUserId)
             .map((r) {
               final userId = r['user_id'].toString();
               
@@ -266,7 +370,10 @@ class ContactsProvider extends ChangeNotifier {
             })
             .toList();
       } catch (e) {
-        _errorMessage = 'Search failed: $e';
+        if (_lastSearch != term) return;
+        _errorMessage = e is ApiException || e is NetworkException
+            ? e.toString()
+            : 'Search failed';
         debugPrint('Search failed: $e');
         _searchResults = [];
       }
@@ -278,25 +385,11 @@ class ContactsProvider extends ChangeNotifier {
 
   /// Clear search results.
   void clearSearch() {
+    _lastSearch = '';
     _searchResults = [];
     _isSearching = false;
     _searchDebounce?.cancel();
     notifyListeners();
-  }
-
-  /// Add a user as a contact (legacy behavior, you may remove this if unneeded).
-  Future<bool> addContact(String contactUserId, {String? nickname}) async {
-    _errorMessage = null;
-
-    try {
-      await _directoryService.addContact(contactUserId, nickname: nickname);
-      await loadContacts(); // Refresh the contact list
-      return true;
-    } catch (e) {
-      _errorMessage = 'Failed to add contact: $e';
-      notifyListeners();
-      return false;
-    }
   }
 
   /// Send a contact request to a user.
@@ -304,10 +397,11 @@ class ContactsProvider extends ChangeNotifier {
     _errorMessage = null;
     try {
       await _directoryService.sendContactRequest(receiverUserId);
-      await loadContacts(); // refresh lists
+      await loadContacts(silent: true);
+      _refreshSearchRelationships();
       return true;
     } catch (e) {
-      _errorMessage = 'Failed to send request: $e';
+      _errorMessage = _friendly(e, 'Failed to send request');
       notifyListeners();
       return false;
     }
@@ -318,10 +412,11 @@ class ContactsProvider extends ChangeNotifier {
     _errorMessage = null;
     try {
       await _directoryService.acceptContactRequest(requestId);
-      await loadContacts(); // refresh lists
+      await loadContacts(silent: true);
+      _refreshSearchRelationships();
       return true;
     } catch (e) {
-      _errorMessage = 'Failed to accept request: $e';
+      _errorMessage = _friendly(e, 'Failed to accept request');
       notifyListeners();
       return false;
     }
@@ -332,13 +427,66 @@ class ContactsProvider extends ChangeNotifier {
     _errorMessage = null;
     try {
       await _directoryService.rejectContactRequest(requestId);
-      await loadContacts(); // refresh lists
+      await loadContacts(silent: true);
+      _refreshSearchRelationships();
       return true;
     } catch (e) {
-      _errorMessage = 'Failed to reject request: $e';
+      _errorMessage = _friendly(e, 'Failed to reject request');
       notifyListeners();
       return false;
     }
+  }
+
+  /// Withdraw a pending request we sent.
+  Future<bool> cancelContactRequest(String requestId) async {
+    _errorMessage = null;
+    try {
+      await _directoryService.cancelContactRequest(requestId);
+      await loadContacts(silent: true);
+      _refreshSearchRelationships();
+      return true;
+    } catch (e) {
+      _errorMessage = _friendly(e, 'Failed to cancel request');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  static String _friendly(Object e, String fallback) =>
+      e is ApiException || e is NetworkException ? e.toString() : fallback;
+
+  /// Re-derives each search result's relationship after the lists changed,
+  /// so buttons flip from "Add" to "Requested" without a new search.
+  void _refreshSearchRelationships() {
+    if (_searchResults.isEmpty) return;
+    final contactIds = _contacts.map((c) => c.userId).toSet();
+    _searchResults = _searchResults.map((r) {
+      var relationship = ContactRelationship.none;
+      String? requestId;
+      if (contactIds.contains(r.userId)) {
+        relationship = ContactRelationship.contact;
+      } else {
+        final sent = _sentRequests.where((q) => q.receiverId == r.userId);
+        final received = _receivedRequests.where((q) => q.senderId == r.userId);
+        if (sent.isNotEmpty) {
+          relationship = ContactRelationship.requestSent;
+          requestId = sent.first.id;
+        } else if (received.isNotEmpty) {
+          relationship = ContactRelationship.requestReceived;
+          requestId = received.first.id;
+        }
+      }
+      return UserSearchResult(
+        userId: r.userId,
+        username: r.username,
+        displayName: r.displayName,
+        avatarUrl: r.avatarUrl,
+        isOnline: r.isOnline,
+        relationship: relationship,
+        requestId: requestId,
+      );
+    }).toList();
+    notifyListeners();
   }
 
   /// Remove a contact.
@@ -351,7 +499,7 @@ class ContactsProvider extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
-      _errorMessage = 'Failed to remove contact: $e';
+      _errorMessage = _friendly(e, 'Failed to remove contact');
       notifyListeners();
       return false;
     }
@@ -378,7 +526,9 @@ class ContactsProvider extends ChangeNotifier {
   @override
   void dispose() {
     _searchDebounce?.cancel();
-    _requestsSub?.cancel();
+    for (final s in _subs) {
+      s.cancel();
+    }
     _newRequestController.close();
     super.dispose();
   }

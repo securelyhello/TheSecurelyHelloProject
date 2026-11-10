@@ -72,6 +72,10 @@ set_target_properties(${BINARY_NAME}
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
+# flutter_webrtc's bundled libwebrtc headers use uint32_t without including
+# <cstdint>, which newer libstdc++ / clang no longer pull in transitively.
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -include cstdint")
+
 include(flutter/generated_plugins.cmake)
 
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -12,7 +13,7 @@ enum P2PConnectionState {
   failed,
 }
 
-/// Payload emitted when a remote ICE candidate is gathered.
+/// Payload emitted when a local ICE candidate is gathered.
 class IceCandidateEvent {
   final String contactId;
   final RTCIceCandidate candidate;
@@ -35,28 +36,26 @@ class DataChannelMessageEvent {
 
 /// Manages one [RTCPeerConnection] + [RTCDataChannel] per remote contact.
 ///
-/// The class exposes three broadcast [Stream]s for ICE candidates,
+/// A peer only counts as [P2PConnectionState.connected] once its data
+/// channel is open, so [isConnected] is a reliable "can send right now"
+/// signal.  The class exposes broadcast [Stream]s for ICE candidates,
 /// connection-state changes, and incoming data-channel messages so that the
-/// higher-level [ChatService] can react without tight coupling.
+/// higher-level `ChatService` can react without tight coupling.
 class P2PConnectionManager {
   // ---- ICE server configuration ------------------------------------------
-  static const Map<String, dynamic> _iceServers = {
-    'iceServers': [
-      {'urls': 'stun:stun.l.google.com:19302'},
-      {'urls': 'stun:stun1.l.google.com:19302'},
-    ],
-  };
+  static const List<Map<String, dynamic>> defaultStunServers = [
+    {'urls': 'stun:stun.l.google.com:19302'},
+    {'urls': 'stun:stun1.l.google.com:19302'},
+  ];
 
-
+  List<Map<String, dynamic>> _iceServers = defaultStunServers;
 
   // ---- Per-contact state -------------------------------------------------
   final Map<String, RTCPeerConnection> _peerConnections = {};
   final Map<String, RTCDataChannel> _dataChannels = {};
   final Map<String, P2PConnectionState> _connectionStates = {};
-  final Map<String, StreamController<Uint8List>> _messageControllers = {};
-
-  // Queues messages that arrive before the data channel is open.
-  final Map<String, List<Uint8List>> _pendingMessages = {};
+  final Set<String> _remoteDescriptionSet = {};
+  final Map<String, List<RTCIceCandidate>> _pendingRemoteCandidates = {};
 
   // ---- Broadcast streams -------------------------------------------------
   final StreamController<IceCandidateEvent> _iceCandidateController =
@@ -83,10 +82,12 @@ class P2PConnectionManager {
   // Lifecycle
   // ---------------------------------------------------------------------------
 
-  /// Performs any one-time initialization (currently a no-op placeholder for
-  /// future TURN credential fetching, etc.).
-  Future<void> init() async {
-    // Reserved for runtime setup such as fetching TURN credentials.
+  /// Sets the ICE servers.  Pass TURN entries here so peers behind symmetric
+  /// NAT (most mobile carriers) can still connect.
+  Future<void> init({List<Map<String, dynamic>>? iceServers}) async {
+    if (iceServers != null && iceServers.isNotEmpty) {
+      _iceServers = iceServers;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -94,16 +95,14 @@ class P2PConnectionManager {
   // ---------------------------------------------------------------------------
 
   /// Creates a new [RTCPeerConnection] for [contactId], opens a data channel
-  /// named `"chat"`, generates an SDP offer, and returns it as a JSON-
-  /// encodable string.
+  /// named `"chat"`, generates an SDP offer, and returns it.
   Future<String> createOffer(String contactId) async {
     final pc = await _createPeerConnection(contactId);
 
-    // Create the data channel before creating the offer so it's included in
-    // the SDP.
-    final dc = await pc.createDataChannel('chat', RTCDataChannelInit()
-      ..ordered = true);
-    _registerDataChannel(contactId, dc);
+    // Create the data channel before the offer so it's included in the SDP.
+    final dc = await pc.createDataChannel(
+        'chat', RTCDataChannelInit()..ordered = true);
+    _registerDataChannel(contactId, pc, dc);
 
     final offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -112,15 +111,13 @@ class P2PConnectionManager {
     return offer.sdp!;
   }
 
-  /// Handles an incoming SDP offer from [contactId]: creates the peer
-  /// connection, sets the remote description, generates an answer, and returns
-  /// the SDP answer string.
+  /// Handles an incoming SDP offer from [contactId]: replaces any existing
+  /// connection, sets the remote description, and returns the SDP answer.
   Future<String> handleOffer(String contactId, String sdpOffer) async {
     final pc = await _createPeerConnection(contactId);
 
-    await pc.setRemoteDescription(
-      RTCSessionDescription(sdpOffer, 'offer'),
-    );
+    await pc.setRemoteDescription(RTCSessionDescription(sdpOffer, 'offer'));
+    await _markRemoteDescriptionSet(contactId, pc);
 
     final answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
@@ -135,54 +132,63 @@ class P2PConnectionManager {
     if (pc == null) {
       throw StateError('No peer connection exists for contact $contactId');
     }
-    await pc.setRemoteDescription(
-      RTCSessionDescription(sdpAnswer, 'answer'),
-    );
+    await pc.setRemoteDescription(RTCSessionDescription(sdpAnswer, 'answer'));
+    await _markRemoteDescriptionSet(contactId, pc);
   }
 
-  /// Adds a trickled ICE candidate from [contactId].
+  /// Adds a trickled ICE candidate from [contactId].  Candidates that arrive
+  /// before the remote description are buffered and applied afterwards.
   Future<void> addIceCandidate(
     String contactId,
     Map<String, dynamic> candidate,
   ) async {
     final pc = _peerConnections[contactId];
-    if (pc == null) {
-      throw StateError('No peer connection exists for contact $contactId');
-    }
-    await pc.addCandidate(
-      RTCIceCandidate(
-        candidate['candidate'] as String?,
-        candidate['sdpMid'] as String?,
-        candidate['sdpMLineIndex'] as int?,
-      ),
+    if (pc == null) return;
+
+    final ice = RTCIceCandidate(
+      candidate['candidate'] as String?,
+      candidate['sdpMid'] as String?,
+      candidate['sdpMLineIndex'] as int?,
     );
+    if (!_remoteDescriptionSet.contains(contactId)) {
+      _pendingRemoteCandidates.putIfAbsent(contactId, () => []).add(ice);
+      return;
+    }
+    await pc.addCandidate(ice);
+  }
+
+  Future<void> _markRemoteDescriptionSet(
+      String contactId, RTCPeerConnection pc) async {
+    _remoteDescriptionSet.add(contactId);
+    final pending = _pendingRemoteCandidates.remove(contactId) ?? const [];
+    for (final ice in pending) {
+      try {
+        await pc.addCandidate(ice);
+      } catch (_) {
+        // A stale or duplicate candidate — safe to skip.
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
   // Messaging
   // ---------------------------------------------------------------------------
 
-  /// Sends [encryptedData] over the open data channel to [contactId].
+  /// Sends [data] over the open data channel to [contactId].
   ///
-  /// If the channel is not yet open the data is queued and will be flushed
-  /// automatically once the channel transitions to `open`.
-  void sendMessage(String contactId, Uint8List encryptedData) {
+  /// Returns `false` (without queueing) if no open channel exists; the caller
+  /// is expected to fall back to the relay.
+  Future<bool> sendMessage(String contactId, Uint8List data) async {
     final dc = _dataChannels[contactId];
-    if (dc != null && dc.state == RTCDataChannelState.RTCDataChannelOpen) {
-      dc.send(RTCDataChannelMessage.fromBinary(encryptedData));
-    } else {
-      _pendingMessages.putIfAbsent(contactId, () => []).add(encryptedData);
+    if (dc == null || dc.state != RTCDataChannelState.RTCDataChannelOpen) {
+      return false;
     }
-  }
-
-  /// Returns a stream of incoming binary messages for [contactId].
-  ///
-  /// A new [StreamController] is lazily created per contact so multiple
-  /// listeners can subscribe.
-  Stream<Uint8List> onMessage(String contactId) {
-    return _messageControllers
-        .putIfAbsent(contactId, () => StreamController<Uint8List>.broadcast())
-        .stream;
+    try {
+      await dc.send(RTCDataChannelMessage.fromBinary(data));
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Returns the current connection state for [contactId].
@@ -190,29 +196,38 @@ class P2PConnectionManager {
     return _connectionStates[contactId] ?? P2PConnectionState.idle;
   }
 
-  /// Returns `true` if a data channel to [contactId] is open and usable.
+  /// `true` if a data channel to [contactId] is open and usable.
   bool isConnected(String contactId) {
     return getConnectionState(contactId) == P2PConnectionState.connected;
   }
+
+  /// `true` if any peer connection object exists for [contactId].
+  bool hasPeer(String contactId) => _peerConnections.containsKey(contactId);
 
   // ---------------------------------------------------------------------------
   // Cleanup
   // ---------------------------------------------------------------------------
 
-  /// Tears down **all** peer connections, data channels, and stream
-  /// controllers.
-  void dispose() {
-    for (final contactId in _peerConnections.keys.toList()) {
-      _closeConnection(contactId);
-    }
-    _iceCandidateController.close();
-    _connectionStateController.close();
-    _dataMessageController.close();
-  }
-
   /// Tears down only the connection for [contactId].
   Future<void> closeConnection(String contactId) async {
-    _closeConnection(contactId);
+    await _closeConnection(contactId);
+    _setConnectionState(contactId, P2PConnectionState.disconnected);
+  }
+
+  /// Tears down every peer connection (sign-out).  The manager stays usable.
+  Future<void> closeAll() async {
+    for (final contactId in _peerConnections.keys.toList()) {
+      await closeConnection(contactId);
+    }
+    _connectionStates.clear();
+  }
+
+  /// Tears down everything, including the broadcast streams.
+  Future<void> dispose() async {
+    await closeAll();
+    await _iceCandidateController.close();
+    await _connectionStateController.close();
+    await _dataMessageController.close();
   }
 
   // ---------------------------------------------------------------------------
@@ -220,31 +235,37 @@ class P2PConnectionManager {
   // ---------------------------------------------------------------------------
 
   Future<RTCPeerConnection> _createPeerConnection(String contactId) async {
-    // If a connection already exists, close it first.
     if (_peerConnections.containsKey(contactId)) {
-      _closeConnection(contactId);
+      await _closeConnection(contactId);
     }
 
-    final pc = await createPeerConnection(_iceServers, {});
+    final pc = await createPeerConnection({'iceServers': _iceServers}, {});
+    bool isCurrent() => identical(_peerConnections[contactId], pc);
 
     pc.onIceCandidate = (candidate) {
-      _iceCandidateController.add(IceCandidateEvent(contactId, candidate));
+      if (isCurrent() && candidate.candidate != null) {
+        _iceCandidateController.add(IceCandidateEvent(contactId, candidate));
+      }
     };
 
     pc.onIceConnectionState = (state) {
+      if (!isCurrent()) return;
       switch (state) {
         case RTCIceConnectionState.RTCIceConnectionStateConnected:
         case RTCIceConnectionState.RTCIceConnectionStateCompleted:
-          _setConnectionState(contactId, P2PConnectionState.connected);
+          // ICE recovered; usable again only if the channel is still open.
+          if (_dataChannels[contactId]?.state ==
+              RTCDataChannelState.RTCDataChannelOpen) {
+            _setConnectionState(contactId, P2PConnectionState.connected);
+          }
           break;
         case RTCIceConnectionState.RTCIceConnectionStateDisconnected:
+          // May recover on its own; stop routing messages here meanwhile.
           _setConnectionState(contactId, P2PConnectionState.disconnected);
           break;
         case RTCIceConnectionState.RTCIceConnectionStateFailed:
           _setConnectionState(contactId, P2PConnectionState.failed);
-          break;
-        case RTCIceConnectionState.RTCIceConnectionStateClosed:
-          _setConnectionState(contactId, P2PConnectionState.disconnected);
+          unawaited(_closeConnection(contactId));
           break;
         default:
           break;
@@ -253,71 +274,65 @@ class P2PConnectionManager {
 
     // The answerer receives the data channel via this callback.
     pc.onDataChannel = (channel) {
-      _registerDataChannel(contactId, channel);
+      if (isCurrent()) _registerDataChannel(contactId, pc, channel);
     };
 
     _peerConnections[contactId] = pc;
+    _remoteDescriptionSet.remove(contactId);
+    _pendingRemoteCandidates.remove(contactId);
     _connectionStates[contactId] = P2PConnectionState.idle;
     return pc;
   }
 
-  void _registerDataChannel(String contactId, RTCDataChannel dc) {
+  void _registerDataChannel(
+      String contactId, RTCPeerConnection pc, RTCDataChannel dc) {
     _dataChannels[contactId] = dc;
+    bool isCurrent() =>
+        identical(_peerConnections[contactId], pc) &&
+        identical(_dataChannels[contactId], dc);
 
     dc.onMessage = (msg) {
-      final data = msg.binary;
-      // Push to the per-contact stream.
-      _messageControllers
-          .putIfAbsent(
-              contactId, () => StreamController<Uint8List>.broadcast())
-          .add(data);
-      // Push to the global broadcast stream.
+      if (!isCurrent()) return;
+      final data = msg.isBinary
+          ? msg.binary
+          : Uint8List.fromList(utf8.encode(msg.text));
       _dataMessageController.add(DataChannelMessageEvent(contactId, data));
     };
 
     dc.onDataChannelState = (state) {
+      if (!isCurrent()) return;
       if (state == RTCDataChannelState.RTCDataChannelOpen) {
         _setConnectionState(contactId, P2PConnectionState.connected);
-        _flushPendingMessages(contactId);
       } else if (state == RTCDataChannelState.RTCDataChannelClosed) {
         _setConnectionState(contactId, P2PConnectionState.disconnected);
+        unawaited(_closeConnection(contactId));
       }
     };
-  }
-
-  void _flushPendingMessages(String contactId) {
-    final pending = _pendingMessages.remove(contactId);
-    if (pending == null) return;
-
-    final dc = _dataChannels[contactId];
-    if (dc == null || dc.state != RTCDataChannelState.RTCDataChannelOpen) {
-      // Re-enqueue — the channel closed before we could flush.
-      _pendingMessages[contactId] = pending;
-      return;
-    }
-    for (final data in pending) {
-      dc.send(RTCDataChannelMessage.fromBinary(data));
-    }
   }
 
   void _setConnectionState(String contactId, P2PConnectionState state) {
     final previous = _connectionStates[contactId];
     if (previous == state) return;
     _connectionStates[contactId] = state;
-    _connectionStateController.add(ConnectionStateEvent(contactId, state));
+    if (!_connectionStateController.isClosed) {
+      _connectionStateController.add(ConnectionStateEvent(contactId, state));
+    }
   }
 
-  void _closeConnection(String contactId) {
-    _dataChannels[contactId]?.close();
-    _dataChannels.remove(contactId);
-
-    _peerConnections[contactId]?.close();
-    _peerConnections.remove(contactId);
-
-    _messageControllers[contactId]?.close();
-    _messageControllers.remove(contactId);
-
-    _pendingMessages.remove(contactId);
-    _connectionStates.remove(contactId);
+  Future<void> _closeConnection(String contactId) async {
+    final dc = _dataChannels.remove(contactId);
+    final pc = _peerConnections.remove(contactId);
+    _remoteDescriptionSet.remove(contactId);
+    _pendingRemoteCandidates.remove(contactId);
+    // Closing the peer connection closes its data channel. The channel is
+    // deliberately not closed on its own first: flutter_webrtc tears down
+    // the channel's Dart streams in close() while the native side can still
+    // deliver a final state event, which surfaces as an unhandled
+    // "Cannot add new events after calling close".
+    dc?.onMessage = null;
+    dc?.onDataChannelState = null;
+    try {
+      await pc?.close();
+    } catch (_) {}
   }
 }

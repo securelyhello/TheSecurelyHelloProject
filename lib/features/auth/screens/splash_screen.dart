@@ -77,8 +77,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     if (!mounted) return;
     if (status == AuthStatus.authenticated) {
       Navigator.of(context).pushReplacementNamed('/home');
-    } else if (status == AuthStatus.needsVerification) {
-      Navigator.of(context).pushReplacementNamed('/verify-email');
     } else {
       Navigator.of(context).pushReplacementNamed('/login');
     }

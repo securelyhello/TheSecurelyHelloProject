@@ -1,111 +1,264 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:securelyhello/core/providers/contacts_provider.dart';
-import 'package:securelyhello/shared/widgets/avatar_widget.dart';
+import 'package:provider/provider.dart';
 
-class ContactRequestsScreen extends StatelessWidget {
+import 'package:securelyhello/core/providers/contacts_provider.dart';
+import 'package:securelyhello/shared/theme/app_theme.dart';
+import 'package:securelyhello/shared/widgets/app_dialogs.dart';
+import 'package:securelyhello/shared/widgets/avatar_widget.dart';
+import 'package:securelyhello/shared/widgets/empty_state.dart';
+import 'package:securelyhello/shared/widgets/search_field.dart';
+import 'package:securelyhello/shared/widgets/skeleton_loader.dart';
+
+/// Incoming requests (accept / decline) and requests you sent (pending).
+class ContactRequestsScreen extends StatefulWidget {
   const ContactRequestsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final provider = context.watch<ContactsProvider>();
-    final requests = provider.receivedRequests;
+  State<ContactRequestsScreen> createState() => _ContactRequestsScreenState();
+}
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0F),
-      appBar: AppBar(
-        title: Text(
-          'Contact Requests',
-          style: GoogleFonts.manrope(fontWeight: FontWeight.bold),
+class _ContactRequestsScreenState extends State<ContactRequestsScreen> {
+  final Set<String> _busy = {};
+
+  Future<void> _accept(ContactRequest req, String name) async {
+    final provider = context.read<ContactsProvider>();
+    setState(() => _busy.add(req.id));
+    final ok = await provider.acceptContactRequest(req.id);
+    if (!mounted) return;
+    setState(() => _busy.remove(req.id));
+    if (ok) {
+      showAppSnackBar(context, '$name is now a contact', success: true);
+    } else {
+      showAppSnackBar(
+        context,
+        friendlyError(
+          provider.errorMessage,
+          fallback: 'Could not accept the request',
         ),
-      ),
-      body: requests.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    LucideIcons.inbox,
-                    size: 64,
-                    color: const Color(0xFFB8B8CC).withValues(alpha: 0.2),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No pending requests',
-                    style: GoogleFonts.inter(
-                      color: const Color(0xFFB8B8CC),
-                      fontSize: 16,
-                    ),
-                  ),
-                ],
-              ),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: requests.length,
-              itemBuilder: (context, index) {
-                final req = requests[index];
-                final sender = req.sender;
-                if (sender == null) return const SizedBox.shrink();
+        error: true,
+      );
+    }
+  }
 
+  Future<void> _decline(ContactRequest req, String name) async {
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Decline request?',
+      message:
+          '$name won’t be added to your contacts. They can send you a '
+          'new request later.',
+      confirmLabel: 'Decline',
+      destructive: true,
+    );
+    if (!confirmed || !mounted) return;
+    final provider = context.read<ContactsProvider>();
+    setState(() => _busy.add(req.id));
+    final ok = await provider.rejectContactRequest(req.id);
+    if (!mounted) return;
+    setState(() => _busy.remove(req.id));
+    if (ok) {
+      showAppSnackBar(context, 'Request from $name declined');
+    } else {
+      showAppSnackBar(
+        context,
+        friendlyError(
+          provider.errorMessage,
+          fallback: 'Could not decline the request',
+        ),
+        error: true,
+      );
+    }
+  }
+
+  String _nameOf(UserSearchResult? u) {
+    if (u == null) return 'Unknown user';
+    return u.displayName.isNotEmpty ? u.displayName : '@${u.username}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final provider = context.watch<ContactsProvider>();
+    final received = provider.receivedRequests;
+    final sent = provider.sentRequests;
+
+    final loading = provider.isLoading && received.isEmpty && sent.isEmpty;
+    final loadError =
+        !provider.isLoading &&
+        received.isEmpty &&
+        sent.isEmpty &&
+        provider.errorMessage?.startsWith('Failed to load contacts') == true;
+
+    final slivers = <Widget>[];
+    if (loading) {
+      slivers.add(
+        SliverToBoxAdapter(child: SkeletonLoader.contactList(rows: 4)),
+      );
+    } else if (loadError) {
+      slivers.add(
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: EmptyStateWidget.error(
+            title: "Couldn't load requests",
+            message: friendlyError(provider.errorMessage),
+            onRetry: provider.loadContacts,
+          ),
+        ),
+      );
+    } else if (received.isEmpty && sent.isEmpty) {
+      slivers.add(
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: EmptyStateWidget(
+            icon: LucideIcons.inbox,
+            title: 'No pending requests',
+            subtitle:
+                'When someone wants to chat with you, their request shows '
+                'up here.',
+            actionLabel: 'Find people',
+            actionIcon: LucideIcons.userPlus,
+            onAction: () => Navigator.pushNamed(context, '/add-contact'),
+          ),
+        ),
+      );
+    } else {
+      if (received.isNotEmpty) {
+        slivers
+          ..add(
+            SliverToBoxAdapter(
+              child: SectionHeader('Received — ${received.length}'),
+            ),
+          )
+          ..add(
+            SliverList.builder(
+              itemCount: received.length,
+              itemBuilder: (context, i) {
+                final req = received[i];
+                final sender = req.sender;
+                final name = _nameOf(sender);
+                final busy = _busy.contains(req.id);
                 return ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   leading: AvatarWidget(
-                    displayName: sender.displayName,
-                    imageUrl: sender.avatarUrl,
-                    size: AvatarSize.medium,
+                    displayName: name,
+                    seed: req.senderId,
+                    isOnline: sender?.isOnline ?? false,
+                    ringColor: p.background,
                   ),
                   title: Text(
-                    sender.displayName,
-                    style: GoogleFonts.inter(
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                   subtitle: Text(
-                    '@${sender.username}',
-                    style: GoogleFonts.inter(
-                      color: const Color(0xFFB8B8CC),
-                    ),
+                    sender == null ? 'wants to connect' : '@${sender.username}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(LucideIcons.check, color: Color(0xFF00E5CC)),
-                        onPressed: () async {
-                          final success = await provider.acceptContactRequest(req.id);
-                          if (context.mounted) {
-                            if (success) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Request accepted from @${sender.username}')),
-                              );
-                            } else if (provider.errorMessage != null) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(provider.errorMessage!), backgroundColor: Colors.red),
-                              );
-                            }
-                          }
-                        },
-                      ),
-                      IconButton(
-                        icon: const Icon(LucideIcons.x, color: Color(0xFFEF4444)),
-                        onPressed: () async {
-                          final success = await provider.rejectContactRequest(req.id);
-                          if (!success && context.mounted && provider.errorMessage != null) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(provider.errorMessage!), backgroundColor: Colors.red),
-                            );
-                          }
-                        },
-                      ),
-                    ],
+                  trailing: busy
+                      ? const SizedBox(
+                          width: 44,
+                          child: Center(
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.2,
+                              ),
+                            ),
+                          ),
+                        )
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Decline',
+                              icon: Icon(LucideIcons.x, color: p.textSecondary),
+                              onPressed: () => _decline(req, name),
+                            ),
+                            FilledButton(
+                              onPressed: () => _accept(req, name),
+                              child: const Text('Accept'),
+                            ),
+                          ],
+                        ),
+                );
+              },
+            ),
+          );
+      }
+      if (sent.isNotEmpty) {
+        slivers
+          ..add(
+            SliverToBoxAdapter(child: SectionHeader('Sent — ${sent.length}')),
+          )
+          ..add(
+            SliverList.builder(
+              itemCount: sent.length,
+              itemBuilder: (context, i) {
+                final req = sent[i];
+                final receiver = req.receiver;
+                final name = _nameOf(receiver);
+                return ListTile(
+                  leading: AvatarWidget(
+                    displayName: name,
+                    seed: req.receiverId,
+                    ringColor: p.background,
+                  ),
+                  title: Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(
+                    receiver == null
+                        ? 'Awaiting reply'
+                        : '@${receiver.username}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: p.inputFill,
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                    ),
+                    child: Text(
+                      'Pending',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.labelMedium?.copyWith(color: p.textSecondary),
+                    ),
                   ),
                 );
               },
             ),
+          );
+      }
+      slivers.add(const SliverToBoxAdapter(child: SizedBox(height: 24)));
+    }
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Contact requests')),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxWidth: AppBreakpoints.contentMaxWidth,
+          ),
+          child: RefreshIndicator(
+            onRefresh: provider.loadContacts,
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: slivers,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

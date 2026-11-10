@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' hide LocalStorage;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:securelyhello/core/crypto/crypto_core.dart';
 import 'package:securelyhello/core/storage/local_storage.dart';
-import 'package:securelyhello/core/networking/supabase_directory_service.dart';
+import 'package:securelyhello/core/storage/secure_key_store.dart';
+import 'package:securelyhello/core/networking/directory_service.dart';
 
 /// Authentication state for the app.
 enum AuthStatus {
@@ -11,77 +13,100 @@ enum AuthStatus {
   loading,
   authenticated,
   unauthenticated,
-  needsVerification,
-  needsProfile,
   error,
 }
 
-/// Manages authentication state and user identity.
+/// The signed-in account.
+class AuthUser {
+  final String id;
+  final String? email;
+  const AuthUser({required this.id, this.email});
+}
+
+/// Manages authentication state, the directory profile and the on-device
+/// cryptographic identity.
+///
+/// On every sign-in the device:
+/// 1. loads its profile from the server (or the cached copy when offline),
+/// 2. opens this account's encrypted local database,
+/// 3. loads its private keys from the platform keystore (generating a new
+///    identity on a fresh install), and
+/// 4. publishes its public keys if the directory holds different ones, so
+///    contacts always encrypt to the device that is actually signed in.
 class AuthProvider extends ChangeNotifier {
-  final SupabaseDirectoryService _directoryService;
+  final DirectoryService _directoryService;
   final LocalStorage _localStorage;
+  final SecureKeyStore _keyStore;
 
   AuthStatus _status = AuthStatus.initial;
-  User? _user;
+  AuthUser? _user;
   CryptoIdentity? _identity;
+  Map<String, dynamic>? _profile;
   String? _errorMessage;
   bool _isLoading = false;
-  StreamSubscription<AuthState>? _authSubscription;
+  StreamSubscription<void>? _expiredSubscription;
+
+  bool _signingOut = false;
+  final List<Future<void> Function()> _signOutHooks = [];
 
   AuthProvider({
-    required SupabaseDirectoryService directoryService,
+    required DirectoryService directoryService,
     required LocalStorage localStorage,
+    required SecureKeyStore keyStore,
   })  : _directoryService = directoryService,
-        _localStorage = localStorage;
+        _localStorage = localStorage,
+        _keyStore = keyStore;
 
   // -- Getters --
   AuthStatus get status => _status;
-  User? get user => _user;
+  AuthUser? get user => _user;
   CryptoIdentity? get identity => _identity;
   String? get errorMessage => _errorMessage;
   bool get isLoading => _isLoading;
   bool get isAuthenticated => _status == AuthStatus.authenticated;
-  String? get userId => _user?.id;
 
-  /// Initialize auth state — call once at app start.
+  /// The account id: the id contacts and messages use.
+  String? get userId => _user?.id;
+  String? get myUserId => _user?.id;
+  String? get email => _user?.email;
+  String get username => _profile?['username'] as String? ?? '';
+  String get displayName =>
+      _profile?['display_name'] as String? ?? username;
+
+  /// Drops a stale error (e.g. when moving between login and sign up).
+  void clearError() {
+    if (_errorMessage == null) return;
+    _errorMessage = null;
+    if (_status == AuthStatus.error) _status = AuthStatus.unauthenticated;
+    notifyListeners();
+  }
+
+  /// Runs before local state is torn down on sign-out / account deletion.
+  void addSignOutHook(Future<void> Function() hook) => _signOutHooks.add(hook);
+
+  /// Initialize auth state: call once at app start.
   Future<void> init() async {
     _setLoading(true);
 
-    // Listen for auth state changes
-    _authSubscription = _directoryService.authStateChanges.listen(
-      _handleAuthStateChange,
-      onError: (error) {
-        _setError('Auth stream error: $error');
-      },
-    );
+    _expiredSubscription ??=
+        _directoryService.onSessionExpired.listen((_) => _onSessionExpired());
 
-    // Check current session
-    final currentUser = _directoryService.currentUser;
-    if (currentUser != null) {
-      final exists = await _directoryService.checkProfileExists();
-      if (!exists) {
-        await _directoryService.signOut();
-        _user = null;
-        _setStatus(AuthStatus.unauthenticated);
-        _setLoading(false);
-        return;
-      }
-
-      _user = currentUser;
-      await _loadIdentity();
-      if (_identity != null) {
-        _setStatus(AuthStatus.authenticated);
+    try {
+      final session = await _directoryService.restoreSession();
+      if (session != null) {
+        await _bootstrap(session.userId, email: session.email);
       } else {
-        _setStatus(AuthStatus.needsProfile);
+        _setStatus(AuthStatus.unauthenticated);
       }
-    } else {
+    } catch (e) {
+      debugPrint('Restoring the session failed: $e');
       _setStatus(AuthStatus.unauthenticated);
     }
 
     _setLoading(false);
   }
 
-  /// Sign up with email and password.
+  /// Sign up with email, password and a unique username.
   Future<bool> signUp({
     required String email,
     required String password,
@@ -92,55 +117,24 @@ class AuthProvider extends ChangeNotifier {
     _clearError();
 
     try {
-      // Check username availability first
-      final isAvailable = await _directoryService.isUsernameAvailable(username);
-      if (!isAvailable) {
-        _setError('Username @$username is already taken');
-        _setLoading(false);
-        return false;
-      }
-
-      // Sign up with Supabase Auth
-      final response = await _directoryService.signUp(email, password);
-
-      if (response.user != null) {
-        _user = response.user;
-
-        // Generate crypto identity on-device
-        _identity = CryptoCore.generateIdentity();
-
-        // Save identity locally (private keys stay on device)
-        await _localStorage.saveIdentity(_identity!);
-
-        // Create public profile on Supabase (only public keys)
-        await _directoryService.createUserProfile(
-          uid: _user!.id,
-          username: username,
-          displayName: displayName,
-          publicSigningKey: _identity!.publicSigningKeyBase64,
-          publicEncryptionKey: _identity!.publicEncryptionKeyBase64,
-        );
-
-        // Check if email verification is required
-        if (response.session == null) {
-          _setStatus(AuthStatus.needsVerification);
-        } else {
-          _setStatus(AuthStatus.authenticated);
-        }
-
-        _setLoading(false);
-        return true;
-      } else {
-        _setError('Signup failed — no user returned');
-        _setLoading(false);
-        return false;
-      }
-    } on AuthException catch (e) {
-      _setError(e.message);
+      // Keys are generated on-device; only public halves ever leave it.
+      final identity = CryptoCore.generateIdentity();
+      final profile = await _directoryService.signUp(
+        email: email,
+        password: password,
+        username: username.trim().toLowerCase(),
+        displayName: displayName,
+        publicSigningKey: identity.publicSigningKeyBase64,
+        publicEncryptionKey: identity.publicEncryptionKeyBase64,
+      );
+      final userId = profile['user_id'] as String;
+      await _keyStore.saveIdentity(userId, identity);
+      final ok = await _bootstrap(userId,
+          email: profile['email'] as String?, knownProfile: profile);
       _setLoading(false);
-      return false;
+      return ok;
     } catch (e) {
-      _setError('Signup failed: $e');
+      _setError(_describe(e, 'Sign up failed'));
       _setLoading(false);
       return false;
     }
@@ -155,47 +149,13 @@ class AuthProvider extends ChangeNotifier {
     _clearError();
 
     try {
-      final response = await _directoryService.signIn(email, password);
-
-      if (response.user != null) {
-        _user = response.user;
-
-        // Load crypto identity from local storage
-        await _loadIdentity();
-
-        if (_identity != null) {
-          // Update online status
-          await _directoryService.updateOnlineStatus(true);
-          _setStatus(AuthStatus.authenticated);
-        } else {
-          // Identity not found locally — user signed up on another device
-          // Generate a new identity and update Supabase profile
-          _identity = CryptoCore.generateIdentity();
-          await _localStorage.saveIdentity(_identity!);
-
-          // Update public keys on Supabase
-          await _directoryService.updateProfile(
-            displayName: null,
-            avatarUrl: null,
-            username: null,
-          );
-
-          _setStatus(AuthStatus.authenticated);
-        }
-
-        _setLoading(false);
-        return true;
-      } else {
-        _setError('Login failed — no user returned');
-        _setLoading(false);
-        return false;
-      }
-    } on AuthException catch (e) {
-      _setError(e.message);
+      final profile = await _directoryService.signIn(email, password);
+      final ok = await _bootstrap(profile['user_id'] as String,
+          email: profile['email'] as String?, knownProfile: profile);
       _setLoading(false);
-      return false;
+      return ok;
     } catch (e) {
-      _setError('Login failed: $e');
+      _setError(_describe(e, 'Log in failed'));
       _setLoading(false);
       return false;
     }
@@ -204,116 +164,220 @@ class AuthProvider extends ChangeNotifier {
   /// Sign out.
   Future<void> signOut() async {
     _setLoading(true);
+    _signingOut = true;
     try {
-      await _directoryService.updateOnlineStatus(false);
+      await _runSignOutHooks();
       await _directoryService.signOut();
-      _user = null;
-      _identity = null;
-      _setStatus(AuthStatus.unauthenticated);
     } catch (e) {
-      _setError('Sign out failed: $e');
+      debugPrint('Sign out error: $e');
     }
+    await _clearSession();
+    _signingOut = false;
     _setLoading(false);
   }
 
-  /// Request password reset email.
-  Future<bool> resetPassword(String email) async {
-    _setLoading(true);
-    _clearError();
-
+  /// Changes the password. Other devices are signed out by the server.
+  Future<bool> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    _errorMessage = null;
     try {
-      await _directoryService.resetPassword(email);
-      _setLoading(false);
+      await _directoryService.changePassword(
+          currentPassword: currentPassword, newPassword: newPassword);
       return true;
     } catch (e) {
-      _setError('Password reset failed: $e');
-      _setLoading(false);
+      _errorMessage = _describe(e, 'Could not change the password');
+      notifyListeners();
       return false;
     }
   }
 
-  /// Delete account permanently.
+  /// Delete account permanently: server profile, local history and keys.
   Future<bool> deleteAccount() async {
+    final userId = _user?.id;
+    if (userId == null) return false;
     _setLoading(true);
     _clearError();
+    _signingOut = true;
 
     try {
+      // Server first: if it fails, nothing local has been destroyed yet.
       await _directoryService.deleteAccount();
-      _user = null;
-      _identity = null;
-      await _localStorage.close();
-      _setStatus(AuthStatus.unauthenticated);
+      await _runSignOutHooks();
+      await _localStorage.deleteDatabaseForUser(userId);
+      await _keyStore.deleteAll(userId);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_profileCacheKey(userId));
+      await _clearSession();
+      _signingOut = false;
       _setLoading(false);
       return true;
     } catch (e) {
-      _setError('Account deletion failed: $e');
+      _signingOut = false;
+      _errorMessage = _describe(e, 'Account deletion failed');
       _setLoading(false);
       return false;
     }
   }
 
-  /// Resend verification email.
-  Future<bool> resendVerificationEmail() async {
-    if (_user?.email == null) return false;
+  /// Change the public display name.
+  Future<bool> updateDisplayName(String name) async {
+    final trimmed = name.trim();
+    final userId = _user?.id;
+    if (trimmed.isEmpty || userId == null) return false;
     try {
-      await Supabase.instance.client.auth.resend(
-        type: OtpType.signup,
-        email: _user!.email!,
-      );
+      await _directoryService.updateProfile(displayName: trimmed);
+      _profile = {...?_profile, 'display_name': trimmed};
+      await _cacheProfile(userId, _profile!);
+      notifyListeners();
       return true;
     } catch (e) {
-      _setError('Failed to resend verification: $e');
+      _errorMessage = _describe(e, 'Could not update name');
+      notifyListeners();
       return false;
     }
   }
 
-  // -- Private methods --
+  /// Tells contacts whether the app is in the foreground. Being connected is
+  /// what makes us "online"; this only toggles "away".
+  Future<void> setPresence(bool online) async {
+    if (!isAuthenticated) return;
+    _directoryService.setAway(!online);
+    if (online) _directoryService.nudgeRealtime();
+  }
 
-  void _handleAuthStateChange(AuthState authState) {
-    final event = authState.event;
-    final session = authState.session;
+  // ---------------------------------------------------------------------------
+  // Session bootstrap
+  // ---------------------------------------------------------------------------
 
-    switch (event) {
-      case AuthChangeEvent.signedIn:
-        if (session?.user != null) {
-          _directoryService.checkProfileExists().then((exists) {
-            if (!exists) {
-              _directoryService.signOut();
-              _user = null;
-              _setStatus(AuthStatus.unauthenticated);
-              return;
-            }
-
-            _user = session!.user;
-            _loadIdentity().then((_) {
-              if (_identity != null) {
-                _setStatus(AuthStatus.authenticated);
-              } else {
-                _setStatus(AuthStatus.needsProfile);
-              }
-            });
-          });
+  Future<bool> _bootstrap(
+    String userId, {
+    String? email,
+    Map<String, dynamic>? knownProfile,
+  }) async {
+    // 1. Directory profile (fall back to the cached copy when offline).
+    Map<String, dynamic>? profile = knownProfile;
+    if (profile == null) {
+      try {
+        profile = await _directoryService.getMyProfile();
+      } on ApiException catch (e) {
+        if (e.isUnauthorized || e.status == 404) {
+          await _directoryService.forgetSession();
+          _setStatus(AuthStatus.unauthenticated);
+          return false;
         }
-        break;
-      case AuthChangeEvent.signedOut:
-        _user = null;
-        _identity = null;
-        _setStatus(AuthStatus.unauthenticated);
-        break;
-      case AuthChangeEvent.tokenRefreshed:
-        // Session refreshed, nothing to do
-        break;
-      case AuthChangeEvent.userUpdated:
-        _user = authState.session?.user;
-        notifyListeners();
-        break;
-      default:
-        break;
+        profile = await _loadCachedProfile(userId);
+      } catch (_) {
+        profile = await _loadCachedProfile(userId);
+      }
+      if (profile == null) {
+        // Never signed in on this device while online: nothing to show.
+        _setError("Can't reach the server. Check your connection and try again.");
+        return false;
+      }
+    }
+    _user = AuthUser(id: userId, email: profile['email'] as String? ?? email);
+    _profile = profile;
+    await _cacheProfile(userId, profile);
+
+    // 2. This account's local database.
+    final dbKey = await _keyStore.getOrCreateLocalDbKey(userId);
+    await _localStorage.openForUser(userId, encryptionKey: dbKey);
+
+    // 3. Private keys: keystore, or a fresh identity on a new device.
+    var identity = await _keyStore.loadIdentity(userId);
+    if (identity == null) {
+      identity = CryptoCore.generateIdentity();
+      await _keyStore.saveIdentity(userId, identity);
+    }
+    _identity = identity;
+
+    // 4. Make sure contacts encrypt to *this* device.
+    if (profile['signing_public_key'] != identity.publicSigningKeyBase64 ||
+        profile['encryption_public_key'] !=
+            identity.publicEncryptionKeyBase64) {
+      try {
+        await _directoryService.updatePublicKeys(
+          publicSigningKey: identity.publicSigningKeyBase64,
+          publicEncryptionKey: identity.publicEncryptionKeyBase64,
+        );
+        _profile = {
+          ...profile,
+          'signing_public_key': identity.publicSigningKeyBase64,
+          'encryption_public_key': identity.publicEncryptionKeyBase64,
+        };
+        await _cacheProfile(userId, _profile!);
+      } catch (e) {
+        // Retried automatically on next launch (the mismatch persists).
+        debugPrint('Publishing public keys failed: $e');
+      }
+    }
+
+    _clearError();
+    _setStatus(AuthStatus.authenticated);
+    return true;
+  }
+
+  /// The server rejected our token (revoked, expired, account deleted).
+  void _onSessionExpired() {
+    if (_signingOut || _status != AuthStatus.authenticated) return;
+    _signingOut = true;
+    unawaited(() async {
+      await _runSignOutHooks();
+      await _directoryService.forgetSession();
+      await _clearSession();
+      _signingOut = false;
+    }());
+  }
+
+  static String _describe(Object error, String fallback) {
+    if (error is ApiException || error is NetworkException) {
+      return error.toString();
+    }
+    debugPrint('$fallback: $error');
+    return fallback;
+  }
+
+  Future<void> _runSignOutHooks() async {
+    for (final hook in _signOutHooks) {
+      try {
+        await hook();
+      } catch (e) {
+        debugPrint('Sign-out hook failed: $e');
+      }
     }
   }
 
-  Future<void> _loadIdentity() async {
-    _identity = await _localStorage.loadIdentity();
+  Future<void> _clearSession() async {
+    await _localStorage.close();
+    _user = null;
+    _identity = null;
+    _profile = null;
+    _setStatus(AuthStatus.unauthenticated);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Profile caching (offline start)
+  // ---------------------------------------------------------------------------
+
+  static String _profileCacheKey(String authId) => 'sh_profile_$authId';
+  Future<void> _cacheProfile(String authId, Map<String, dynamic> profile) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_profileCacheKey(authId), jsonEncode({
+      'user_id': profile['user_id'],
+      'email': profile['email'],
+      'username': profile['username'],
+      'display_name': profile['display_name'],
+      'signing_public_key': profile['signing_public_key'],
+      'encryption_public_key': profile['encryption_public_key'],
+    }));
+  }
+
+  Future<Map<String, dynamic>?> _loadCachedProfile(String authId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_profileCacheKey(authId));
+    return raw == null ? null : jsonDecode(raw) as Map<String, dynamic>;
   }
 
   void _setStatus(AuthStatus status) {
@@ -338,7 +402,7 @@ class AuthProvider extends ChangeNotifier {
 
   @override
   void dispose() {
-    _authSubscription?.cancel();
+    _expiredSubscription?.cancel();
     super.dispose();
   }
 }

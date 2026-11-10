@@ -1,195 +1,480 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
+
+import 'package:securelyhello/core/chat/chat_service.dart'
+    show Conversation, Message;
 import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
+import 'package:securelyhello/features/chat/widgets/conversation_tile.dart';
+import 'package:securelyhello/features/chat/widgets/new_chat_sheet.dart';
+import 'package:securelyhello/features/contacts/widgets/contact_info_sheet.dart';
+import 'package:securelyhello/features/home/chat_navigation.dart';
+import 'package:securelyhello/shared/theme/app_theme.dart';
+import 'package:securelyhello/shared/widgets/action_menu.dart';
+import 'package:securelyhello/shared/widgets/app_dialogs.dart';
 import 'package:securelyhello/shared/widgets/avatar_widget.dart';
+import 'package:securelyhello/shared/widgets/chat_chips.dart';
 import 'package:securelyhello/shared/widgets/empty_state.dart';
+import 'package:securelyhello/shared/widgets/message_status_icon.dart';
+import 'package:securelyhello/shared/widgets/search_field.dart';
 import 'package:securelyhello/shared/widgets/skeleton_loader.dart';
 
-class ConversationListScreen extends StatelessWidget {
+/// Home tab: the list of conversations.
+class ConversationListScreen extends StatefulWidget {
   const ConversationListScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final chatProvider = context.watch<ChatProvider>();
-    final contactsProvider = context.watch<ContactsProvider>();
+  State<ConversationListScreen> createState() => _ConversationListScreenState();
+}
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0F),
-      appBar: AppBar(
-        title: const Text('Chats'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit),
-            onPressed: () {
-              // Switch to contacts tab in home screen (handled externally ideally)
-              // For now just push add contact
-              Navigator.pushNamed(context, '/add-contact');
-            },
+enum _Filter { all, unread }
+
+enum _ConvAction { read, info, clear, delete }
+
+enum _TopMenu { findPeople, requests }
+
+class _ConversationListScreenState extends State<ConversationListScreen> {
+  final _search = TextEditingController();
+  String _query = '';
+  _Filter _filter = _Filter.all;
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    final chat = context.read<ChatProvider>();
+    final contacts = context.read<ContactsProvider>();
+    await Future.wait([chat.loadConversations(), contacts.loadContacts()]);
+  }
+
+  Future<void> _startChat(String contactUserId) async {
+    final chat = context.read<ChatProvider>();
+    try {
+      await chat.getOrCreateConversation(contactUserId);
+    } catch (_) {
+      // The chat screen creates the conversation on first send anyway.
+    }
+    if (mounted) openChat(context, contactUserId);
+  }
+
+  Future<void> _newChat() async {
+    final id = await showNewChatSheet(context);
+    if (id != null && mounted) await _startChat(id);
+  }
+
+  Future<void> _conversationMenu(
+    Conversation conv,
+    Contact? contact,
+    String name, {
+    Offset? position,
+  }) async {
+    final action = await showActionMenu<_ConvAction>(
+      context,
+      position: position,
+      header: position != null
+          ? null
+          : ListTile(
+              leading: AvatarWidget(
+                displayName: name,
+                seed: conv.contactUserId,
+                size: AvatarSize.medium,
+              ),
+              title: Text(
+                name,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+      items: [
+        if (conv.unreadCount > 0)
+          const ActionItem(
+            value: _ConvAction.read,
+            icon: LucideIcons.checkCheck,
+            label: 'Mark as read',
           ),
-        ],
-      ),
-      body: _buildBody(chatProvider, contactsProvider, context),
+        if (contact != null)
+          const ActionItem(
+            value: _ConvAction.info,
+            icon: LucideIcons.user,
+            label: 'Contact info',
+          ),
+        const ActionItem(
+          value: _ConvAction.clear,
+          icon: LucideIcons.eraser,
+          label: 'Clear chat history',
+        ),
+        const ActionItem(
+          value: _ConvAction.delete,
+          icon: LucideIcons.trash2,
+          label: 'Delete chat',
+          destructive: true,
+        ),
+      ],
+    );
+    if (!mounted || action == null) return;
+    final chat = context.read<ChatProvider>();
+    switch (action) {
+      case _ConvAction.read:
+        await chat.markConversationAsRead(conv.id);
+      case _ConvAction.info:
+        final result = await showContactInfoSheet(
+          context,
+          contact!,
+          showMessageAction: true,
+        );
+        if (!mounted) return;
+        if (result == ContactSheetAction.message) {
+          openChat(context, conv.contactUserId);
+        } else if (result == ContactSheetAction.removed) {
+          closeChatIfOpen(context, conv.contactUserId);
+        }
+      case _ConvAction.clear:
+        final ok = await showConfirmDialog(
+          context,
+          title: 'Clear chat history?',
+          message:
+              'All messages with $name will be deleted from this device. '
+              'The chat stays in your list.',
+          confirmLabel: 'Clear',
+          destructive: true,
+        );
+        if (!ok) return;
+        await chat.clearConversation(conv.id);
+        if (mounted) showAppSnackBar(context, 'Chat history cleared');
+      case _ConvAction.delete:
+        await _deleteConversation(conv, name, confirmed: false);
+    }
+  }
+
+  Future<bool> _confirmDelete(String name) => showConfirmDialog(
+    context,
+    title: 'Delete chat with $name?',
+    message:
+        'The conversation and its messages will be deleted from this '
+        'device. This cannot be undone.',
+    confirmLabel: 'Delete',
+    destructive: true,
+  );
+
+  Future<void> _deleteConversation(
+    Conversation conv,
+    String name, {
+    required bool confirmed,
+  }) async {
+    if (!confirmed && !await _confirmDelete(name)) return;
+    if (!mounted) return;
+    final chat = context.read<ChatProvider>();
+    closeChatIfOpen(context, conv.contactUserId);
+    await chat.deleteConversation(conv.id);
+    if (mounted) showAppSnackBar(context, 'Chat deleted');
+  }
+
+  /// The delivery tick for the preview, derived from the cached messages
+  /// when the conversation's newest message is ours.
+  ({MessageStatus? status, bool system}) _lastInfo(
+    ChatProvider chat,
+    Conversation conv,
+  ) {
+    final cached = chat.getMessages(conv.id);
+    if (cached.isEmpty) return (status: null, system: false);
+    final Message newest = cached.first;
+    final sameAsPreview =
+        newest.content == conv.lastMessage &&
+        (conv.lastMessageTime == null ||
+            newest.timestamp
+                    .difference(conv.lastMessageTime!)
+                    .inSeconds
+                    .abs() <=
+                2);
+    if (!sameAsPreview) return (status: null, system: false);
+    if (newest.isSystem) return (status: null, system: true);
+    return (
+      status: newest.isFromMe ? MessageStatus.fromString(newest.status) : null,
+      system: false,
     );
   }
 
-  Widget _buildBody(ChatProvider chatProvider, ContactsProvider contactsProvider, BuildContext context) {
-    if (chatProvider.isLoading && chatProvider.conversations.isEmpty) {
-      return SkeletonLoader.chatList();
-    }
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final chat = context.watch<ChatProvider>();
+    final contactsProvider = context.watch<ContactsProvider>();
+    final selectedId = TwoPaneScope.maybeOf(context)?.selectedContactId;
+    final requestCount = contactsProvider.receivedRequests.length;
 
-    if (chatProvider.conversations.isEmpty) {
-      return Center(
-        child: EmptyStateWidget.noMessages(),
-      );
-    }
+    final q = _query.trim().toLowerCase();
+    bool matches(String? s) => s != null && s.toLowerCase().contains(q);
 
-    return ListView.builder(
-      itemCount: chatProvider.conversations.length,
-      itemBuilder: (context, index) {
-        final conv = chatProvider.conversations[index];
-        final contact = contactsProvider.getContact(conv.contactUserId);
-        
-        final displayName = contact?.displayLabel ?? 'Unknown';
-        final avatarUrl = contact?.avatarUrl;
-        final isOnline = contact?.isOnline ?? false;
+    final all = chat.conversations;
+    final unreadChats = all.where((c) => c.unreadCount > 0).length;
+    final visible = all.where((conv) {
+      if (_filter == _Filter.unread && conv.unreadCount == 0) return false;
+      if (q.isEmpty) return true;
+      final c = contactsProvider.getContact(conv.contactUserId);
+      return matches(c?.displayLabel) ||
+          matches(c?.username) ||
+          matches(conv.lastMessage);
+    }).toList();
 
-        return Dismissible(
-          key: Key(conv.id),
-          direction: DismissDirection.endToStart,
-          background: Container(
-            alignment: Alignment.centerRight,
-            padding: const EdgeInsets.only(right: 24),
-            color: const Color(0xFFEF4444),
-            child: const Icon(LucideIcons.trash2, color: Colors.white),
+    final convIds = all.map((c) => c.contactUserId).toSet();
+    final contactHits = q.isEmpty
+        ? const <Contact>[]
+        : contactsProvider.contacts
+              .where(
+                (c) =>
+                    !convIds.contains(c.userId) &&
+                    (matches(c.displayLabel) || matches(c.username)),
+              )
+              .toList();
+
+    final loading = chat.isLoading && all.isEmpty;
+    final loadError =
+        all.isEmpty &&
+        !chat.isLoading &&
+        (chat.errorMessage?.startsWith('Failed to load conversations') ==
+                true ||
+            chat.errorMessage?.startsWith('Failed to initialize') == true);
+
+    final slivers = <Widget>[
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+          child: SearchField(
+            controller: _search,
+            hint: 'Search chats',
+            onChanged: (v) => setState(() => _query = v),
           ),
-          confirmDismiss: (direction) async {
-            return await showDialog(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                backgroundColor: const Color(0xFF1A1A2E),
-                title: const Text('Delete chat?'),
-                content: const Text('This will permanently delete message history from your device.'),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: const Text('Cancel', style: TextStyle(color: Color(0xFFB8B8CC))),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: const Text('Delete', style: TextStyle(color: Color(0xFFEF4444))),
-                  ),
-                ],
+        ),
+      ),
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+          child: Wrap(
+            spacing: 8,
+            children: [
+              ChoiceChip(
+                label: const Text('All'),
+                selected: _filter == _Filter.all,
+                showCheckmark: false,
+                onSelected: (_) => setState(() => _filter = _Filter.all),
               ),
-            );
-          },
-          onDismissed: (direction) {
-            chatProvider.deleteConversation(conv.id);
-          },
-          child: InkWell(
-            onTap: () {
-              Navigator.pushNamed(context, '/chat', arguments: conv.contactUserId);
-            },
+              ChoiceChip(
+                label: Text(
+                  unreadChats > 0 ? 'Unread ($unreadChats)' : 'Unread',
+                ),
+                selected: _filter == _Filter.unread,
+                showCheckmark: false,
+                onSelected: (_) => setState(() => _filter = _Filter.unread),
+              ),
+            ],
+          ),
+        ),
+      ),
+      if (requestCount > 0 && q.isEmpty)
+        SliverToBoxAdapter(
+          child: ListTile(
+            leading: CircleAvatar(
+              radius: 26,
+              backgroundColor: p.accentContainer,
+              child: Icon(
+                LucideIcons.userPlus,
+                color: p.onAccentContainer,
+                size: 22,
+              ),
+            ),
+            title: const Text(
+              'Contact requests',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: Text(
+              requestCount == 1
+                  ? '1 person wants to connect'
+                  : '$requestCount people want to connect',
+            ),
+            trailing: UnreadBadge(count: requestCount),
+            onTap: () => Navigator.pushNamed(context, '/contact-requests'),
+          ),
+        ),
+    ];
+
+    if (loading) {
+      slivers.add(SliverToBoxAdapter(child: SkeletonLoader.chatList()));
+    } else if (loadError) {
+      slivers.add(
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: EmptyStateWidget.error(
+            title: "Couldn't load your chats",
+            message: friendlyError(chat.errorMessage),
+            onRetry: () => chat.loadConversations(),
+          ),
+        ),
+      );
+    } else if (all.isEmpty) {
+      slivers.add(
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: EmptyStateWidget.noMessages(onAction: _newChat),
+        ),
+      );
+    } else if (visible.isEmpty && contactHits.isEmpty) {
+      slivers.add(
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: q.isNotEmpty
+              ? EmptyStateWidget.noSearchResults(query: _query.trim())
+              : const EmptyStateWidget(
+                  icon: LucideIcons.mailCheck,
+                  title: "You're all caught up",
+                  subtitle: 'No unread chats.',
+                ),
+        ),
+      );
+    } else {
+      slivers.add(
+        SliverList.builder(
+          itemCount: visible.length,
+          itemBuilder: (context, i) =>
+              _buildTile(chat, contactsProvider, visible[i], selectedId),
+        ),
+      );
+      if (contactHits.isNotEmpty) {
+        slivers.add(
+          SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                children: [
-                  AvatarWidget(
-                    displayName: displayName,
-                    imageUrl: avatarUrl,
-                    isOnline: isOnline,
-                    size: AvatarSize.large,
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                displayName,
-                                style: GoogleFonts.inter(
-                                  fontSize: 16,
-                                  fontWeight: conv.unreadCount > 0 ? FontWeight.bold : FontWeight.w600,
-                                  color: Colors.white,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            if (conv.lastMessageTime != null)
-                              Text(
-                                _formatTimestamp(conv.lastMessageTime!),
-                                style: GoogleFonts.inter(
-                                  fontSize: 12,
-                                  color: conv.unreadCount > 0 ? const Color(0xFF00E5CC) : const Color(0xFF6B6B80),
-                                  fontWeight: conv.unreadCount > 0 ? FontWeight.bold : FontWeight.normal,
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                conv.lastMessage ?? 'No messages yet',
-                                style: GoogleFonts.inter(
-                                  fontSize: 14,
-                                  color: conv.unreadCount > 0 ? Colors.white : const Color(0xFFB8B8CC),
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            if (conv.unreadCount > 0)
-                              Container(
-                                margin: const EdgeInsets.only(left: 8),
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF00E5CC),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  conv.unreadCount > 99 ? '99+' : conv.unreadCount.toString(),
-                                  style: GoogleFonts.inter(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: const Color(0xFF0A0A0F),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+              padding: const EdgeInsets.fromLTRB(16, 18, 16, 6),
+              child: Text(
+                'CONTACTS',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: p.accent,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.9,
+                ),
               ),
             ),
           ),
         );
-      },
+        slivers.add(
+          SliverList.builder(
+            itemCount: contactHits.length,
+            itemBuilder: (context, i) {
+              final c = contactHits[i];
+              return ListTile(
+                leading: AvatarWidget(
+                  displayName: c.displayLabel,
+                  seed: c.userId,
+                  isOnline: c.isOnline,
+                  ringColor: p.background,
+                ),
+                title: Text(c.displayLabel),
+                subtitle: Text('@${c.username}'),
+                onTap: () => _startChat(c.userId),
+              );
+            },
+          ),
+        );
+      }
+      slivers.add(const SliverToBoxAdapter(child: SizedBox(height: 88)));
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Chats'),
+        actions: [
+          PopupMenuButton<_TopMenu>(
+            tooltip: 'More options',
+            icon: const Icon(LucideIcons.ellipsisVertical),
+            onSelected: (v) {
+              switch (v) {
+                case _TopMenu.findPeople:
+                  Navigator.pushNamed(context, '/add-contact');
+                case _TopMenu.requests:
+                  Navigator.pushNamed(context, '/contact-requests');
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: _TopMenu.findPeople,
+                child: Text('Find people'),
+              ),
+              PopupMenuItem(
+                value: _TopMenu.requests,
+                child: Text(
+                  requestCount > 0
+                      ? 'Contact requests ($requestCount)'
+                      : 'Contact requests',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: 4),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        heroTag: 'new-chat-fab',
+        tooltip: 'New chat',
+        onPressed: _newChat,
+        child: const Icon(LucideIcons.squarePen),
+      ),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: Scrollbar(
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: slivers,
+          ),
+        ),
+      ),
     );
   }
 
-  String _formatTimestamp(DateTime time) {
-    final now = DateTime.now();
-    final diff = now.difference(time);
+  Widget _buildTile(
+    ChatProvider chat,
+    ContactsProvider contacts,
+    Conversation conv,
+    String? selectedId,
+  ) {
+    final contact = contacts.getContact(conv.contactUserId);
+    final name =
+        contact?.displayLabel ??
+        (contacts.isLoading && contacts.contacts.isEmpty
+            ? '…'
+            : 'Unknown contact');
+    final info = _lastInfo(chat, conv);
 
-    if (diff.inMinutes < 1) return 'Just now';
-    if (diff.inHours < 1) return '${diff.inMinutes}m';
-    if (now.day == time.day && now.month == time.month && now.year == time.year) {
-      return DateFormat.jm().format(time);
-    }
-    if (diff.inDays < 2) return 'Yesterday';
-    if (diff.inDays < 7) return DateFormat.E().format(time);
-    return DateFormat.MMMd().format(time);
+    return Dismissible(
+      key: ValueKey('conv-${conv.id}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 24),
+        color: context.palette.danger,
+        child: const Icon(LucideIcons.trash2, color: Colors.white),
+      ),
+      confirmDismiss: (_) => _confirmDelete(name),
+      onDismissed: (_) =>
+          unawaited(_deleteConversation(conv, name, confirmed: true)),
+      child: ConversationTile(
+        contactUserId: conv.contactUserId,
+        name: name,
+        isOnline: contact?.isOnline ?? false,
+        lastMessage: conv.lastMessage,
+        lastMessageTime: conv.lastMessageTime,
+        unreadCount: conv.unreadCount,
+        isTyping: chat.isContactTyping(conv.contactUserId),
+        lastOwnStatus: info.status,
+        lastIsSystem: info.system,
+        selected: selectedId == conv.contactUserId,
+        onTap: () => openChat(context, conv.contactUserId),
+        onLongPress: () => _conversationMenu(conv, contact, name),
+        onSecondaryTapDown: (d) =>
+            _conversationMenu(conv, contact, name, position: d.globalPosition),
+      ),
+    );
   }
 }

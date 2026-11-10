@@ -1,17 +1,21 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:securelyhello/core/chat/chat_service.dart';
 import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
 
-/// Manages P2P connection states for all contacts.
+/// Exposes per-contact P2P connection states to the UI.
 class ConnectionProvider extends ChangeNotifier {
   final P2PConnectionManager _connectionManager;
+  final ChatService _chatService;
 
   final Map<String, P2PConnectionState> _connectionStates = {};
-  StreamSubscription? _stateSubscription;
+  StreamSubscription<ConnectionStateEvent>? _stateSubscription;
 
   ConnectionProvider({
     required P2PConnectionManager connectionManager,
-  }) : _connectionManager = connectionManager;
+    required ChatService chatService,
+  })  : _connectionManager = connectionManager,
+        _chatService = chatService;
 
   // -- Getters --
 
@@ -31,52 +35,28 @@ class ConnectionProvider extends ChangeNotifier {
   }
 
   /// Number of active P2P connections.
-  int get activeConnectionCount =>
-      _connectionStates.values.where((s) => s == P2PConnectionState.connected).length;
-
-  /// All contacts with active connections.
-  List<String> get connectedContacts =>
-      _connectionStates.entries
-          .where((e) => e.value == P2PConnectionState.connected)
-          .map((e) => e.key)
-          .toList();
+  int get activeConnectionCount => _connectionStates.values
+      .where((s) => s == P2PConnectionState.connected)
+      .length;
 
   /// Initialize — set up state listeners.
   void init() {
-    _stateSubscription = _connectionManager.onConnectionStateChange.listen(
-      (event) {
-        final contactId = event.contactId;
-        final state = event.state;
-
-        _connectionStates[contactId] = state;
-        notifyListeners();
-      },
-    );
-  }
-
-  /// Manually trigger a reconnection attempt for a contact.
-  Future<void> reconnect(String contactId) async {
-    _connectionStates[contactId] = P2PConnectionState.connecting;
-    notifyListeners();
-
-    try {
-      await _connectionManager.createOffer(contactId);
-    } catch (e) {
-      _connectionStates[contactId] = P2PConnectionState.failed;
+    _stateSubscription ??=
+        _connectionManager.onConnectionStateChange.listen((event) {
+      _connectionStates[event.contactId] = event.state;
       notifyListeners();
-    }
+    });
   }
+
+  /// Manually trigger a (re)connection attempt through signaling.
+  Future<void> reconnect(String contactId) => _chatService.connect(contactId);
 
   /// Disconnect from a specific contact.
-  void disconnect(String contactId) {
-    _connectionManager.closeConnection(contactId);
-    _connectionStates[contactId] = P2PConnectionState.disconnected;
-    notifyListeners();
-  }
+  Future<void> disconnect(String contactId) =>
+      _connectionManager.closeConnection(contactId);
 
-  /// Disconnect from all contacts.
-  void disconnectAll() {
-    _connectionManager.dispose();
+  /// Forget all states (sign-out).
+  void reset() {
     _connectionStates.clear();
     notifyListeners();
   }

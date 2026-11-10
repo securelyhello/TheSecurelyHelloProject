@@ -1,8 +1,9 @@
 import 'dart:convert';
+import 'dart:math';
 
-
-import 'package:pinenacl/x25519.dart';
+import 'package:pinenacl/digests.dart';
 import 'package:pinenacl/ed25519.dart';
+import 'package:pinenacl/x25519.dart';
 
 /// Holds both signing (Ed25519) and encryption (X25519) keypairs.
 ///
@@ -26,6 +27,14 @@ class CryptoIdentity {
 
   /// The Ed25519 public verification key.
   VerifyKey get verifyKey => signingKey.verifyKey;
+
+  /// Raw 32-byte X25519 private key, as expected by [CryptoCore.encrypt].
+  Uint8List get encryptionPrivateKeyBytes =>
+      Uint8List.fromList(encryptionPrivateKey);
+
+  /// Signs [message] and returns `signature (64 bytes) ‖ message`.
+  Uint8List sign(Uint8List message) =>
+      Uint8List.fromList(signingKey.sign(message).toList());
 
   // ---------------------------------------------------------------------------
   // Public key export (safe to send to Supabase)
@@ -199,6 +208,83 @@ class CryptoCore {
     } catch (_) {
       return false;
     }
+  }
+
+  /// Verifies [signedMessage] and returns the embedded message bytes.
+  ///
+  /// Throws [FormatException] if the signature does not match
+  /// [signingPublicKey].
+  static Uint8List openSigned(
+    Uint8List signedMessage,
+    Uint8List signingPublicKey,
+  ) {
+    if (signedMessage.length < 64 || !verify(signedMessage, signingPublicKey)) {
+      throw const FormatException('Invalid message signature');
+    }
+    return Uint8List.fromList(signedMessage.sublist(64));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Local at-rest encryption (XSalsa20-Poly1305 SecretBox)
+  // ---------------------------------------------------------------------------
+
+  /// Cryptographically secure random bytes.
+  static Uint8List randomBytes(int length) {
+    final rng = Random.secure();
+    return Uint8List.fromList(
+        List<int>.generate(length, (_) => rng.nextInt(256)));
+  }
+
+  /// Encrypts [plaintext] with a 32-byte symmetric [key].
+  /// Returns `nonce (24 bytes) ‖ ciphertext`.
+  static Uint8List secretEncrypt(Uint8List plaintext, Uint8List key) {
+    final encrypted = SecretBox(key).encrypt(plaintext);
+    return Uint8List.fromList(encrypted.toList());
+  }
+
+  /// Reverses [secretEncrypt].  Throws if the data was tampered with.
+  static Uint8List secretDecrypt(Uint8List data, Uint8List key) {
+    final decrypted = SecretBox(key).decrypt(EncryptedMessage(
+      nonce: data.sublist(0, 24),
+      cipherText: data.sublist(24),
+    ));
+    return Uint8List.fromList(decrypted);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Safety numbers
+  // ---------------------------------------------------------------------------
+
+  /// Computes a 60-digit safety number for the pair of identities.
+  ///
+  /// The result is symmetric — both parties derive the same digits — and
+  /// changes whenever either side's public keys change.  Users compare it
+  /// out-of-band (in person, on a call) to rule out a key-substitution
+  /// attack by the directory server.
+  static String safetyNumber({
+    required String myUserId,
+    required String mySigningKey,
+    required String myEncryptionKey,
+    required String theirUserId,
+    required String theirSigningKey,
+    required String theirEncryptionKey,
+  }) {
+    final parties = [
+      '$myUserId|$mySigningKey|$myEncryptionKey',
+      '$theirUserId|$theirSigningKey|$theirEncryptionKey',
+    ]..sort();
+    final digest = Hash.sha512(
+        Uint8List.fromList(utf8.encode('securelyhello-sn-v1|${parties.join('#')}')));
+
+    final groups = <String>[];
+    for (var i = 0; i < 12; i++) {
+      var value = 0;
+      for (var j = 0; j < 5; j++) {
+        value = (value << 8) | digest[i * 5 + j];
+      }
+      groups.add((value % 100000).toString().padLeft(5, '0'));
+    }
+    return groups.join(' ');
   }
 
   // ---------------------------------------------------------------------------

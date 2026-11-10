@@ -1,35 +1,55 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import 'package:securelyhello/shared/theme/app_colors.dart';
-import 'package:securelyhello/shared/theme/app_typography.dart';
+import 'package:securelyhello/shared/theme/app_theme.dart';
 
-/// The current peer-connection state.
+/// How messages to a contact currently travel.
 enum PeerConnectionState {
-  /// WebRTC or signaling handshake in progress.
+  /// WebRTC handshake in progress (messages use the relay meanwhile).
   connecting,
 
-  /// Fully connected via direct P2P channel.
+  /// Direct peer-to-peer data channel is open.
   connected,
 
-  /// No network or peer unreachable.
-  offline,
+  /// No direct channel: encrypted messages go through the relay queue.
+  offline;
+
+  String get shortLabel => switch (this) {
+    PeerConnectionState.connected => 'Direct',
+    PeerConnectionState.connecting => 'Connecting',
+    PeerConnectionState.offline => 'Relay',
+  };
+
+  String get description => switch (this) {
+    PeerConnectionState.connected =>
+      'Direct peer-to-peer connection. Messages go straight to their '
+          'device.',
+    PeerConnectionState.connecting =>
+      'Setting up a direct connection. Messages are relayed (still '
+          'end-to-end encrypted) until it is ready.',
+    PeerConnectionState.offline =>
+      'No direct connection. Messages wait, end-to-end encrypted, in a '
+          'short-lived relay queue until their device picks them up.',
+  };
 }
 
-/// A subtle pill-shaped badge that communicates the P2P connection status
-/// and encryption state. Designed to sit inside the chat app bar.
+/// A small, subtle transport indicator ("Direct" / "Relay" / "Connecting")
+/// for the chat app bar. Long-press / hover shows an explanation.
 class ConnectionBadge extends StatefulWidget {
   const ConnectionBadge({
     super.key,
     required this.connectionState,
     this.isEncrypted = true,
+    this.compact = true,
   });
 
-  /// Current transport state.
   final PeerConnectionState connectionState;
 
-  /// Whether the channel is end-to-end encrypted.
+  /// Kept for API compatibility; every channel is end-to-end encrypted.
   final bool isEncrypted;
+
+  /// Icon + short label (true) or a pill with a longer label (false).
+  final bool compact;
 
   @override
   State<ConnectionBadge> createState() => _ConnectionBadgeState();
@@ -37,133 +57,91 @@ class ConnectionBadge extends StatefulWidget {
 
 class _ConnectionBadgeState extends State<ConnectionBadge>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _pulseController;
-  late final Animation<double> _pulseAnimation;
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1000),
+    lowerBound: 0.35,
+  );
 
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    );
-    _pulseAnimation = Tween<double>(begin: 0.4, end: 1.0).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
-
-    if (widget.connectionState == PeerConnectionState.connecting) {
-      _pulseController.repeat(reverse: true);
-    }
+    _sync();
   }
 
   @override
   void didUpdateWidget(covariant ConnectionBadge oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _sync();
+  }
+
+  void _sync() {
     if (widget.connectionState == PeerConnectionState.connecting) {
-      if (!_pulseController.isAnimating) {
-        _pulseController.repeat(reverse: true);
-      }
+      if (!_pulse.isAnimating) _pulse.repeat(reverse: true);
     } else {
-      _pulseController.stop();
-      _pulseController.value = 1.0;
+      _pulse
+        ..stop()
+        ..value = 1;
     }
   }
 
   @override
   void dispose() {
-    _pulseController.dispose();
+    _pulse.dispose();
     super.dispose();
-  }
-
-  // ─── Visual config per state ───────────────────────────────────────
-  Color get _dotColor {
-    switch (widget.connectionState) {
-      case PeerConnectionState.connected:
-        return AppColors.accent;
-      case PeerConnectionState.connecting:
-        return AppColors.warning;
-      case PeerConnectionState.offline:
-        return AppColors.textHint;
-    }
-  }
-
-  IconData get _icon {
-    switch (widget.connectionState) {
-      case PeerConnectionState.connected:
-        return widget.isEncrypted ? LucideIcons.shieldCheck : LucideIcons.wifi;
-      case PeerConnectionState.connecting:
-        return LucideIcons.loader;
-      case PeerConnectionState.offline:
-        return LucideIcons.wifiOff;
-    }
-  }
-
-  String get _label {
-    switch (widget.connectionState) {
-      case PeerConnectionState.connected:
-        return widget.isEncrypted
-            ? 'End-to-end encrypted · Direct connection'
-            : 'Direct connection';
-      case PeerConnectionState.connecting:
-        return 'Connecting...';
-      case PeerConnectionState.offline:
-        return 'Offline';
-    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _pulseAnimation,
-      builder: (context, child) {
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: AppColors.elevated.withAlpha(178),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: AppColors.border.withAlpha(102),
-              width: 0.5,
-            ),
+    final p = context.palette;
+    final state = widget.connectionState;
+    final (IconData icon, Color color) = switch (state) {
+      PeerConnectionState.connected => (LucideIcons.zap, p.accent),
+      PeerConnectionState.connecting => (LucideIcons.loaderCircle, p.warning),
+      PeerConnectionState.offline => (LucideIcons.cloud, p.textMuted),
+    };
+    final style = Theme.of(context).textTheme.labelSmall?.copyWith(
+      color: state == PeerConnectionState.offline ? p.textMuted : color,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.2,
+    );
+
+    final content = FadeTransition(
+      opacity: _pulse,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 3),
+          Text(
+            widget.compact
+                ? state.shortLabel
+                : switch (state) {
+                    PeerConnectionState.connected => 'Direct connection',
+                    PeerConnectionState.connecting => 'Connecting…',
+                    PeerConnectionState.offline => 'Via relay',
+                  },
+            style: style,
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Status dot
-              Opacity(
-                opacity: widget.connectionState == PeerConnectionState.connecting
-                    ? _pulseAnimation.value
-                    : 1.0,
-                child: Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: _dotColor,
-                    shape: BoxShape.circle,
-                  ),
+        ],
+      ),
+    );
+
+    return Tooltip(
+      message: state.description,
+      child: Semantics(
+        label: 'Connection: ${state.shortLabel}',
+        child: widget.compact
+            ? content
+            : Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: p.inputFill,
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
                 ),
+                child: content,
               ),
-              const SizedBox(width: 6),
-              // Icon
-              Icon(_icon, size: 12, color: _dotColor),
-              const SizedBox(width: 4),
-              // Label
-              Flexible(
-                child: Text(
-                  _label,
-                  style: AppTypography.labelSmall.copyWith(
-                    fontSize: 10,
-                    color: AppColors.textSecondary,
-                    letterSpacing: 0.2,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+      ),
     );
   }
 }

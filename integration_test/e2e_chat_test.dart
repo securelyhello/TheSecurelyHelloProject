@@ -1,0 +1,276 @@
+// End-to-end test against a running server (scripts/dev.sh).
+//
+//   scripts/dev.sh                      # terminal 1
+//   flutter test integration_test -d linux [--dart-define=API_BASE_URL=...]
+//
+// Two complete, independent client stacks ("Alice" and "Bob") run in this one
+// process: each has its own database, key store, session, WebSocket and
+// WebRTC peer connection. Nothing is mocked except the OS keystore.
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:integration_test/integration_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:securelyhello/core/chat/chat_service.dart';
+import 'package:securelyhello/core/networking/directory_service.dart';
+import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
+import 'package:securelyhello/core/providers/auth_provider.dart';
+import 'package:securelyhello/core/providers/contacts_provider.dart';
+import 'package:securelyhello/core/storage/local_storage.dart';
+import 'package:securelyhello/core/storage/secure_key_store.dart';
+
+const _baseUrl =
+    String.fromEnvironment('API_BASE_URL', defaultValue: 'http://127.0.0.1:8787');
+
+class Stack {
+  final String name;
+  final Directory dir;
+  final MemorySecretStorage secrets = MemorySecretStorage();
+  late final SecureKeyStore keyStore = SecureKeyStore(storage: secrets);
+  late final LocalStorage storage =
+      LocalStorage(baseDirectory: () async => dir.path);
+  late final DirectoryService directory =
+      DirectoryService(baseUrl: _baseUrl, tokenStore: keyStore);
+  final P2PConnectionManager p2p = P2PConnectionManager();
+  late final ChatService chat =
+      ChatService(storage: storage, p2p: p2p, directory: directory);
+  late final AuthProvider auth = AuthProvider(
+      directoryService: directory, localStorage: storage, keyStore: keyStore);
+  late final ContactsProvider contacts = ContactsProvider(
+      directoryService: directory, localStorage: storage, chatService: chat);
+
+  late final String username;
+  late final String email;
+  static const password = 'correct horse battery staple';
+
+  Stack(this.name) : dir = Directory.systemTemp.createTempSync('sh_e2e_$name');
+
+  String get id => auth.myUserId!;
+
+  Future<void> signUp() async {
+    final tag = Random.secure().nextInt(1 << 32).toRadixString(16);
+    username = '${name}_$tag';
+    email = '$username@example.test';
+    await auth.init();
+    final ok = await auth.signUp(
+        email: email,
+        password: password,
+        username: username,
+        displayName: name);
+    expect(ok, isTrue, reason: auth.errorMessage);
+    contacts.init();
+    await chat.start(identity: auth.identity!, myUserId: id);
+  }
+
+  Future<List<Message>> messagesWith(Stack other) =>
+      chat.fetchMessages(other.id);
+
+  Future<void> dispose() async {
+    await chat.stop();
+    try {
+      await directory.deleteAccount();
+    } catch (_) {}
+    await storage.close();
+    await p2p.dispose();
+    await directory.dispose();
+    dir.deleteSync(recursive: true);
+  }
+}
+
+/// Polls [check] until it returns true.
+Future<void> until(FutureOr<bool> Function() check,
+    {Duration timeout = const Duration(seconds: 20), required String what}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (true) {
+    if (await check()) return;
+    if (DateTime.now().isAfter(deadline)) fail('Timed out waiting for: $what');
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+  }
+}
+
+void main() {
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  late Stack alice;
+  late Stack bob;
+
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
+    alice = Stack('alice');
+    bob = Stack('bob');
+  });
+
+  tearDownAll(() async {
+    await alice.dispose();
+    await bob.dispose();
+  });
+
+  testWidgets('sign up, become contacts, chat P2P and via the offline relay',
+      (tester) async {
+    await tester.runAsync(() async {
+      // ---- accounts -------------------------------------------------------
+      await alice.signUp();
+      await bob.signUp();
+      expect(alice.auth.isAuthenticated, isTrue);
+      expect(alice.id, isNot(bob.id));
+      await until(() => alice.directory.isRealtimeConnected &&
+          bob.directory.isRealtimeConnected,
+          what: 'both sockets connected');
+
+      // The private keys never left the device: the server profile only has
+      // the public halves.
+      final aliceProfile = await alice.directory.getMyProfile();
+      expect(aliceProfile['signing_public_key'],
+          alice.auth.identity!.publicSigningKeyBase64);
+      expect(jsonEncode(aliceProfile).contains('private'), isFalse);
+
+      // ---- contact request ------------------------------------------------
+      final found = await alice.directory.searchUsers(bob.username);
+      expect(found.map((u) => u['user_id']), contains(bob.id));
+
+      // Strangers cannot relay to each other.
+      await expectLater(
+        alice.chat.sendMessage(bob.id, 'too early').then((m) => m.status),
+        completion('failed'),
+      );
+
+      final bobNotified = bob.contacts.onNewRequest.first;
+      expect(await alice.contacts.sendContactRequest(bob.id), isTrue);
+      expect(await bobNotified.timeout(const Duration(seconds: 10)),
+          contains('new contact request'));
+      await until(() => bob.contacts.receivedRequests.isNotEmpty,
+          what: 'Bob sees the request');
+      expect(alice.contacts.sentRequests.single.receiverId, bob.id);
+
+      final aliceNotified = alice.contacts.onNewRequest.first;
+      expect(
+          await bob.contacts
+              .acceptContactRequest(bob.contacts.receivedRequests.single.id),
+          isTrue);
+      expect(await aliceNotified.timeout(const Duration(seconds: 10)),
+          contains('accepted'));
+      await until(
+          () =>
+              alice.contacts.getContact(bob.id) != null &&
+              bob.contacts.getContact(alice.id) != null,
+          what: 'both contact lists updated');
+      await until(() => alice.contacts.getContact(bob.id)!.isOnline,
+          what: 'Alice sees Bob online');
+
+      // ---- direct P2P link ------------------------------------------------
+      // The message sent before they were contacts is retried now.
+      await alice.chat.resendUnsent();
+      await alice.chat.connect(bob.id);
+      await until(
+          () => alice.p2p.isConnected(bob.id) && bob.p2p.isConnected(alice.id),
+          timeout: const Duration(seconds: 40),
+          what: 'WebRTC data channel open on both sides');
+
+      final sent = await alice.chat.sendMessage(bob.id, 'hello bob, direct');
+      expect(sent.status, 'sent');
+      await until(
+          () async => (await bob.messagesWith(alice))
+              .any((m) => m.content == 'hello bob, direct' && !m.isFromMe),
+          what: 'Bob receives the P2P message');
+      // The direct message must not have touched the relay queue.
+      await until(() async => (await bob.directory.fetchRelayMessages()).isEmpty,
+          what: 'relay queue empty after the direct message');
+
+      Future<String?> statusOf(Stack who, Stack peer, String id) async =>
+          (await who.messagesWith(peer))
+              .where((m) => m.id == id)
+              .map((m) => m.status)
+              .firstOrNull;
+
+      await until(() async => await statusOf(alice, bob, sent.id) == 'delivered',
+          what: 'delivered receipt');
+      await bob.chat.markConversationRead(alice.id);
+      await until(() async => await statusOf(alice, bob, sent.id) == 'read',
+          what: 'read receipt');
+
+      final reply = await bob.chat.sendMessage(alice.id, 'hi alice 👋');
+      await until(
+          () async => (await alice.messagesWith(bob))
+              .any((m) => m.content == 'hi alice 👋' && !m.isFromMe),
+          what: 'Alice receives the reply');
+      await until(() async => await statusOf(bob, alice, reply.id) == 'delivered',
+          what: 'delivered receipt for the reply');
+
+      // ---- offline: relay queue -------------------------------------------
+      await bob.chat.stop(); // closes Bob's socket and peer connection
+      await until(() => !alice.p2p.isConnected(bob.id),
+          timeout: const Duration(seconds: 40),
+          what: 'Alice notices the direct link is gone');
+      await until(() => !(alice.contacts.getContact(bob.id)?.isOnline ?? true),
+          what: 'Alice sees Bob offline');
+
+      const secret = 'offline secret 4f9a';
+      final queued = await alice.chat.sendMessage(bob.id, secret);
+      expect(queued.status, 'sent');
+
+      // What the server holds for Bob is ciphertext only.
+      final waiting = await bob.directory.fetchRelayMessages();
+      final mine = waiting.where((r) {
+        final env = jsonDecode(r['envelope'] as String) as Map<String, dynamic>;
+        return env['id'] == queued.id;
+      }).toList();
+      expect(mine, hasLength(1));
+      final env =
+          jsonDecode(mine.single['envelope'] as String) as Map<String, dynamic>;
+      expect(env.keys.toSet(), {'v', 'id', 's', 't', 'c'});
+      expect(env['s'], alice.id);
+      expect(mine.single['envelope'], isNot(contains(secret)));
+      expect(utf8.decode(base64Decode(env['c'] as String), allowMalformed: true),
+          isNot(contains(secret)));
+      expect(await statusOf(alice, bob, queued.id), 'sent');
+
+      // Bob comes back: the queue is drained, decrypted and acknowledged.
+      await bob.chat.start(identity: bob.auth.identity!, myUserId: bob.id);
+      await until(
+          () async => (await bob.messagesWith(alice))
+              .any((m) => m.content == secret && !m.isFromMe),
+          what: 'Bob receives the relayed message');
+      await until(() async => await statusOf(alice, bob, queued.id) == 'delivered',
+          what: 'delivered receipt for the relayed message');
+      await until(() async => (await bob.directory.fetchRelayMessages()).isEmpty,
+          what: 'relay queue acknowledged and empty');
+
+      // Each message is stored exactly once, bodies encrypted at rest.
+      final bobSide = await bob.messagesWith(alice);
+      expect(bobSide.where((m) => m.content == secret), hasLength(1));
+      final raw = await bob.storage.db.query('messages');
+      expect(raw.every((r) => (r['content'] as String).startsWith('enc1:')),
+          isTrue);
+
+      // ---- sign out revokes the session -----------------------------------
+      final oldToken = alice.directory.session!.token;
+      final client = HttpClient();
+      Future<int> me() async {
+        final req = await client.getUrl(Uri.parse('$_baseUrl/api/me'));
+        req.headers.set('Authorization', 'Bearer $oldToken');
+        final res = await req.close();
+        await res.drain<void>();
+        return res.statusCode;
+      }
+
+      expect(await me(), 200);
+      await alice.chat.stop();
+      await alice.auth.signOut();
+      expect(alice.auth.status, AuthStatus.unauthenticated);
+      expect(await me(), 401);
+      client.close();
+
+      // Signing back in on the same device keeps keys and history.
+      expect(
+          await alice.auth.signIn(email: alice.email, password: Stack.password),
+          isTrue,
+          reason: alice.auth.errorMessage);
+      expect((await alice.messagesWith(bob)).any((m) => m.content == secret),
+          isTrue);
+    });
+  }, timeout: const Timeout(Duration(minutes: 4)));
+}

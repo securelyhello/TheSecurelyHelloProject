@@ -19,6 +19,15 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
 
   @override
+  void initState() {
+    super.initState();
+    // Don't carry an error over from the screen we came from.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<AuthProvider>().clearError();
+    });
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
@@ -34,86 +43,8 @@ class _LoginScreenState extends State<LoginScreen> {
     );
     
     if (success && mounted) {
-      final authStatus = context.read<AuthProvider>().status;
-      if (authStatus == AuthStatus.needsVerification) {
-        Navigator.of(context).pushReplacementNamed('/verify-email');
-      } else {
-        Navigator.of(context).pushReplacementNamed('/home');
-      }
+      Navigator.of(context).pushReplacementNamed('/home');
     }
-  }
-
-  void _showForgotPasswordDialog() {
-    final resetEmailController = TextEditingController(text: _emailController.text);
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1A1A2E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      isScrollControlled: true,
-      builder: (context) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-            left: 24,
-            right: 24,
-            top: 32,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Reset Password',
-                style: GoogleFonts.manrope(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Enter your email address and we will send you a link to reset your password.',
-                style: GoogleFonts.inter(
-                  color: const Color(0xFFB8B8CC),
-                ),
-              ),
-              const SizedBox(height: 24),
-              AppTextField(
-                controller: resetEmailController,
-                label: 'Email',
-                hint: 'Enter your email',
-                prefixIcon: const Icon(LucideIcons.mail),
-                keyboardType: TextInputType.emailAddress,
-              ),
-              const SizedBox(height: 32),
-              ElevatedButton(
-                onPressed: () async {
-                  final email = resetEmailController.text.trim();
-                  if (email.isNotEmpty) {
-                    Navigator.pop(context);
-                    final success = await context.read<AuthProvider>().resetPassword(email);
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            success ? 'Password reset email sent' : 'Failed to send reset email',
-                          ),
-                          backgroundColor: success ? const Color(0xFF34D399) : const Color(0xFFEF4444),
-                        ),
-                      );
-                    }
-                  }
-                },
-                child: const Text('Send Reset Link'),
-              ),
-              const SizedBox(height: 24),
-            ],
-          ),
-        );
-      },
-    );
   }
 
   @override
@@ -183,16 +114,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       });
                     },
                   ),
-                  validator: (v) => v!.length < 6 ? 'Password too short' : null,
+                  validator: (v) => v!.isEmpty ? 'Password is required' : null,
                 ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: _showForgotPasswordDialog,
-                    child: const Text('Forgot password?'),
-                  ),
-                ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 32),
                 if (authProvider.errorMessage != null)
                   Container(
                     padding: const EdgeInsets.all(12),
