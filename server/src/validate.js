@@ -13,7 +13,15 @@ export const bad = (message, code = 'invalid_input') => new HttpError(400, code,
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const USERNAME_RE = /^[a-z0-9_]{3,30}$/;
+// Lenient: what signup used to accept. Sign-in keeps using it so nobody with
+// an existing stored address is locked out.
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,189}\.[^\s@]{1,63}$/;
+// Strict, for new addresses (signup) and reset requests: printable ASCII
+// only, no <, >, comma, quotes, backtick, backslash, spaces or control chars.
+// ASCII-only also means JS toLowerCase() equals Postgres lower(), so
+// rate-limit keys match the account the lookup finds (no 'vİctim' variants).
+const STRICT_EMAIL_RE =
+  /^[A-Za-z0-9.!#$%&*+/=?^_{|}~-]{1,64}@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9-]{2,63}$/;
 // 32-byte keys, standard base64 with padding (what the Dart client emits).
 const KEY_RE = /^[A-Za-z0-9+/]{43}=$/;
 
@@ -42,10 +50,13 @@ export function username(value, field = 'username') {
   return v;
 }
 
-export function email(value) {
+/** @param {{strict?: boolean}} [opts] strict for signup and reset requests. */
+export function email(value, { strict = false } = {}) {
   if (typeof value !== 'string') throw bad('email is required');
   const v = value.trim();
-  if (v.length > 254 || !EMAIL_RE.test(v)) throw bad('A valid email is required', 'invalid_email');
+  if (v.length > 254 || !(strict ? STRICT_EMAIL_RE : EMAIL_RE).test(v)) {
+    throw bad('A valid email is required', 'invalid_email');
+  }
   return v;
 }
 
@@ -56,6 +67,15 @@ export function password(value, field = 'password') {
     throw bad(`${field} must be 8-256 characters`, 'weak_password');
   }
   return value;
+}
+
+const CODE_RE = /^[0-9]{6}$/;
+
+/** A 6-digit e-mail code. Any malformed value is the same 400 invalid_code as a wrong one. */
+export function code(value) {
+  const v = typeof value === 'string' ? value.trim() : '';
+  if (!CODE_RE.test(v)) throw bad('Invalid or expired code', 'invalid_code');
+  return v;
 }
 
 export function displayName(value) {

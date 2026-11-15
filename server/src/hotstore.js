@@ -3,7 +3,9 @@
 //
 // Keys (all prefixed with REDIS_PREFIX, default "sh:"):
 //   rl:<bucket>:<key>        rate-limit counter (fixed window, PX = window)
-//   sess:<sha256 hex>        session token → user id cache (short TTL)
+//   sess:<sha256 hex>        session token → "<user id>:<ms the DB lookup began>" (short TTL)
+//   revoked:<user>           ms at which all of the user's sessions were revoked
+//                            (TTL = session cache TTL + margin)
 //   contacts:<user>          JSON array of contact ids (cache, short TTL)
 //   online:<user>            "1" while a socket is connected (TTL, refreshed)
 //   lastseen:<user>          ISO timestamp of the last disconnect (90 d TTL)
@@ -47,6 +49,19 @@ local c = redis.call('INCR', KEYS[1])
 if c == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end
 return c`;
 
+// Sliding-window log: at most ARGV[3] hits in any ARGV[2] ms ending at ARGV[1].
+// Rejected hits are not recorded. Used for hard caps (daily e-mail quota),
+// where a fixed window could let up to twice the cap through around a
+// window boundary.
+const SLIDING_SCRIPT = `
+local now = tonumber(ARGV[1])
+local win = tonumber(ARGV[2])
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - win)
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[3]) then return 0 end
+redis.call('ZADD', KEYS[1], now, ARGV[4])
+redis.call('PEXPIRE', KEYS[1], win)
+return 1`;
+
 export class HotStore {
   /**
    * @param {import('ioredis').Redis} redis
@@ -72,6 +87,7 @@ export class HotStore {
     this.onlineTtlSeconds = onlineTtlSeconds;
     redis.defineCommand('shRelayAck', { numberOfKeys: 2, lua: ACK_SCRIPT });
     redis.defineCommand('shRateHit', { numberOfKeys: 1, lua: RATE_SCRIPT });
+    redis.defineCommand('shSlidingHit', { numberOfKeys: 1, lua: SLIDING_SCRIPT });
   }
 
   k(...parts) {
@@ -92,17 +108,64 @@ export class HotStore {
     return n <= capacity;
   }
 
+  /**
+   * Strict cap: true (and the hit is recorded) only if fewer than [capacity]
+   * hits were recorded in the [windowMs] before [now].
+   */
+  async slidingHit(bucket, key, capacity, windowMs, now = Date.now()) {
+    if (capacity <= 0) return false;
+    const member = `${now}:${randomUUID()}`;
+    const ok = await this.redis.shSlidingHit(this.k('rl', bucket, key), now, windowMs, capacity, member);
+    return ok === 1;
+  }
+
+  /** Like rateHit() but records nothing: true if one more hit would fit. */
+  async ratePeek(bucket, key, capacity) {
+    const n = Number((await this.redis.get(this.k('rl', bucket, key))) ?? 0);
+    return n + 1 <= capacity;
+  }
+
+  /** Like slidingHit() but records nothing: true if one more hit would fit. */
+  async slidingPeek(bucket, key, capacity, windowMs, now = Date.now()) {
+    if (capacity <= 0) return false;
+    const n = await this.redis.zcount(this.k('rl', bucket, key), `(${now - windowMs}`, '+inf');
+    return n < capacity;
+  }
+
   // ---------------------------------------------------------------------------
   // Session cache
   // ---------------------------------------------------------------------------
 
+  /**
+   * Returns {userId, at} where [at] is when the DB lookup that produced the
+   * entry began, or null. Entries in the old format (bare user id) count as
+   * missing, so they are re-read from Postgres.
+   */
   async getCachedSession(hashHex) {
-    return this.redis.get(this.k('sess', hashHex));
+    const raw = await this.redis.get(this.k('sess', hashHex));
+    const i = raw ? raw.lastIndexOf(':') : -1;
+    if (i <= 0) return null;
+    const at = Number(raw.slice(i + 1));
+    return Number.isFinite(at) ? { userId: raw.slice(0, i), at } : null;
   }
 
-  async cacheSession(hashHex, userId, maxSeconds) {
+  /** [at]: when the DB lookup began (ms), compared against the revoked marker. */
+  async cacheSession(hashHex, userId, maxSeconds, at = Date.now()) {
     const ttl = Math.max(1, Math.min(this.sessionCacheSeconds, Math.floor(maxSeconds)));
-    await this.redis.set(this.k('sess', hashHex), userId, 'EX', ttl);
+    await this.redis.set(this.k('sess', hashHex), `${userId}:${at}`, 'EX', ttl);
+  }
+
+  /**
+   * Records that every session of [userId] up to [at] is revoked. Lives as
+   * long as a cache entry can, which is all it needs to cover.
+   */
+  async markSessionsRevoked(userId, at = Date.now()) {
+    await this.redis.set(this.k('revoked', userId), String(at), 'EX', this.sessionCacheSeconds + 60);
+  }
+
+  async sessionsRevokedAt(userId) {
+    const raw = await this.redis.get(this.k('revoked', userId));
+    return raw === null ? null : Number(raw);
   }
 
   async forgetSessions(hashHexes) {

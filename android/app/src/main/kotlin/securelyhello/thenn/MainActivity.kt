@@ -1,4 +1,4 @@
-package com.example.securelyhello
+package securelyhello.thenn
 
 import io.flutter.embedding.android.FlutterActivity
 

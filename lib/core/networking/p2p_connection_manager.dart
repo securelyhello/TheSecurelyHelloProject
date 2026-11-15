@@ -50,6 +50,10 @@ class P2PConnectionManager {
 
   List<Map<String, dynamic>> _iceServers = defaultStunServers;
 
+  /// Resolves the ICE servers for each new connection (e.g. adds fresh,
+  /// server-issued TURN credentials). Falls back to [_iceServers].
+  Future<List<Map<String, dynamic>>> Function()? _iceServersProvider;
+
   // ---- Per-contact state -------------------------------------------------
   final Map<String, RTCPeerConnection> _peerConnections = {};
   final Map<String, RTCDataChannel> _dataChannels = {};
@@ -84,9 +88,28 @@ class P2PConnectionManager {
 
   /// Sets the ICE servers.  Pass TURN entries here so peers behind symmetric
   /// NAT (most mobile carriers) can still connect.
-  Future<void> init({List<Map<String, dynamic>>? iceServers}) async {
+  ///
+  /// [iceServersProvider] is asked before every new [RTCPeerConnection] (for
+  /// short-lived TURN credentials); if it fails or returns nothing, the
+  /// static [iceServers] are used.
+  Future<void> init({
+    List<Map<String, dynamic>>? iceServers,
+    Future<List<Map<String, dynamic>>> Function()? iceServersProvider,
+  }) async {
     if (iceServers != null && iceServers.isNotEmpty) {
       _iceServers = iceServers;
+    }
+    _iceServersProvider = iceServersProvider;
+  }
+
+  Future<List<Map<String, dynamic>>> _resolveIceServers() async {
+    final provider = _iceServersProvider;
+    if (provider == null) return _iceServers;
+    try {
+      final servers = await provider();
+      return servers.isEmpty ? _iceServers : servers;
+    } catch (_) {
+      return _iceServers;
     }
   }
 
@@ -235,11 +258,12 @@ class P2PConnectionManager {
   // ---------------------------------------------------------------------------
 
   Future<RTCPeerConnection> _createPeerConnection(String contactId) async {
+    final iceServers = await _resolveIceServers();
     if (_peerConnections.containsKey(contactId)) {
       await _closeConnection(contactId);
     }
 
-    final pc = await createPeerConnection({'iceServers': _iceServers}, {});
+    final pc = await createPeerConnection({'iceServers': iceServers}, {});
     bool isCurrent() => identical(_peerConnections[contactId], pc);
 
     pc.onIceCandidate = (candidate) {

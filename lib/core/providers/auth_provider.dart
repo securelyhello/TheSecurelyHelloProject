@@ -73,6 +73,10 @@ class AuthProvider extends ChangeNotifier {
   String get displayName =>
       _profile?['display_name'] as String? ?? username;
 
+  /// Whether the account's e-mail address has been confirmed. Verification
+  /// is optional: it only drives the reminder banner in Settings.
+  bool get emailVerified => _profile?['email_verified'] == true;
+
   /// Drops a stale error (e.g. when moving between login and sign up).
   void clearError() {
     if (_errorMessage == null) return;
@@ -191,6 +195,89 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  /// Asks for a password-reset code. Succeeds for any well-formed address:
+  /// the server never reveals whether an account exists.
+  Future<bool> requestPasswordReset(String email) async {
+    _errorMessage = null;
+    try {
+      await _directoryService.requestPasswordReset(email.trim());
+      return true;
+    } catch (e) {
+      _errorMessage = _describe(e, 'Could not send the code');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Sets a new password with an e-mailed code. Does not sign in: every
+  /// session is revoked and the user logs in again. Keys on this device are
+  /// untouched, so chats survive.
+  Future<bool> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    _errorMessage = null;
+    try {
+      await _directoryService.resetPassword(
+          email: email.trim(), code: code.trim(), newPassword: newPassword);
+      return true;
+    } catch (e) {
+      _errorMessage = _describe(e, 'Could not reset the password');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// E-mails a verification code to the account address. An address that is
+  /// already verified counts as success (and updates [emailVerified]).
+  Future<bool> requestEmailVerification() async {
+    _errorMessage = null;
+    try {
+      await _directoryService.requestEmailVerification();
+      return true;
+    } on ApiException catch (e) {
+      if (e.code == 'already_verified') {
+        await _markEmailVerified();
+        return true;
+      }
+      _errorMessage = _describe(e, 'Could not send the code');
+      notifyListeners();
+      return false;
+    } catch (e) {
+      _errorMessage = _describe(e, 'Could not send the code');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Confirms the account address with an e-mailed [code].
+  Future<bool> verifyEmail(String code) async {
+    _errorMessage = null;
+    try {
+      final me = await _directoryService.verifyEmail(code.trim());
+      final userId = _user?.id;
+      if (userId != null) {
+        _profile = {...?_profile, ...me, 'email_verified': true};
+        await _cacheProfile(userId, _profile!);
+      }
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = _describe(e, 'Could not verify the email');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<void> _markEmailVerified() async {
+    final userId = _user?.id;
+    if (userId == null) return;
+    _profile = {...?_profile, 'email_verified': true};
+    await _cacheProfile(userId, _profile!);
+    notifyListeners();
   }
 
   /// Delete account permanently: server profile, local history and keys.
@@ -332,6 +419,16 @@ class AuthProvider extends ChangeNotifier {
   }
 
   static String _describe(Object error, String fallback) {
+    if (error is ApiException) {
+      switch (error.code) {
+        case 'invalid_code':
+          return 'That code is wrong or has expired. Check it or request a '
+              'new one.';
+        case 'unavailable':
+          return "Verification emails can't be sent right now. Please try "
+              'again later.';
+      }
+    }
     if (error is ApiException || error is NetworkException) {
       return error.toString();
     }
@@ -371,6 +468,7 @@ class AuthProvider extends ChangeNotifier {
       'display_name': profile['display_name'],
       'signing_public_key': profile['signing_public_key'],
       'encryption_public_key': profile['encryption_public_key'],
+      'email_verified': profile['email_verified'] == true,
     }));
   }
 

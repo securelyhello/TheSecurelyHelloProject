@@ -6,7 +6,11 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import 'package:securelyhello/core/networking/turn_credentials.dart';
 import 'package:securelyhello/core/storage/secure_key_store.dart';
+
+export 'package:securelyhello/core/networking/turn_credentials.dart'
+    show TurnCredentials;
 
 /// An error answered by the Securely Hello server.
 class ApiException implements Exception {
@@ -245,6 +249,43 @@ class DirectoryService {
       'new_password': newPassword,
     });
   }
+
+  /// Asks the server to e-mail a 6-digit reset code. The answer is the same
+  /// whether or not an account exists for [email].
+  Future<void> requestPasswordReset(String email) async {
+    await _request('POST', '/api/auth/request-password-reset',
+        auth: false, body: {'email': email});
+  }
+
+  /// Sets a new password with an e-mailed code. Signs out every session of
+  /// the account; no token is returned (sign in afterwards).
+  Future<void> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    await _request('POST', '/api/auth/reset-password', auth: false, body: {
+      'email': email,
+      'code': code,
+      'new_password': newPassword,
+    });
+  }
+
+  /// E-mails a verification code to the signed-in account's address.
+  Future<void> requestEmailVerification() async {
+    await _request('POST', '/api/auth/request-verification');
+  }
+
+  /// Confirms the address with [code]; returns the updated profile.
+  Future<Map<String, dynamic>> verifyEmail(String code) async =>
+      Map<String, dynamic>.from(await _request(
+          'POST', '/api/auth/verify-email',
+          body: {'code': code}) as Map);
+
+  /// Short-lived TURN relay credentials, or `null` when the server has no
+  /// TURN configured (or answered something unexpected).
+  Future<TurnCredentials?> fetchTurnCredentials() async =>
+      TurnCredentials.fromJson(await _request('GET', '/api/turn'));
 
   /// Deletes the account and everything the server holds about it.
   Future<void> deleteAccount() async {
@@ -495,7 +536,7 @@ class DirectoryService {
     _socketReady = false;
     if (wasReady && !_realtimeState.isClosed) _realtimeState.add(false);
     if (code == 4003) {
-      // Account deleted elsewhere.
+      // Account deleted or password reset elsewhere: sign out (keys are kept).
       if (!_sessionExpired.isClosed) _sessionExpired.add(null);
       return;
     }

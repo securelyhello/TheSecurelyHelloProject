@@ -16,11 +16,23 @@ export class Services {
   // Sessions
   // ---------------------------------------------------------------------------
 
-  /** Resolves a bearer token to {id} or null. Cached in Redis for minutes. */
+  /**
+   * Resolves a bearer token to {id} or null. Cached in Redis for minutes.
+   *
+   * Each cache entry carries the time its DB lookup *began*. Revoking all of
+   * a user's sessions sets a "revoked at" marker, and entries from lookups
+   * that began at or before it are ignored. That closes the race where a
+   * request reads the session row just before a reset deletes it and writes
+   * the cache entry just after the reset cleared the cache.
+   */
   async authenticate(token) {
     const hex = hashToken(token).toString('hex');
     const cached = await this.store.getCachedSession(hex);
-    if (cached) return { id: cached };
+    if (cached) {
+      const revokedAt = await this.store.sessionsRevokedAt(cached.userId);
+      if (revokedAt === null || cached.at > revokedAt) return { id: cached.userId };
+    }
+    const startedAt = Date.now();
     const { rows } = await this.pool.query(
       `UPDATE sessions SET last_used_at = now()
         WHERE token_hash = $1 AND expires_at > now()
@@ -28,13 +40,24 @@ export class Services {
       [Buffer.from(hex, 'hex')],
     );
     if (!rows[0]) return null;
-    await this.store.cacheSession(hex, rows[0].user_id, Number(rows[0].remaining));
+    await this.store.cacheSession(hex, rows[0].user_id, Number(rows[0].remaining), startedAt);
     return { id: rows[0].user_id };
   }
 
   /** Drops cached lookups for revoked session hashes (Buffers). */
   async revokeCachedSessions(hashBuffers) {
     await this.store.forgetSessions(hashBuffers.map((b) => Buffer.from(b).toString('hex')));
+  }
+
+  /**
+   * Call after deleting many of a user's sessions in Postgres (reset, change
+   * password, account deletion): sets the revoked-at marker, then drops the
+   * known cache entries. A session that is kept (change password) simply
+   * gets re-read from Postgres once.
+   */
+  async revokeUserSessions(userId, hashBuffers = []) {
+    await this.store.markSessionsRevoked(userId);
+    await this.revokeCachedSessions(hashBuffers);
   }
 
   // ---------------------------------------------------------------------------

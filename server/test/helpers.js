@@ -12,12 +12,13 @@ import { createApp, loadConfig } from '../src/app.js';
 import { createPool } from '../src/db.js';
 import { createRedis } from '../src/hotstore.js';
 import { silentLogger } from '../src/log.js';
+import { createMemoryMailer } from '../src/mailer.js';
 import { migrate } from '../src/migrate.js';
 
 export const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgresql://sh:sh_dev_password@127.0.0.1:55432/securelyhello_test';
 
-async function recreateDatabase(url) {
+export async function recreateDatabase(url) {
   const target = new URL(url);
   const dbName = target.pathname.slice(1);
   if (!/^[a-z0-9_]+$/.test(dbName) || !dbName.includes('test')) {
@@ -45,24 +46,41 @@ export const GENEROUS_LIMITS = {
   contactRequest: generous,
   wsFrames: generous,
   wsConnect: generous,
+  pwResetIp: generous,
+  pwResetEmail: generous,
+  pwResetEmailDaily: generous,
+  pwResetIpDaily: generous,
+  emailVerifyUser: generous,
+  codeAttempt: generous,
+  emailDaily: generous,
+  emailVerifyDaily: generous,
+  turnUser: generous,
 };
 
 export const TEST_REDIS_URL = process.env.TEST_REDIS_URL ?? 'redis://127.0.0.1:56379/15';
 
-export async function startServer({ limitOverrides = {}, storeOptions = {}, env = {} } = {}) {
+export async function startServer({
+  limitOverrides = {},
+  storeOptions = {},
+  env = {},
+  log = silentLogger,
+  logRequests = false,
+} = {}) {
   await recreateDatabase(TEST_DATABASE_URL);
   const pool = createPool(TEST_DATABASE_URL, { max: 5 });
   await migrate(pool, { log: () => {} });
   const redis = createRedis(TEST_REDIS_URL);
   await redis.flushdb(); // database 15 is reserved for tests
-  const config = { ...loadConfig(env), logRequests: false };
+  const config = { ...loadConfig(env), logRequests };
+  const mailer = createMemoryMailer();
   const app = createApp({
+    mailer,
     pool,
     redis,
     config,
     limitOverrides: { ...GENEROUS_LIMITS, ...limitOverrides },
     storeOptions,
-    log: silentLogger,
+    log,
   });
   const addr = await app.listen(0, '127.0.0.1');
   const base = `http://127.0.0.1:${addr.port}`;
@@ -71,6 +89,10 @@ export async function startServer({ limitOverrides = {}, storeOptions = {}, env 
     pool,
     redis,
     store: app.store,
+    mailer,
+    outbox: mailer.outbox,
+    /** Waits for fire-and-forget work (e.g. e-mail sends) started by requests. */
+    drain: () => app.drain(),
     base,
     wsUrl: `ws://127.0.0.1:${addr.port}/api/ws`,
     async close() {

@@ -4,6 +4,13 @@
 # Set in Coolify's environment variables (never commit them):
 #   DATABASE_URL   Neon pooled connection string (required)
 #   MIGRATION_DATABASE_URL   optional, Neon direct connection string
+#   EMAIL_PROVIDER / EMAIL_FROM / EMAIL_API_KEY / EMAIL_DAILY_CAP
+#                  transactional e-mail (EMAIL_PROVIDER must be resend or brevo to send;
+#                  unset/log = dry-run, codes are not delivered)
+#   CODE_HMAC_KEY  HMAC key for e-mail code hashes (openssl rand -hex 32);
+#                  unset = random per process, a restart invalidates live codes
+#   TURN_SECRET / TURN_URLS / TURN_TTL_SECONDS
+#                  coturn REST credentials handed out by GET /api/turn (unset = STUN only)
 services:
   app:
     build: .
@@ -18,6 +25,14 @@ services:
       TRUST_PROXY: ${TRUST_PROXY:-1}
       MIGRATE_ON_START: ${MIGRATE_ON_START:-1}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-log}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMAIL_API_KEY: ${EMAIL_API_KEY:-}
+      EMAIL_DAILY_CAP: ${EMAIL_DAILY_CAP:-90}
+      CODE_HMAC_KEY: ${CODE_HMAC_KEY:-}
+      TURN_SECRET: ${TURN_SECRET:-}
+      TURN_URLS: ${TURN_URLS:-}
+      TURN_TTL_SECONDS: ${TURN_TTL_SECONDS:-3600}
     expose:
       - "8787"
     depends_on:

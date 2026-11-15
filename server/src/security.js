@@ -1,4 +1,4 @@
-import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomInt, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 
 const scryptAsync = promisify(scrypt);
@@ -50,4 +50,38 @@ export function newSessionToken() {
 
 export function hashToken(token) {
   return createHash('sha256').update(token, 'utf8').digest();
+}
+
+/** A uniformly random 6-digit code, zero-padded ("004219"). */
+export function newEmailCode() {
+  return String(randomInt(0, 1_000_000)).padStart(6, '0');
+}
+
+/**
+ * HMAC-SHA256 of `purpose:userId:code` under the server's code key, so a
+ * stored hash only matches its own user and purpose, and a leaked
+ * auth_tokens table can't be brute-forced (10^6 codes) without the key.
+ */
+export function hashEmailCode(key, purpose, userId, code) {
+  return createHmac('sha256', key).update(`${purpose}:${userId}:${code}`, 'utf8').digest();
+}
+
+/**
+ * The HMAC key for e-mail codes: CODE_HMAC_KEY when set, otherwise 32 random
+ * bytes for this process. Codes live 30 minutes at most, so a random key only
+ * means a restart invalidates codes that are still live; with several
+ * instances behind one database, set CODE_HMAC_KEY so they agree.
+ */
+export function resolveCodeKey(value, { production = false, log } = {}) {
+  const configured = typeof value === 'string' ? value.trim() : '';
+  if (configured) return Buffer.from(configured, 'utf8');
+  if (production) {
+    log?.warn('CODE_HMAC_KEY is not set: using a random per-process key; a restart invalidates live e-mail codes');
+  }
+  return randomBytes(32);
+}
+
+/** Constant-time comparison of two hashes (false on length mismatch). */
+export function hashesEqual(a, b) {
+  return Buffer.isBuffer(a) && Buffer.isBuffer(b) && a.length === b.length && timingSafeEqual(a, b);
 }

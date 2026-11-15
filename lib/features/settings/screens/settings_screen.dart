@@ -9,6 +9,7 @@ import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/features/contacts/widgets/contact_info_sheet.dart';
 import 'package:securelyhello/features/home/chat_navigation.dart';
+import 'package:securelyhello/features/settings/widgets/verify_email_dialog.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/shared/widgets/app_dialogs.dart';
 import 'package:securelyhello/shared/widgets/avatar_widget.dart';
@@ -474,6 +475,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SectionHeader(
                     'Account',
                     padding: EdgeInsets.fromLTRB(28, 20, 28, 8),
+                  ),
+                  const VerifyEmailBanner(
+                    padding: EdgeInsets.fromLTRB(12, 0, 12, 12),
                   ),
                   group([
                     ListTile(

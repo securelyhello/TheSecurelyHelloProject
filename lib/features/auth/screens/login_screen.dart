@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
+import 'package:securelyhello/shared/widgets/app_dialogs.dart';
 import 'package:securelyhello/shared/widgets/app_text_field.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -45,6 +46,24 @@ class _LoginScreenState extends State<LoginScreen> {
     if (success && mounted) {
       Navigator.of(context).pushReplacementNamed('/home');
     }
+  }
+
+  Future<void> _forgotPassword() async {
+    final auth = context.read<AuthProvider>();
+    final email = await Navigator.of(context).pushNamed<String>(
+      '/forgot-password',
+      arguments: _emailController.text.trim(),
+    );
+    if (!mounted) return;
+    auth.clearError();
+    if (email == null || email.isEmpty) return;
+    _emailController.text = email;
+    _passwordController.clear();
+    showAppSnackBar(
+      context,
+      'Password reset. Log in with your new password.',
+      success: true,
+    );
   }
 
   @override
@@ -116,7 +135,14 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   validator: (v) => v!.isEmpty ? 'Password is required' : null,
                 ),
-                const SizedBox(height: 32),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: authProvider.isLoading ? null : _forgotPassword,
+                    child: const Text('Forgot password?'),
+                  ),
+                ),
+                const SizedBox(height: 16),
                 if (authProvider.errorMessage != null)
                   Container(
                     padding: const EdgeInsets.all(12),

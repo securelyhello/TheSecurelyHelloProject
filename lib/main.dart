@@ -11,6 +11,7 @@ import 'package:securelyhello/core/storage/local_storage.dart';
 import 'package:securelyhello/core/storage/secure_key_store.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
 import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
+import 'package:securelyhello/core/networking/turn_credentials.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
@@ -19,6 +20,7 @@ import 'package:securelyhello/core/providers/connection_provider.dart';
 import 'package:securelyhello/features/auth/screens/splash_screen.dart';
 import 'package:securelyhello/features/auth/screens/login_screen.dart';
 import 'package:securelyhello/features/auth/screens/signup_screen.dart';
+import 'package:securelyhello/features/auth/screens/forgot_password_screen.dart';
 import 'package:securelyhello/features/home/home_screen.dart';
 import 'package:securelyhello/features/contacts/screens/add_contact_screen.dart';
 import 'package:securelyhello/features/contacts/screens/contact_requests_screen.dart';
@@ -63,10 +65,24 @@ Future<void> main() async {
     return;
   }
   final connectionManager = P2PConnectionManager();
+  // STUN + optional static TURN from .env: the fallback whenever fresh
+  // server-issued TURN credentials (GET /api/turn) are unavailable.
+  final staticIceServers =
+      AppConfig.iceServers(P2PConnectionManager.defaultStunServers);
+  final turnCache = TurnCredentialCache(
+    fetch: directoryService.fetchTurnCredentials,
+    fallback: staticIceServers,
+    scope: () => directoryService.myUserId,
+  );
+  // Warm the cache once the realtime link is up, so the first call setup
+  // doesn't wait on it.
+  directoryService.realtimeState.listen((ready) {
+    if (ready) unawaited(turnCache.prefetch());
+  });
   try {
     await connectionManager.init(
-        iceServers:
-            AppConfig.iceServers(P2PConnectionManager.defaultStunServers));
+        iceServers: staticIceServers,
+        iceServersProvider: turnCache.iceServers);
   } catch (e) {
     debugPrint('P2P Connection Manager init failed: $e');
   }
@@ -171,6 +187,13 @@ class SecurelyHelloApp extends StatelessWidget {
         },
         onGenerateRoute: (settings) {
           // Handle routes with arguments
+          if (settings.name == '/forgot-password') {
+            return MaterialPageRoute<String>(
+              builder: (context) => ForgotPasswordScreen(
+                  initialEmail: settings.arguments as String?),
+              settings: settings,
+            );
+          }
           if (settings.name == '/chat') {
             final contactUserId = settings.arguments as String;
             return MaterialPageRoute(
