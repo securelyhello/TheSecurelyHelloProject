@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import 'package:securelyhello/core/security/app_lock.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:securelyhello/shared/theme/app_theme.dart';
@@ -59,6 +61,7 @@ class _SearchFieldState extends State<SearchField> {
     );
     return TextField(
       controller: widget.controller,
+      enableIMEPersonalizedLearning: !incognitoKeyboard(context),
       focusNode: widget.focusNode,
       autofocus: widget.autofocus,
       onChanged: widget.onChanged,

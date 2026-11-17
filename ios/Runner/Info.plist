@@ -68,6 +68,8 @@
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Securely Hello uses the camera for video calls and to scan safety-number codes.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Unlock Securely Hello with Face ID.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Securely Hello uses the microphone for calls and voice notes.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

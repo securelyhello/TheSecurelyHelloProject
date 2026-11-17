@@ -142,6 +142,13 @@ class SecureKeyStore implements SessionTokenStore {
   @override
   Future<void> clearSession() => _storage.delete(_sessionKey);
 
+  /// Device-wide settings that must survive sign-out (app lock), namespaced
+  /// by launch profile.
+  Future<String?> readSetting(String name) => _storage.read('sh_${_ns}setting_$name');
+  Future<void> writeSetting(String name, String value) =>
+      _storage.write('sh_${_ns}setting_$name', value);
+  Future<void> deleteSetting(String name) => _storage.delete('sh_${_ns}setting_$name');
+
   // ---------------------------------------------------------------------------
   // Wipe
   // ---------------------------------------------------------------------------

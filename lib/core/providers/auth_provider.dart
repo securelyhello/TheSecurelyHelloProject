@@ -227,6 +227,28 @@ class AuthProvider extends ChangeNotifier {
     _setLoading(false);
   }
 
+  /// Signs out and erases this account's data from this device only (the
+  /// account stays; the device must be approved again). Used by the app
+  /// lock after too many wrong PINs.
+  Future<void> wipeThisDevice() async {
+    final userId = _user?.id;
+    _signingOut = true;
+    try {
+      await _runSignOutHooks();
+      await _directoryService.signOut();
+    } catch (e) {
+      debugPrint('Wipe sign-out error: $e');
+    }
+    if (userId != null) {
+      await _localStorage.deleteDatabaseForUser(userId);
+      await _keyStore.deleteAll(userId);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_profileCacheKey(userId));
+    }
+    await _clearSession();
+    _signingOut = false;
+  }
+
   // ---------------------------------------------------------------------------
   // E-mail verification and password reset
   // ---------------------------------------------------------------------------

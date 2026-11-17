@@ -18,6 +18,8 @@ import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/connection_provider.dart';
 import 'package:securelyhello/core/notifications/notification_service.dart';
 import 'package:securelyhello/core/notifications/push_service.dart';
+import 'package:securelyhello/core/security/app_lock.dart';
+import 'package:securelyhello/features/security/lock_screen.dart';
 import 'package:securelyhello/features/auth/screens/splash_screen.dart';
 import 'package:securelyhello/features/auth/screens/login_screen.dart';
 import 'package:securelyhello/features/auth/screens/signup_screen.dart';
@@ -108,6 +110,9 @@ Future<void> main() async {
     ..addSignOutHook(chatProvider.reset)
     ..addSignOutHook(contactsProvider.reset)
     ..addSignOutHook(() async => connectionProvider.reset());
+  final appLock = AppLockService(store: keyStore)
+    ..onWipe = authProvider.wipeThisDevice;
+  await appLock.init();
   unawaited(authProvider.init());
 
   runApp(SecurelyHelloApp(
@@ -117,6 +122,7 @@ Future<void> main() async {
     connectionProvider: connectionProvider,
     notifications: notifications,
     push: push,
+    appLock: appLock,
   ));
 }
 
@@ -152,6 +158,7 @@ class SecurelyHelloApp extends StatelessWidget {
   final ConnectionProvider connectionProvider;
   final NotificationService? notifications;
   final PushService? push;
+  final AppLockService? appLock;
 
   const SecurelyHelloApp({
     super.key,
@@ -161,6 +168,7 @@ class SecurelyHelloApp extends StatelessWidget {
     required this.connectionProvider,
     this.notifications,
     this.push,
+    this.appLock,
   });
 
   @override
@@ -174,11 +182,14 @@ class SecurelyHelloApp extends StatelessWidget {
         Provider<NotificationService>.value(
             value: notifications ?? NotificationService()),
         Provider<PushService?>.value(value: push),
+        ChangeNotifierProvider<AppLockService>.value(
+            value: appLock ?? AppLockService(store: SecureKeyStore(storage: MemorySecretStorage()))),
       ],
       child: MaterialApp(
         title: 'Securely Hello',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.dark,
+        builder: (context, child) => AppLockGate(child: child ?? const SizedBox()),
         initialRoute: '/splash',
         routes: {
           '/splash': (context) => const SplashScreen(),

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:securelyhello/core/security/app_lock.dart';
+
 import 'package:securelyhello/shared/theme/app_theme.dart';
 
 /// A themed text field with an animated focus border and error text.
@@ -110,6 +112,7 @@ class _AppTextFieldState extends State<AppTextField>
           children: [
             TextField(
               controller: widget.controller,
+              enableIMEPersonalizedLearning: !incognitoKeyboard(context),
               focusNode: _focusNode,
               obscureText: widget.obscureText,
               onChanged: widget.onChanged,

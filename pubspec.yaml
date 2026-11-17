@@ -41,6 +41,9 @@ dependencies:
   firebase_core: ^5.2.0
   firebase_messaging: ^17.1.0
 
+  # App lock (biometrics on Android / iOS / macOS / Windows)
+  local_auth: ^3.0.2
+
   # Attachments
   file_picker: ^13.4.0
   mime: ^2.0.0

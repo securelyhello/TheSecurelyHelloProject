@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+import 'package:securelyhello/core/security/app_lock.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -170,6 +172,7 @@ class _ComposerState extends State<Composer> {
                   Expanded(
                     child: TextField(
                       controller: widget.controller,
+                      enableIMEPersonalizedLearning: !incognitoKeyboard(context),
                       focusNode: widget.focusNode,
                       enabled: widget.enabled,
                       minLines: 1,
