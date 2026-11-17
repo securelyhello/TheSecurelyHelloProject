@@ -20,7 +20,7 @@ jobs:
           POSTGRES_DB: securelyhello
         ports: ['55432:5432']
         options: >-
-          --health-cmd "pg_isready -U sh" --health-interval 2s --health-retries 30
+          --health-cmd "pg_isready -U sh -d securelyhello" --health-interval 2s --health-retries 30
       redis:
         image: redis:7.4-alpine
         ports: ['56379:6379']
@@ -66,7 +66,7 @@ jobs:
           POSTGRES_DB: securelyhello
         ports: ['55432:5432']
         options: >-
-          --health-cmd "pg_isready -U sh" --health-interval 2s --health-retries 30
+          --health-cmd "pg_isready -U sh -d securelyhello" --health-interval 2s --health-retries 30
       redis:
         image: redis:7.4-alpine
         ports: ['56379:6379']
@@ -74,6 +74,7 @@ jobs:
       DATABASE_URL: postgresql://sh:sh_dev_password@127.0.0.1:55432/securelyhello
       REDIS_URL: redis://127.0.0.1:56379/0
       TRUST_PROXY: '0'
+      MIGRATE_ON_START: '1'
       # E-mails (verification codes) land here; the UI test reads them.
       MAIL_TRANSPORT: file
       MAIL_FILE_DIR: /tmp/sh_mail
@@ -99,7 +100,8 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           nohup node src/index.js > "$RUNNER_TEMP/server.log" 2>&1 &
-          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8787/healthz && break; sleep 1; done
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8787/healthz && exit 0; sleep 1; done
+          echo "server did not become healthy"; cat "$RUNNER_TEMP/server.log"; exit 1
       - name: Start virtual audio
         run: |
           pulseaudio -D --exit-idle-time=-1
