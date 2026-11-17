@@ -138,6 +138,11 @@ SH_PROFILE=alice flutter run -d linux
 SH_PROFILE=bob   flutter run -d linux
 ```
 
+## Security
+
+See [SECURITY.md](SECURITY.md) for the threat model, what the server can
+see, known limitations and how to report a vulnerability.
+
 ## Tests
 
 ```

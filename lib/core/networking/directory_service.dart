@@ -5,7 +5,9 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 
+import 'package:securelyhello/core/networking/tls_pinning.dart';
 import 'package:securelyhello/core/storage/secure_key_store.dart';
 
 /// An error answered by the Securely Hello server.
@@ -140,25 +142,57 @@ class DirectoryService {
   final _realtimeState = StreamController<bool>.broadcast();
   final _sessionExpired = StreamController<void>.broadcast();
 
+  /// [pinning]: optional certificate pins for the server (see
+  /// [TlsPinning]). [release]: release builds only allow plain http to this
+  /// machine itself.
   DirectoryService({
     required String baseUrl,
     required SessionTokenStore tokenStore,
     http.Client? httpClient,
-  })  : _base = _parseBase(baseUrl),
+    TlsPinning pinning = const TlsPinning({}),
+    bool release = kReleaseMode,
+  })  : _base = parseBaseUrl(baseUrl, release: release, pinned: pinning.enabled),
         _tokenStore = tokenStore,
-        _http = httpClient ?? http.Client();
+        _pinning = pinning,
+        _http = httpClient ?? IOClient(pinning.httpClient());
 
-  static Uri _parseBase(String raw) {
+  final TlsPinning _pinning;
+
+  /// Validates the server address. Plain http is accepted only for this
+  /// machine (and, in debug builds, the Android emulator host and private
+  /// networks), never with pinning: anything else would send passwords and
+  /// session tokens in the clear.
+  static Uri parseBaseUrl(String raw, {required bool release, bool pinned = false}) {
     final trimmed = raw.trim();
     if (trimmed.isEmpty) {
       throw ArgumentError(
           'API_BASE_URL is not set. Add it to .env (see .env.example).');
     }
-    final uri = Uri.parse(trimmed);
-    if (!uri.hasScheme || (uri.scheme != 'http' && uri.scheme != 'https')) {
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null || !uri.hasScheme || (uri.scheme != 'http' && uri.scheme != 'https')) {
       throw ArgumentError('API_BASE_URL must start with http:// or https://');
     }
+    if (uri.host.isEmpty) throw ArgumentError('API_BASE_URL has no host');
+    if (uri.scheme == 'http') {
+      if (pinned) throw ArgumentError('Certificate pins need an https:// API_BASE_URL');
+      final local = _isLoopback(uri.host) || (!release && _isPrivate(uri.host));
+      if (!local) {
+        throw ArgumentError('API_BASE_URL must use https:// (plain http is only for local testing)');
+      }
+    }
     return uri;
+  }
+
+  static bool _isLoopback(String host) =>
+      host == 'localhost' || host == '::1' || host == '[::1]' || host.startsWith('127.');
+
+  static bool _isPrivate(String host) {
+    final ip = InternetAddress.tryParse(host);
+    if (ip == null || ip.type != InternetAddressType.IPv4) return false;
+    final b = ip.rawAddress;
+    return b[0] == 10 ||
+        (b[0] == 172 && b[1] >= 16 && b[1] <= 31) ||
+        (b[0] == 192 && b[1] == 168);
   }
 
   // ===========================================================================
@@ -713,6 +747,7 @@ class DirectoryService {
     try {
       final socket = await WebSocket.connect(
         _wsUri.toString(),
+        customClient: _pinning.enabled ? _pinning.httpClient() : null,
         headers: {
           'Authorization': 'Bearer ${session.token}',
           'User-Agent': _userAgent,

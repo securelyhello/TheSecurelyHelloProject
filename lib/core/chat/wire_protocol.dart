@@ -119,8 +119,10 @@ class WireEnvelope {
     );
   }
 
-  static WireEnvelope decodeJson(String source) =>
-      fromJson(jsonDecode(source) as Map<String, dynamic>);
+  /// Parses an envelope from the network; any malformed input is a
+  /// [FormatException].
+  static WireEnvelope decodeJson(String source) => _strict(
+      'envelope', () => fromJson(jsonDecode(source) as Map<String, dynamic>));
 
   static WireEnvelope fromBytes(Uint8List bytes) =>
       decodeJson(utf8.decode(bytes));
@@ -342,8 +344,10 @@ class WirePayload {
 
   Uint8List encode() => Uint8List.fromList(utf8.encode(jsonEncode(toJson())));
 
-  static WirePayload decode(Uint8List bytes) =>
-      fromJson(jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>);
+  /// Parses a decrypted payload; any malformed input is a
+  /// [FormatException].
+  static WirePayload decode(Uint8List bytes) => _strict('payload',
+      () => fromJson(jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>));
 
   static WirePayload fromJson(Map<String, dynamic> json) {
     final kind = PayloadKind.fromWire(json['k'] as String);
@@ -413,5 +417,15 @@ class WirePayload {
       throw const FormatException('Bad expiry');
     }
     return payload;
+  }
+}
+
+/// Runs a decoder, turning wrong JSON types into [FormatException] so callers
+/// handle every kind of bad input the same way.
+T _strict<T>(String what, T Function() decode) {
+  try {
+    return decode();
+  } on TypeError catch (e) {
+    throw FormatException('Malformed $what: $e');
   }
 }

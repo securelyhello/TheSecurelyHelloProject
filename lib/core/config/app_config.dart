@@ -22,6 +22,24 @@ class AppConfig {
 
   static const _definedBaseUrl = String.fromEnvironment('API_BASE_URL');
   static const _definedProfile = String.fromEnvironment('SH_PROFILE');
+  static const _definedPins = String.fromEnvironment('API_CERT_PINS');
+
+  /// Optional certificate pins for the server: comma-separated base64
+  /// SHA-256 hashes of its public key (SPKI). Set at build time:
+  ///
+  /// ```
+  /// flutter build apk --dart-define=API_CERT_PINS=<current key>,<backup key>
+  /// ```
+  ///
+  /// `server/DEPLOY.md` shows how to compute them.
+  static String get certPins {
+    if (_definedPins.isNotEmpty) return _definedPins;
+    try {
+      return dotenv.maybeGet('API_CERT_PINS') ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
 
   static String get apiBaseUrl {
     String? fromEnv;

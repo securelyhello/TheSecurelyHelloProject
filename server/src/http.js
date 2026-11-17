@@ -118,11 +118,19 @@ export function readRawBody(req, maxBytes) {
   });
 }
 
+// An API never renders pages: forbid framing and any active content.
+const API_SECURITY_HEADERS = {
+  'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
+  'X-Frame-Options': 'DENY',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+};
+
 export function sendBytes(res, status, bytes) {
   res.writeHead(status, {
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
+    ...API_SECURITY_HEADERS,
     'Content-Type': 'application/octet-stream',
     'Content-Length': bytes.length,
   });
@@ -134,6 +142,7 @@ export function sendJson(res, status, body) {
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
+    ...API_SECURITY_HEADERS,
   };
   if (body === undefined || status === 204) {
     res.writeHead(status === 200 ? 204 : status, headers);
@@ -176,4 +185,14 @@ export function clientIp(req, trustedHops = 0) {
     }
   }
   return req.socket.remoteAddress ?? 'unknown';
+}
+
+/** Whether any string or key in a parsed JSON value contains U+0000. */
+export function containsNul(value) {
+  if (typeof value === 'string') return value.includes('\0');
+  if (Array.isArray(value)) return value.some(containsNul);
+  if (value && typeof value === 'object') {
+    return Object.entries(value).some(([k, v]) => k.includes('\0') || containsNul(v));
+  }
+  return false;
 }

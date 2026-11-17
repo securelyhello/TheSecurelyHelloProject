@@ -33,7 +33,7 @@ class FakeDirectory extends DirectoryService {
   String? deviceId;
 
   FakeDirectory(this.server, this.userId)
-      : super(baseUrl: 'http://fake.invalid', tokenStore: SecureKeyStore(storage: MemorySecretStorage()));
+      : super(baseUrl: 'https://fake.invalid', tokenStore: SecureKeyStore(storage: MemorySecretStorage()));
 
   @override
   Future<Map<String, dynamic>> registerDevice({

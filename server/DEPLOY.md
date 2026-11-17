@@ -128,6 +128,34 @@ sign-in until lifted.
 - The app enforces its own per-account and per-IP limits in Redis; they sit
   well inside a proxy limit of 50 req/s per IP.
 
+## TLS, HSTS and certificate pinning
+
+- Serve the API over HTTPS only. Release builds of the app refuse a plain
+  `http://` server address (except `127.0.0.1`/`localhost`).
+- Add HSTS at the proxy, e.g. in Traefik a headers middleware with
+  `stsSeconds=31536000` and `stsIncludeSubdomains=true`.
+- Optional pinning: build the app with the SHA-256 of the server's public
+  key, plus a backup key that isn't deployed yet. The app then refuses any
+  other key, even one with a valid certificate.
+
+  ```
+  # current key (from the live server)
+  openssl s_client -connect api.example.com:443 -servername api.example.com </dev/null 2>/dev/null \
+    | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der \
+    | openssl dgst -sha256 -binary | base64
+  # backup key: generate it now, keep it offline, deploy it if the current one is lost
+  openssl ecparam -genkey -name prime256v1 -noout -out backup.key
+  openssl pkey -in backup.key -pubout -outform der | openssl dgst -sha256 -binary | base64
+
+  flutter build apk --dart-define=API_BASE_URL=https://api.example.com \
+    --dart-define=API_CERT_PINS=<current>,<backup>
+  ```
+
+  Renew certificates with the same key (certbot `--reuse-key`; in Traefik use
+  a fixed certificate instead of automatic ACME keys). If the key ever
+  changes to one that isn't pinned, every installed app stops connecting
+  until it is updated.
+
 ## Running migrations by hand
 
 ```

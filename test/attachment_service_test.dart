@@ -14,7 +14,7 @@ class FakeBlobs extends DirectoryService {
   final Map<String, Uint8List> blobs = {};
   int downloads = 0;
   FakeBlobs()
-      : super(baseUrl: 'http://fake.invalid', tokenStore: SecureKeyStore(storage: MemorySecretStorage()));
+      : super(baseUrl: 'https://fake.invalid', tokenStore: SecureKeyStore(storage: MemorySecretStorage()));
 
   @override
   Future<String> uploadAttachment(Uint8List ciphertext) async {

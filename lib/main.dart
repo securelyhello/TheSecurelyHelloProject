@@ -11,6 +11,7 @@ import 'package:securelyhello/core/storage/local_storage.dart';
 import 'package:securelyhello/core/storage/secure_key_store.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
 import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
+import 'package:securelyhello/core/networking/tls_pinning.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
@@ -65,7 +66,9 @@ Future<void> main() async {
   final DirectoryService directoryService;
   try {
     directoryService = DirectoryService(
-        baseUrl: AppConfig.apiBaseUrl, tokenStore: keyStore);
+        baseUrl: AppConfig.apiBaseUrl,
+        tokenStore: keyStore,
+        pinning: TlsPinning.parse(AppConfig.certPins));
   } on ArgumentError catch (e) {
     runApp(_ConfigErrorApp(message: e.message.toString()));
     return;

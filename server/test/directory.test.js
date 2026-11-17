@@ -23,6 +23,15 @@ describe('directory', () => {
     assert.equal((await api(srv.base, 'PUT', '/api/me/keys', { token: a.token, body: {} })).status, 404);
   });
 
+  test('API responses forbid caching, framing and active content', async () => {
+    const a = await signup(srv.base, 'hdrs');
+    const res = await fetch(`${srv.base}/api/me`, { headers: { Authorization: `Bearer ${a.token}` } });
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(res.headers.get('x-frame-options'), 'DENY');
+    assert.match(res.headers.get('content-security-policy'), /default-src 'none'/);
+  });
+
   test('turning discovery off hides you from partial search but not exact username', async () => {
     const a = await signup(srv.base, 'seeker');
     const b = await signup(srv.base, 'hiddenperson');

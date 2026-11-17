@@ -1,0 +1,7 @@
+# Default rules, plus one allowed file: the throwaway self-signed key that
+# test/tls_pinning_test.dart serves locally. It protects nothing.
+[extend]
+useDefault = true
+
+[allowlist]
+paths = ['''^test/fixtures/tls_test_key\.pem$''']

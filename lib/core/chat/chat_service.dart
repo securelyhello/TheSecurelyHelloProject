@@ -1300,9 +1300,7 @@ class ChatService {
           await _openAndHandle(envelope);
         }
       } on FormatException {
-        // Not a v3 envelope: drop it.
-      } on TypeError {
-        // Malformed fields: drop it.
+        // Not a valid v3 envelope: drop it.
       } catch (e) {
         // Network or storage error: keep it on the server for the next drain.
         debugPrint('Relay envelope $relayId kept for retry: $e');

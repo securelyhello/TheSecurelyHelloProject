@@ -8,14 +8,14 @@ import { registerDeviceRoutes } from './devices.js';
 import { registerSafetyRoutes } from './safety.js';
 import { createTwoFactor, registerTwoFactorRoutes } from './twofactor.js';
 import { HotStore } from './hotstore.js';
-import { Router, bearerToken, clientIp, readJsonBody, readRawBody, sendBytes, sendJson } from './http.js';
+import { Router, bearerToken, clientIp, containsNul, readJsonBody, readRawBody, sendBytes, sendJson } from './http.js';
 import { logger } from './log.js';
 import { createMailer } from './mail.js';
 import { createNotifier, senderFromEnv } from './push.js';
 import { RateLimits } from './ratelimit.js';
 import { RealtimeHub } from './realtime.js';
 import { Services } from './services.js';
-import { HttpError } from './validate.js';
+import { HttpError, bad } from './validate.js';
 
 export function loadConfig(env = process.env) {
   const int = (name, def, { allowZero = false } = {}) => {
@@ -116,6 +116,10 @@ export function createApp({
       const { route, params } = match;
       pattern = route.pattern;
 
+      // Postgres text can't hold NUL; refuse it here instead of failing deep in a query.
+      if ([...url.searchParams.values(), ...Object.values(params)].some((x) => x.includes('\0'))) {
+        throw bad('Input contains a NUL character');
+      }
       const ctx = { req, params, query: url.searchParams, ip: clientIp(req, config.trustProxyHops) };
       if (route.auth) {
         const token = bearerToken(req);
@@ -126,7 +130,10 @@ export function createApp({
         ctx.token = token;
       }
       if (route.rawBody) ctx.body = await readRawBody(req, route.rawBody);
-      else if (req.method !== 'GET' && req.method !== 'HEAD') ctx.body = await readJsonBody(req);
+      else if (req.method !== 'GET' && req.method !== 'HEAD') {
+        ctx.body = await readJsonBody(req);
+        if (containsNul(ctx.body)) throw bad('Input contains a NUL character');
+      }
 
       const result = await route.handler(ctx);
       if (Buffer.isBuffer(result)) {
@@ -143,7 +150,7 @@ export function createApp({
       if (err instanceof HttpError) {
         status = err.status;
         sendJson(res, err.status, { error: err.code, message: err.message });
-      } else if (err?.code === '22P02' || err?.code === '23514') {
+      } else if (err?.code === '22P02' || err?.code === '23514' || err?.code === '22021') {
         // invalid_text_representation / check_violation: bad input that slipped past validation
         status = 400;
         sendJson(res, 400, { error: 'invalid_input', message: 'Invalid input' });

@@ -368,8 +368,16 @@ class RatchetHeader {
       dh: dh,
       pn: pn,
       n: n,
-      preKey: pk is Map<String, dynamic> ? PreKeyHeader.fromJson(pk) : null,
+      preKey: pk is Map<String, dynamic> ? _preKey(pk) : null,
     );
+  }
+
+  static PreKeyHeader _preKey(Map<String, dynamic> pk) {
+    try {
+      return PreKeyHeader.fromJson(pk);
+    } on TypeError {
+      throw const FormatException('Bad prekey header');
+    }
   }
 }
 
