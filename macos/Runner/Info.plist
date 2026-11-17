@@ -28,5 +28,9 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Securely Hello uses the camera for video calls.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Securely Hello uses the microphone for calls and voice notes.</string>
 </dict>
 </plist>

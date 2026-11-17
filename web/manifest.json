@@ -1,6 +1,6 @@
 {
-    "name": "securelyhello",
-    "short_name": "securelyhello",
+    "name": "Securely Hello",
+    "short_name": "Securely Hello",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
