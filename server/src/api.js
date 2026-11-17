@@ -13,8 +13,7 @@ import { HttpError, bad } from './validate.js';
 const notFound = (what = 'Not found') => new HttpError(404, 'not_found', what);
 const tooMany = () => new HttpError(429, 'rate_limited', 'Too many requests, slow down');
 
-const USER_COLUMNS =
-  'u.id, u.email, u.username, u.display_name, u.signing_public_key, u.encryption_public_key, u.created_at, u.email_verified_at';
+const USER_COLUMNS = 'u.id, u.email, u.username, u.display_name, u.created_at, u.email_verified_at';
 
 const CODE_TTL_MINUTES = { verify: 30, reset: 15 };
 const CODE_MAX_ATTEMPTS = 5;
@@ -40,8 +39,6 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     user_id: row.id,
     username: row.username,
     display_name: row.display_name,
-    signing_public_key: row.signing_public_key,
-    encryption_public_key: row.encryption_public_key,
     status: presence ? (presence.online ? 'online' : 'offline') : null,
     last_seen: presence ? presence.last_seen : null,
   });
@@ -168,18 +165,16 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       const password = v.password(body.password);
       const username = v.username(body.username);
       const displayName = v.displayName(body.display_name ?? body.username);
-      const signingKey = v.publicKey(body.signing_public_key, 'signing_public_key');
-      const encryptionKey = v.publicKey(body.encryption_public_key, 'encryption_public_key');
+      // Keys are registered per device afterwards (PUT /api/devices/current).
       const passwordHash = await hashPassword(password);
 
       try {
         const { row, token } = await withTransaction(pool, async (client) => {
           const { rows } = await client.query(
-            `INSERT INTO users AS u (email, username, display_name, password_hash,
-                                     signing_public_key, encryption_public_key)
-             VALUES ($1, $2, $3, $4, $5, $6)
+            `INSERT INTO users AS u (email, username, display_name, password_hash)
+             VALUES ($1, $2, $3, $4)
              RETURNING ${USER_COLUMNS}`,
-            [email, username, displayName, passwordHash, signingKey, encryptionKey],
+            [email, username, displayName, passwordHash],
           );
           return { row: rows[0], token: await createSession(client, rows[0].id) };
         });
@@ -412,23 +407,9 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     }
   });
 
-  router.add('PUT', '/api/me/keys', async ({ body, user }) => {
-    v.requireObject(body);
-    const signingKey = v.publicKey(body.signing_public_key, 'signing_public_key');
-    const encryptionKey = v.publicKey(body.encryption_public_key, 'encryption_public_key');
-    const { rows } = await pool.query(
-      `UPDATE users u SET signing_public_key = $2, encryption_public_key = $3, updated_at = now()
-        WHERE u.id = $1 RETURNING ${USER_COLUMNS}`,
-      [user.id, signingKey, encryptionKey],
-    );
-    for (const id of await services.contactIds(user.id)) {
-      hub.sendTo(id, { type: 'keys_changed', user_id: user.id });
-    }
-    return me(rows[0]);
-  });
-
   router.add('DELETE', '/api/me', async ({ user }) => {
     const contacts = await services.contactIds(user.id);
+    const devices = await services.deviceIds(user.id);
     // ON DELETE CASCADE removes sessions, requests and contacts.
     const sessions = await withTransaction(pool, async (client) => {
       const res = await client.query('SELECT token_hash FROM sessions WHERE user_id = $1', [user.id]);
@@ -437,7 +418,8 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     });
     await services.revokeCachedSessions(sessions);
     await services.contactsChanged(user.id, ...contacts);
-    await store.relayPurgeUser(user.id);
+    await services.devicesChanged(user.id);
+    await store.relayPurgeUser(user.id, devices);
     await store.forgetPresence(user.id);
     for (const id of contacts) hub.sendTo(id, { type: 'contact_removed', user_id: user.id });
     hub.disconnectUser(user.id, 4003, 'account deleted');
@@ -482,9 +464,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
   const requestSelect = `
     SELECT r.id, r.sender_id, r.receiver_id, r.status, r.created_at, r.updated_at,
            s.id AS s_id, s.username AS s_username, s.display_name AS s_display_name,
-           s.signing_public_key AS s_signing_public_key, s.encryption_public_key AS s_encryption_public_key,
-           t.id AS t_id, t.username AS t_username, t.display_name AS t_display_name,
-           t.signing_public_key AS t_signing_public_key, t.encryption_public_key AS t_encryption_public_key
+           t.id AS t_id, t.username AS t_username, t.display_name AS t_display_name
       FROM contact_requests r
       JOIN users s ON s.id = r.sender_id
       JOIN users t ON t.id = r.receiver_id`;
@@ -493,8 +473,6 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     id: row[`${prefix}_id`],
     username: row[`${prefix}_username`],
     display_name: row[`${prefix}_display_name`],
-    signing_public_key: row[`${prefix}_signing_public_key`],
-    encryption_public_key: row[`${prefix}_encryption_public_key`],
   });
 
   const requestJson = (row) => ({
@@ -712,77 +690,5 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     if (!removed) throw notFound('Not a contact');
     await services.contactsChanged(user.id, contactId);
     hub.sendTo(contactId, { type: 'contact_removed', user_id: user.id });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Relay queue (ciphertext only, in Redis with a native TTL)
-  // ---------------------------------------------------------------------------
-
-  /**
-   * The envelope must be a v2 wire envelope sent by the session's user:
-   * {"v":2,"id":"…","s":"<sender id>","t":<ms>,"c":"<base64 NaCl box>"}.
-   * The server cannot read `c`; it only checks the outer shape so that a
-   * buggy client can't park plaintext or spoof the sender here.
-   */
-  function validateEnvelope(raw, senderId) {
-    const text = v.string(raw, 'envelope', { min: 2, max: 128 * 1024 });
-    let env;
-    try {
-      env = JSON.parse(text);
-    } catch {
-      throw bad('envelope must be JSON', 'invalid_envelope');
-    }
-    const keys = env && typeof env === 'object' && !Array.isArray(env) ? Object.keys(env).sort().join(',') : '';
-    if (
-      keys !== 'c,id,s,t,v' ||
-      env.v !== 2 ||
-      env.s !== senderId ||
-      typeof env.id !== 'string' ||
-      env.id.length < 1 ||
-      env.id.length > 64 ||
-      !Number.isSafeInteger(env.t) ||
-      typeof env.c !== 'string' ||
-      env.c.length < 64 ||
-      !/^[A-Za-z0-9+/]+={0,2}$/.test(env.c)
-    ) {
-      throw bad('envelope is not a valid v2 ciphertext envelope from you', 'invalid_envelope');
-    }
-    return text;
-  }
-
-  router.add('POST', '/api/relay', async ({ body, user }) => {
-    await limit('relay', user.id);
-    v.requireObject(body);
-    const recipientId = v.uuid(body.recipient_id, 'recipient_id');
-    const envelope = validateEnvelope(body.envelope, user.id);
-    if (!(await services.areContacts(user.id, recipientId))) {
-      throw new HttpError(403, 'not_contacts', 'You can only message accepted contacts');
-    }
-    const msg = await store.relayEnqueue(user.id, recipientId, envelope);
-    if (!msg) throw new HttpError(429, 'recipient_queue_full', 'The recipient has too many undelivered messages');
-    const pushed =
-      hub.sendTo(recipientId, {
-        type: 'relay',
-        message: { id: msg.id, sender_id: user.id, envelope, created_at: msg.created_at },
-      }) > 0;
-    return { status: 201, body: { id: msg.id, created_at: msg.created_at, expires_at: msg.expires_at, pushed } };
-  });
-
-  router.add('GET', '/api/relay', async ({ query, user }) => {
-    const n = Math.min(Math.max(Number.parseInt(query.get('limit') ?? '100', 10) || 100, 1), 200);
-    return store.relayFetch(user.id, n);
-  });
-
-  router.add('POST', '/api/relay/ack', async ({ body, user }) => {
-    v.requireObject(body);
-    const ids = body.ids;
-    if (!Array.isArray(ids) || ids.length === 0 || ids.length > 200 || !ids.every(v.isUuid)) {
-      throw bad('ids must be 1-200 UUIDs');
-    }
-    return { deleted: await store.relayAck(user.id, ids.map((id) => id.toLowerCase())) };
-  });
-
-  router.add('DELETE', '/api/relay/:id', async ({ params, user }) => {
-    await store.relayAck(user.id, [v.uuid(params.id)]);
   });
 }

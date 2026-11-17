@@ -3,13 +3,15 @@
 //
 // Keys (all prefixed with REDIS_PREFIX, default "sh:"):
 //   rl:<bucket>:<key>        rate-limit counter (fixed window, PX = window)
-//   sess:<sha256 hex>        session token → user id cache (short TTL)
+//   sess:<sha256 hex>        session token → "<user id>|<device id>" cache (short TTL)
 //   contacts:<user>          JSON array of contact ids (cache, short TTL)
+//   devices:<user>           JSON array of the user's device ids (cache, short TTL)
 //   online:<user>            "1" while a socket is connected (TTL, refreshed)
 //   lastseen:<user>          ISO timestamp of the last disconnect (90 d TTL)
 //   relay:m:<id>             one ciphertext envelope (JSON), PX = relay TTL
-//   relay:q:<recipient>      ZSET of pending envelope ids, score = created ms
-//   relay:s:<sender>         ZSET "<recipient>:<id>" (for account deletion)
+//   relay:q:<device>         ZSET of envelope ids pending for one device, score = created ms
+//   relay:s:<sender user>    ZSET "<recipient device>:<id>" (for account deletion)
+//   push:<device>            "1" while a push wake-up is throttled
 //
 // Every key carries a TTL. The relay queue must never be evicted silently, so
 // the Redis instance runs with maxmemory-policy noeviction (see
@@ -96,13 +98,17 @@ export class HotStore {
   // Session cache
   // ---------------------------------------------------------------------------
 
+  /** {id, deviceId} or null. */
   async getCachedSession(hashHex) {
-    return this.redis.get(this.k('sess', hashHex));
+    const raw = await this.redis.get(this.k('sess', hashHex));
+    if (raw === null) return null;
+    const [id, deviceId] = raw.split('|');
+    return { id, deviceId: deviceId || null };
   }
 
-  async cacheSession(hashHex, userId, maxSeconds) {
+  async cacheSession(hashHex, userId, deviceId, maxSeconds) {
     const ttl = Math.max(1, Math.min(this.sessionCacheSeconds, Math.floor(maxSeconds)));
-    await this.redis.set(this.k('sess', hashHex), userId, 'EX', ttl);
+    await this.redis.set(this.k('sess', hashHex), `${userId}|${deviceId ?? ''}`, 'EX', ttl);
   }
 
   async forgetSessions(hashHexes) {
@@ -124,6 +130,36 @@ export class HotStore {
 
   async forgetContacts(...userIds) {
     if (userIds.length) await this.redis.del(...userIds.map((id) => this.k('contacts', id)));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Device-list cache
+  // ---------------------------------------------------------------------------
+
+  async getCachedDevices(userId) {
+    const raw = await this.redis.get(this.k('devices', userId));
+    return raw === null ? null : JSON.parse(raw);
+  }
+
+  async cacheDevices(userId, ids) {
+    await this.redis.set(this.k('devices', userId), JSON.stringify(ids), 'EX', this.contactCacheSeconds);
+  }
+
+  async forgetDevices(...userIds) {
+    if (userIds.length) await this.redis.del(...userIds.map((id) => this.k('devices', id)));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Push throttle
+  // ---------------------------------------------------------------------------
+
+  /** True if a wake-up may be sent to [deviceId] now (at most one per window). */
+  async takePushSlot(deviceId, windowSeconds) {
+    return (await this.redis.set(this.k('push', deviceId), '1', 'EX', windowSeconds, 'NX')) === 'OK';
+  }
+
+  async clearPushSlot(deviceId) {
+    await this.redis.del(this.k('push', deviceId));
   }
 
   // ---------------------------------------------------------------------------
@@ -166,23 +202,34 @@ export class HotStore {
   // Relay queue (ciphertext envelopes only)
   // ---------------------------------------------------------------------------
 
-  /** Stores one envelope; returns the stored message, or null if the queue is full. */
-  async relayEnqueue(senderId, recipientId, envelope) {
-    const q = this.k('relay', 'q', recipientId);
+  /**
+   * Stores one envelope for one device; returns the stored message, or null
+   * if that device's queue is full.
+   */
+  async relayEnqueue({ senderId, senderDevice, recipientId, recipientDevice, envelope }) {
+    const q = this.k('relay', 'q', recipientDevice);
     const now = Date.now();
     await this.redis.zremrangebyscore(q, '-inf', now - this.relayTtlMs);
     if ((await this.redis.zcard(q)) >= this.relayQueueCap) return null;
 
     const id = randomUUID();
     const createdAt = new Date(now).toISOString();
-    const message = { id, sender_id: senderId, recipient_id: recipientId, envelope, created_at: createdAt };
+    const message = {
+      id,
+      sender_id: senderId,
+      sender_device: senderDevice,
+      recipient_id: recipientId,
+      recipient_device: recipientDevice,
+      envelope,
+      created_at: createdAt,
+    };
     const s = this.k('relay', 's', senderId);
     const res = await this.redis
       .multi()
       .set(this.k('relay', 'm', id), JSON.stringify(message), 'PX', this.relayTtlMs)
       .zadd(q, now, id)
       .pexpire(q, this.relayTtlMs)
-      .zadd(s, now, `${recipientId}:${id}`)
+      .zadd(s, now, `${recipientDevice}:${id}`)
       .pexpire(s, this.relayTtlMs)
       .exec();
     const failed = res.find(([err]) => err);
@@ -190,9 +237,9 @@ export class HotStore {
     return { ...message, expires_at: new Date(now + this.relayTtlMs).toISOString() };
   }
 
-  /** Oldest-first pending envelopes for [recipientId]. Expired ones are pruned. */
-  async relayFetch(recipientId, limit = 100) {
-    const q = this.k('relay', 'q', recipientId);
+  /** Oldest-first pending envelopes for [deviceId]. Expired ones are pruned. */
+  async relayFetch(deviceId, limit = 100) {
+    const q = this.k('relay', 'q', deviceId);
     await this.redis.zremrangebyscore(q, '-inf', Date.now() - this.relayTtlMs);
     const ids = await this.redis.zrange(q, 0, limit - 1);
     if (!ids.length) return [];
@@ -205,25 +252,44 @@ export class HotStore {
         return;
       }
       const m = JSON.parse(raws[i]);
-      rows.push({ id: m.id, sender_id: m.sender_id, envelope: m.envelope, created_at: m.created_at });
+      rows.push({
+        id: m.id,
+        sender_id: m.sender_id,
+        sender_device: m.sender_device,
+        envelope: m.envelope,
+        created_at: m.created_at,
+      });
     });
     if (gone.length) await this.redis.zrem(q, ...gone);
     return rows;
   }
 
-  /** Deletes envelopes addressed to [recipientId]; ids for anyone else are ignored. */
-  async relayAck(recipientId, ids) {
-    if (!ids.length) return 0;
-    return this.redis.shRelayAck(this.k('relay', 'q', recipientId), this.k('relay', 'm', ''), ...ids);
+  async relayPending(deviceId) {
+    return this.redis.zcard(this.k('relay', 'q', deviceId));
   }
 
-  /** Account deletion: drop everything queued to and from [userId]. */
-  async relayPurgeUser(userId) {
-    const q = this.k('relay', 'q', userId);
-    const s = this.k('relay', 's', userId);
-    const [received, sent] = await Promise.all([this.redis.zrange(q, 0, -1), this.redis.zrange(s, 0, -1)]);
+  /** Deletes envelopes addressed to [deviceId]; ids for anyone else are ignored. */
+  async relayAck(deviceId, ids) {
+    if (!ids.length) return 0;
+    return this.redis.shRelayAck(this.k('relay', 'q', deviceId), this.k('relay', 'm', ''), ...ids);
+  }
+
+  /** Device removed: drop everything still queued for it. */
+  async relayPurgeDevice(deviceId) {
+    const q = this.k('relay', 'q', deviceId);
+    const received = await this.redis.zrange(q, 0, -1);
     const m = this.redis.multi();
     for (const id of received) m.del(this.k('relay', 'm', id));
+    m.del(q, this.k('push', deviceId));
+    await m.exec();
+  }
+
+  /** Account deletion: drop everything queued to [deviceIds] and sent by [userId]. */
+  async relayPurgeUser(userId, deviceIds = []) {
+    for (const d of deviceIds) await this.relayPurgeDevice(d);
+    const s = this.k('relay', 's', userId);
+    const sent = await this.redis.zrange(s, 0, -1);
+    const m = this.redis.multi();
     for (const entry of sent) {
       const sep = entry.indexOf(':');
       const recipient = entry.slice(0, sep);
@@ -231,7 +297,7 @@ export class HotStore {
       m.zrem(this.k('relay', 'q', recipient), id);
       m.del(this.k('relay', 'm', id));
     }
-    m.del(q, s);
+    m.del(s);
     await m.exec();
   }
 }

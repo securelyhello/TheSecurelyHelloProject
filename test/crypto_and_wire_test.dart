@@ -8,11 +8,6 @@ import 'package:securelyhello/core/crypto/crypto_core.dart';
 
 Uint8List bytes(String s) => Uint8List.fromList(utf8.encode(s));
 
-PeerKeys keysOf(CryptoIdentity id) => PeerKeys(
-      signingKey: id.publicSigningKeyBase64,
-      encryptionKey: id.publicEncryptionKeyBase64,
-    );
-
 void main() {
   final alice = CryptoCore.generateIdentity();
   final bob = CryptoCore.generateIdentity();
@@ -78,123 +73,107 @@ void main() {
           isTrue);
     });
 
-    test('safety number is symmetric, 60 digits, and key-sensitive', () {
-      String sn(CryptoIdentity me, String myId, CryptoIdentity them,
-              String theirId) =>
-          CryptoCore.safetyNumber(
-            myUserId: myId,
-            mySigningKey: me.publicSigningKeyBase64,
-            myEncryptionKey: me.publicEncryptionKeyBase64,
-            theirUserId: theirId,
-            theirSigningKey: them.publicSigningKeyBase64,
-            theirEncryptionKey: them.publicEncryptionKeyBase64,
-          );
+    test('safety number covers every device, is symmetric and order-free', () {
+      String keys(CryptoIdentity id) =>
+          '${id.publicSigningKeyBase64}|${id.publicEncryptionKeyBase64}';
+      final aliceLaptop = CryptoCore.generateIdentity();
+      final a = CryptoCore.safetyNumber(
+        myUserId: 'alice',
+        myDeviceKeys: [keys(alice), keys(aliceLaptop)],
+        theirUserId: 'bob',
+        theirDeviceKeys: [keys(bob)],
+      );
+      final b = CryptoCore.safetyNumber(
+        myUserId: 'bob',
+        myDeviceKeys: [keys(bob)],
+        theirUserId: 'alice',
+        theirDeviceKeys: [keys(aliceLaptop), keys(alice)],
+      );
+      expect(a, b);
+      expect(RegExp(r'^(\d{5} ){11}\d{5}$').hasMatch(a), isTrue);
 
-      final ab = sn(alice, 'a', bob, 'b');
-      expect(ab, sn(bob, 'b', alice, 'a'));
-      expect(ab, matches(RegExp(r'^(\d{5} ){11}\d{5}$')));
-      expect(sn(alice, 'a', mallory, 'b'), isNot(ab));
+      final withoutLaptop = CryptoCore.safetyNumber(
+        myUserId: 'alice',
+        myDeviceKeys: [keys(alice)],
+        theirUserId: 'bob',
+        theirDeviceKeys: [keys(bob)],
+      );
+      expect(withoutLaptop, isNot(a), reason: 'adding a device changes it');
+      final swapped = CryptoCore.safetyNumber(
+        myUserId: 'alice',
+        myDeviceKeys: [keys(alice), keys(aliceLaptop)],
+        theirUserId: 'bob',
+        theirDeviceKeys: [keys(mallory)],
+      );
+      expect(swapped, isNot(a), reason: 'a substituted key changes it');
     });
   });
 
-  group('WireCodec', () {
-    WireEnvelope sealFromAlice(WirePayload payload) => WireCodec.seal(
-          envelopeId: 'env-1',
-          payload: payload,
-          identity: alice,
-          recipientEncryptionKey: bob.publicEncryptionKeyBase64,
-        );
+  group('wire protocol v3', () {
+    test('envelope round-trips and rejects other versions', () {
+      const env = WireEnvelope(
+        id: 'e1',
+        senderId: 'alice',
+        senderDevice: 'a1',
+        recipientDevice: 'b1',
+        timestampMs: 42,
+        header: '{"dh":"x","pn":0,"n":0}',
+        ciphertextBase64: 'AAAA',
+      );
+      final back = WireEnvelope.fromBytes(env.encode());
+      expect(back.senderAddress, 'alice:a1');
+      expect(back.recipientDevice, 'b1');
+      expect(back.header, env.header);
+      expect(jsonDecode(env.encodeJson()).keys.toList()..sort(),
+          ['c', 'h', 'id', 'rd', 's', 'sd', 't', 'v']);
+      final v2 = Map<String, dynamic>.from(jsonDecode(env.encodeJson()))..['v'] = 2;
+      expect(() => WireEnvelope.fromJson(v2), throwsFormatException);
+    });
 
-    WirePayload openAsBob(WireEnvelope env,
-            {PeerKeys? sender, String expectedSender = 'alice'}) =>
-        WireCodec.open(
-          envelope: WireEnvelope.decodeJson(env.encodeJson()),
-          identity: bob,
-          sender: sender ?? keysOf(alice),
-          expectedSender: expectedSender,
-          myUserId: 'bob',
-        );
-
-    test('text message round-trips', () {
-      final env = sealFromAlice(WirePayload.message(
+    test('payloads round-trip: message with attachment, receipt, typing, syncs', () {
+      final msg = WirePayload.decode(WirePayload.message(
         messageId: 'm1',
         from: 'alice',
         to: 'bob',
-        timestampMs: 42,
-        body: 'hi bob 👋',
-      ));
-      expect(env.version, kWireVersion);
-
-      final payload = openAsBob(env);
-      expect(payload.kind, PayloadKind.message);
-      expect(payload.messageId, 'm1');
-      expect(payload.body, 'hi bob 👋');
-      expect(payload.timestampMs, 42);
-    });
-
-    test('receipt and typing payloads round-trip', () {
-      final receipt = openAsBob(sealFromAlice(WirePayload.receipt(
-        from: 'alice',
-        to: 'bob',
         timestampMs: 1,
-        ids: ['m1', 'm2'],
-        status: ReceiptStatus.read,
-      )));
-      expect(receipt.kind, PayloadKind.receipt);
-      expect(receipt.receiptIds, ['m1', 'm2']);
+        body: '',
+        attachment: {'id': 'blob', 'name': 'cat.png', 'size': 3},
+      ).encode());
+      expect(msg.kind, PayloadKind.message);
+      expect(msg.attachment!['name'], 'cat.png');
+
+      final receipt = WirePayload.decode(WirePayload.receipt(
+              from: 'bob', to: 'alice', timestampMs: 2, ids: ['m1'], status: ReceiptStatus.read)
+          .encode());
+      expect(receipt.receiptIds, ['m1']);
       expect(receipt.receiptStatus, ReceiptStatus.read);
 
-      final typing = openAsBob(sealFromAlice(WirePayload.typing(
-          from: 'alice', to: 'bob', timestampMs: 1, isTyping: true)));
-      expect(typing.kind, PayloadKind.typing);
+      final typing = WirePayload.decode(
+          WirePayload.typing(from: 'a', to: 'b', timestampMs: 3, isTyping: true).encode());
       expect(typing.isTyping, isTrue);
+
+      final sent = WirePayload.decode(WirePayload.sentSync(
+              me: 'alice', conversation: 'bob', messageId: 'm2', timestampMs: 4, body: 'hi')
+          .encode());
+      expect(sent.kind, PayloadKind.sync);
+      expect(sent.conversation, 'bob');
+      expect(sent.to, 'alice');
+
+      final read = WirePayload.decode(WirePayload.readSync(
+              me: 'alice', conversation: 'bob', ids: ['x', 'y'], timestampMs: 5)
+          .encode());
+      expect(read.readIds, ['x', 'y']);
+      expect(read.messageId, isNull);
     });
 
-    test('rejects an envelope claiming a different sender', () {
-      final env = sealFromAlice(WirePayload.message(
-          messageId: 'm', from: 'alice', to: 'bob', timestampMs: 1, body: 'x'));
-      expect(() => openAsBob(env, expectedSender: 'mallory'),
+    test('malformed payloads are rejected', () {
+      Uint8List enc(Map<String, dynamic> m) => bytes(jsonEncode(m));
+      expect(() => WirePayload.decode(enc({'k': 'msg', 'from': 'a', 'to': 'b', 't': 1})),
           throwsFormatException);
-    });
-
-    test('rejects a payload addressed to someone else', () {
-      final env = sealFromAlice(WirePayload.message(
-          messageId: 'm', from: 'alice', to: 'carol', timestampMs: 1, body: 'x'));
-      expect(() => openAsBob(env), throwsFormatException);
-    });
-
-    test('rejects a forged signature', () {
-      final env = sealFromAlice(WirePayload.message(
-          messageId: 'm', from: 'alice', to: 'bob', timestampMs: 1, body: 'x'));
-      final wrongSigner = PeerKeys(
-        signingKey: mallory.publicSigningKeyBase64,
-        encryptionKey: alice.publicEncryptionKeyBase64,
-      );
-      expect(() => openAsBob(env, sender: wrongSigner), throwsFormatException);
-    });
-
-    test('still opens legacy v1 envelopes', () {
-      final ct = CryptoCore.encrypt(
-        bytes('old client'),
-        CryptoCore.fromBase64(bob.publicEncryptionKeyBase64),
-        alice.encryptionPrivateKeyBytes,
-      );
-      final legacyJson = jsonEncode({
-        'id': 'legacy-1',
-        's': 'alice',
-        't': 7,
-        'c': CryptoCore.toBase64(ct),
-      });
-      final payload = WireCodec.open(
-        envelope: WireEnvelope.decodeJson(legacyJson),
-        identity: bob,
-        sender: keysOf(alice),
-        expectedSender: 'alice',
-        myUserId: 'bob',
-      );
-      expect(payload.kind, PayloadKind.message);
-      expect(payload.messageId, 'legacy-1');
-      expect(payload.body, 'old client');
+      expect(() => WirePayload.decode(enc({'k': 'sync', 'from': 'a', 'to': 'a', 't': 1})),
+          throwsFormatException);
+      expect(() => WirePayload.decode(enc({'k': 'nope', 'from': 'a', 'to': 'b', 't': 1})),
+          throwsFormatException);
     });
   });
 }

@@ -16,20 +16,23 @@ export class Services {
   // Sessions
   // ---------------------------------------------------------------------------
 
-  /** Resolves a bearer token to {id} or null. Cached in Redis for minutes. */
+  /**
+   * Resolves a bearer token to {id, deviceId} or null. deviceId is null until
+   * the client registers its device. Cached in Redis for minutes.
+   */
   async authenticate(token) {
     const hex = hashToken(token).toString('hex');
     const cached = await this.store.getCachedSession(hex);
-    if (cached) return { id: cached };
+    if (cached) return cached;
     const { rows } = await this.pool.query(
       `UPDATE sessions SET last_used_at = now()
         WHERE token_hash = $1 AND expires_at > now()
-        RETURNING user_id, extract(epoch FROM expires_at - now()) AS remaining`,
+        RETURNING user_id, device_id, extract(epoch FROM expires_at - now()) AS remaining`,
       [Buffer.from(hex, 'hex')],
     );
     if (!rows[0]) return null;
-    await this.store.cacheSession(hex, rows[0].user_id, Number(rows[0].remaining));
-    return { id: rows[0].user_id };
+    await this.store.cacheSession(hex, rows[0].user_id, rows[0].device_id, Number(rows[0].remaining));
+    return { id: rows[0].user_id, deviceId: rows[0].device_id };
   }
 
   /** Drops cached lookups for revoked session hashes (Buffers). */
@@ -59,6 +62,26 @@ export class Services {
   /** Call after any change to the contact edges of these users. */
   async contactsChanged(...userIds) {
     await this.store.forgetContacts(...userIds);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Devices
+  // ---------------------------------------------------------------------------
+
+  /** Ids of [userId]'s registered devices (oldest first). */
+  async deviceIds(userId) {
+    const cached = await this.store.getCachedDevices(userId);
+    if (cached) return cached;
+    const { rows } = await this.pool.query('SELECT id FROM devices WHERE user_id = $1 ORDER BY created_at, id', [
+      userId,
+    ]);
+    const ids = rows.map((r) => r.id);
+    await this.store.cacheDevices(userId, ids);
+    return ids;
+  }
+
+  async devicesChanged(...userIds) {
+    await this.store.forgetDevices(...userIds);
   }
 
   // ---------------------------------------------------------------------------

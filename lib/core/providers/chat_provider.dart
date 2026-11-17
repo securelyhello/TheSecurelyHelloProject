@@ -59,6 +59,7 @@ class ChatProvider extends ChangeNotifier {
   Future<void> init({
     required CryptoIdentity identity,
     required String myUserId,
+    required String deviceId,
   }) async {
     if (_initialized && _chatService.myUserId == myUserId) return;
     _isLoading = true;
@@ -69,7 +70,8 @@ class ChatProvider extends ChangeNotifier {
       _sendReadReceipts = prefs.getBool(_readReceiptsPref) ?? true;
       _chatService.sendReadReceipts = _sendReadReceipts;
 
-      await _chatService.start(identity: identity, myUserId: myUserId);
+      await _chatService.start(
+          identity: identity, myUserId: myUserId, deviceId: deviceId);
       await loadConversations();
 
       _subs
@@ -264,6 +266,13 @@ class ChatProvider extends ChangeNotifier {
   /// Safety number shared with [contactId].
   Future<String?> safetyNumberFor(String contactId) =>
       _chatService.safetyNumberFor(contactId);
+
+  /// The signed-in user's id, once messaging has started.
+  String? get myUserId => _chatService.myUserId;
+
+  /// How many devices [userId] has (for ourselves: including this one).
+  Future<int> deviceCount(String userId) async =>
+      (await _chatService.devicesOf(userId)).length;
 
   /// Toggle read receipts (persisted).
   Future<void> setSendReadReceipts(bool value) async {

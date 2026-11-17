@@ -28,7 +28,7 @@ import 'package:securelyhello/core/crypto/crypto_core.dart';
 /// **Nothing stored here ever leaves the device.**
 class LocalStorage {
   static const _legacyDbName = 'securelyhello.db';
-  static const _dbVersion = 2;
+  static const _dbVersion = 3;
   static const _sealedPrefix = 'enc1:';
 
   final DatabaseFactory _factory;
@@ -192,9 +192,62 @@ class LocalStorage {
     ''');
 
     await batch.commit(noResult: true);
+    await _createV3(db);
+  }
+
+  /// Protocol v3: per-device sessions, prekeys, device cache, attachments.
+  static Future<void> _createV3(Database db) async {
+    final batch = db.batch();
+    batch.execute('''
+      CREATE TABLE IF NOT EXISTS ratchet_sessions (
+        address    TEXT PRIMARY KEY,
+        record     TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    batch.execute('''
+      CREATE TABLE IF NOT EXISTS local_prekeys (
+        kind       TEXT NOT NULL,
+        key_id     INTEGER NOT NULL,
+        private    TEXT NOT NULL,
+        public     TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (kind, key_id)
+      )
+    ''');
+    batch.execute('''
+      CREATE TABLE IF NOT EXISTS peer_devices (
+        user_id      TEXT NOT NULL,
+        device_id    TEXT NOT NULL,
+        signing_key  TEXT NOT NULL,
+        identity_key TEXT NOT NULL,
+        PRIMARY KEY (user_id, device_id)
+      )
+    ''');
+    batch.execute('''
+      CREATE TABLE IF NOT EXISTS peer_device_lists (
+        user_id    TEXT PRIMARY KEY,
+        fetched_at INTEGER NOT NULL
+      )
+    ''');
+    batch.execute('''
+      CREATE TABLE IF NOT EXISTS seen_envelopes (
+        id      TEXT PRIMARY KEY,
+        seen_at INTEGER NOT NULL
+      )
+    ''');
+    batch.execute('''
+      CREATE TABLE IF NOT EXISTS kv (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
+    batch.execute('ALTER TABLE messages ADD COLUMN attachment TEXT');
+    await batch.commit(noResult: true);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+
     if (oldVersion < 2) {
       await db.transaction((txn) async {
         await txn.execute(
@@ -244,6 +297,12 @@ class LocalStorage {
         }
       });
     }
+    if (oldVersion < 3) {
+      await _createV3(db);
+      // Account-level keys are gone; peers are re-fetched as device lists.
+      await db.update('contacts_cache',
+          {'public_signing_key': null, 'public_encryption_key': null});
+    }
   }
 
   /// Closes the database.  Safe to call multiple times.
@@ -282,8 +341,14 @@ class LocalStorage {
     }
   }
 
-  Map<String, dynamic> _unsealMessage(Map<String, dynamic> row) =>
-      {...row, 'content': _unseal(row['content'] as String)};
+  Map<String, dynamic> _unsealMessage(Map<String, dynamic> row) {
+    final att = row['attachment'] as String?;
+    return {
+      ...row,
+      'content': _unseal(row['content'] as String),
+      'attachment': att == null ? null : _unseal(att),
+    };
+  }
 
   Map<String, dynamic> _unsealConversation(Map<String, dynamic> row) {
     final last = row['last_message'] as String?;
@@ -331,6 +396,7 @@ class LocalStorage {
     required String status,
     required bool isFromMe,
     String kind = 'text',
+    String? attachment,
   }) async {
     await db.insert(
       'messages',
@@ -343,6 +409,7 @@ class LocalStorage {
         'status': status,
         'is_from_me': isFromMe ? 1 : 0,
         'kind': kind,
+        'attachment': attachment == null ? null : _seal(attachment),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -451,6 +518,16 @@ class LocalStorage {
     await db.rawUpdate(
       "UPDATE messages SET status = 'read' WHERE id IN ($placeholders)",
       messageIds,
+    );
+  }
+
+  /// Marks every incoming message in [conversationId] at or before
+  /// [timestampMs] as read (read on another of our devices).
+  Future<void> markIncomingReadUpTo(String conversationId, int timestampMs) async {
+    await db.rawUpdate(
+      "UPDATE messages SET status = 'read' WHERE conversation_id = ? "
+      "AND is_from_me = 0 AND kind = 'text' AND timestamp <= ?",
+      [conversationId, timestampMs],
     );
   }
 
@@ -637,5 +714,210 @@ class LocalStorage {
   /// Wipes the entire contact cache.
   Future<void> clearContactsCache() async {
     await db.delete('contacts_cache');
+  }
+
+  /// Replaces a message's attachment metadata (e.g. once it is downloaded).
+  Future<void> updateMessageAttachment(String messageId, String attachment) async {
+    await db.update('messages', {'attachment': _seal(attachment)},
+        where: 'id = ?', whereArgs: [messageId]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Key/value settings (device id, prekey counters)
+  // ---------------------------------------------------------------------------
+
+  Future<String?> kvGet(String key) async {
+    final rows = await db.query('kv', where: 'key = ?', whereArgs: [key], limit: 1);
+    return rows.isEmpty ? null : rows.first['value'] as String;
+  }
+
+  Future<void> kvSet(String key, String value) async {
+    await db.insert('kv', {'key': key, 'value': value},
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> kvDelete(String key) async {
+    await db.delete('kv', where: 'key = ?', whereArgs: [key]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Ratchet sessions (sealed at rest)
+  // ---------------------------------------------------------------------------
+
+  Future<String?> getSessionRecord(String address) async {
+    final rows = await db.query('ratchet_sessions',
+        where: 'address = ?', whereArgs: [address], limit: 1);
+    if (rows.isEmpty) return null;
+    final raw = _unseal(rows.first['record'] as String);
+    return raw == '[unreadable message]' ? null : raw;
+  }
+
+  Future<void> saveSessionRecord(String address, String record) async {
+    await db.insert(
+      'ratchet_sessions',
+      {
+        'address': address,
+        'record': _seal(record),
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> deleteSessionRecord(String address) async {
+    await db.delete('ratchet_sessions', where: 'address = ?', whereArgs: [address]);
+  }
+
+  Future<void> deleteSessionsForUser(String userId) async {
+    await db.delete('ratchet_sessions',
+        where: 'address LIKE ?', whereArgs: ['$userId:%']);
+  }
+
+  /// Device identity changed: every session and prekey is void.
+  Future<void> resetDeviceState() async {
+    final batch = db.batch()
+      ..delete('ratchet_sessions')
+      ..delete('local_prekeys')
+      ..delete('seen_envelopes');
+    await batch.commit(noResult: true);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Our prekeys (private halves sealed at rest)
+  // ---------------------------------------------------------------------------
+
+  Future<void> insertPreKeys(
+      String kind, List<({int id, String private, String public})> keys) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final batch = db.batch();
+    for (final k in keys) {
+      batch.insert(
+        'local_prekeys',
+        {
+          'kind': kind,
+          'key_id': k.id,
+          'private': _seal(k.private),
+          'public': k.public,
+          'created_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// `(private, public, createdAt)` or null.
+  Future<({String private, String public, int createdAt})?> getPreKey(
+      String kind, int id) async {
+    final rows = await db.query('local_prekeys',
+        where: 'kind = ? AND key_id = ?', whereArgs: [kind, id], limit: 1);
+    if (rows.isEmpty) return null;
+    final r = rows.first;
+    return (
+      private: _unseal(r['private'] as String),
+      public: r['public'] as String,
+      createdAt: r['created_at'] as int,
+    );
+  }
+
+  Future<void> deletePreKey(String kind, int id) async {
+    await db.delete('local_prekeys',
+        where: 'kind = ? AND key_id = ?', whereArgs: [kind, id]);
+  }
+
+  Future<int> maxPreKeyId(String kind) async {
+    final rows = await db.rawQuery(
+        'SELECT MAX(key_id) AS m FROM local_prekeys WHERE kind = ?', [kind]);
+    return (rows.first['m'] as int?) ?? 0;
+  }
+
+  /// Drops [kind] prekeys created before [beforeMs], except [keep].
+  Future<void> deletePreKeysBefore(String kind, int beforeMs, {int? keep}) async {
+    await db.delete('local_prekeys',
+        where: 'kind = ? AND created_at < ? AND key_id != ?',
+        whereArgs: [kind, beforeMs, keep ?? -1]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Peer devices (public keys of contacts' and our own other devices)
+  // ---------------------------------------------------------------------------
+
+  Future<List<Map<String, dynamic>>> getPeerDevices(String userId) =>
+      db.query('peer_devices',
+          where: 'user_id = ?', whereArgs: [userId], orderBy: 'device_id');
+
+  /// When the list for [userId] was last fetched (ms), or null.
+  Future<int?> peerDevicesFetchedAt(String userId) async {
+    final rows = await db.query('peer_device_lists',
+        where: 'user_id = ?', whereArgs: [userId], limit: 1);
+    return rows.isEmpty ? null : rows.first['fetched_at'] as int;
+  }
+
+  /// Replaces [userId]'s device list. Returns `(added, removed, changed)`
+  /// device ids compared with what was cached (empty on the first fetch).
+  Future<({List<String> added, List<String> removed, List<String> changed})>
+      replacePeerDevices(String userId,
+          List<({String deviceId, String signingKey, String identityKey})> devices) async {
+    final hadList = await peerDevicesFetchedAt(userId) != null;
+    final old = {
+      for (final r in await getPeerDevices(userId))
+        r['device_id'] as String: '${r['signing_key']}|${r['identity_key']}'
+    };
+    final next = {for (final d in devices) d.deviceId: '${d.signingKey}|${d.identityKey}'};
+    await db.transaction((txn) async {
+      await txn.delete('peer_devices', where: 'user_id = ?', whereArgs: [userId]);
+      for (final d in devices) {
+        await txn.insert('peer_devices', {
+          'user_id': userId,
+          'device_id': d.deviceId,
+          'signing_key': d.signingKey,
+          'identity_key': d.identityKey,
+        });
+      }
+      await txn.insert(
+        'peer_device_lists',
+        {'user_id': userId, 'fetched_at': DateTime.now().millisecondsSinceEpoch},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
+    if (!hadList) return (added: <String>[], removed: <String>[], changed: <String>[]);
+    return (
+      added: next.keys.where((k) => !old.containsKey(k)).toList(),
+      removed: old.keys.where((k) => !next.containsKey(k)).toList(),
+      changed: next.keys
+          .where((k) => old.containsKey(k) && old[k] != next[k])
+          .toList(),
+    );
+  }
+
+  /// Forces the next lookup of [userId]'s devices to hit the server.
+  Future<void> invalidatePeerDevices(String userId) async {
+    await db.update('peer_device_lists', {'fetched_at': 0},
+        where: 'user_id = ?', whereArgs: [userId]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Envelope de-duplication
+  // ---------------------------------------------------------------------------
+
+  /// Records [envelopeId]; returns false if it was already processed.
+  Future<bool> markEnvelopeSeen(String envelopeId) async {
+    if (await wasEnvelopeSeen(envelopeId)) return false;
+    await db.insert(
+      'seen_envelopes',
+      {'id': envelopeId, 'seen_at': DateTime.now().millisecondsSinceEpoch},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    return true;
+  }
+
+  Future<bool> wasEnvelopeSeen(String envelopeId) async {
+    final rows = await db.query('seen_envelopes',
+        columns: ['id'], where: 'id = ?', whereArgs: [envelopeId], limit: 1);
+    return rows.isNotEmpty;
+  }
+
+  Future<void> pruneSeenEnvelopes(int beforeMs) async {
+    await db.delete('seen_envelopes', where: 'seen_at < ?', whereArgs: [beforeMs]);
   }
 }

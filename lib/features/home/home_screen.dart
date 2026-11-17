@@ -68,12 +68,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _startSession() async {
     final identity = _auth.identity;
     final myUserId = _auth.myUserId;
-    if (identity == null || myUserId == null) return;
+    final deviceId = _auth.deviceId;
+    if (identity == null || myUserId == null || deviceId == null) return;
 
     // Subscribe before the socket opens so no presence or request push is
     // missed, then start messaging and load the lists.
     _contacts.init();
-    await _chat.init(identity: identity, myUserId: myUserId);
+    await _chat.init(identity: identity, myUserId: myUserId, deviceId: deviceId);
     await _contacts.loadContacts();
 
     _newRequestSub ??= _contacts.onNewRequest.listen((msg) {

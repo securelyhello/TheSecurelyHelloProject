@@ -3,7 +3,7 @@
 //
 // TEST_DATABASE_URL defaults to the scripts/dev.sh container. The database
 // named in it is dropped and recreated for every test file.
-import { randomBytes, randomUUID } from 'node:crypto';
+import { generateKeyPairSync, randomBytes, randomUUID, sign } from 'node:crypto';
 
 import pg from 'pg';
 import WebSocket from 'ws';
@@ -12,6 +12,7 @@ import { createApp, loadConfig } from '../src/app.js';
 import { createPool } from '../src/db.js';
 import { createRedis } from '../src/hotstore.js';
 import { silentLogger } from '../src/log.js';
+import { signedPreKeyMessage } from '../src/devices.js';
 import { captureMailer } from '../src/mail.js';
 import { migrate } from '../src/migrate.js';
 
@@ -107,20 +108,71 @@ export async function api(base, method, path, { token, body, headers = {} } = {}
 
 export const fakeKey = () => randomBytes(32).toString('base64');
 
+/** A device identity with a real Ed25519 key, so signed prekeys verify. */
+export function newDeviceKeys({ prekeys = 5, firstPrekeyId = 1 } = {}) {
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  const signingPub = Buffer.from(publicKey.export({ format: 'jwk' }).x, 'base64url').toString('base64');
+  const spkKey = fakeKey();
+  const spkId = 1;
+  return {
+    privateKey,
+    body: {
+      signing_public_key: signingPub,
+      identity_public_key: fakeKey(),
+      signed_prekey: {
+        id: spkId,
+        key: spkKey,
+        signature: sign(null, signedPreKeyMessage(spkId, spkKey), privateKey).toString('base64'),
+      },
+      one_time_prekeys: Array.from({ length: prekeys }, (_, i) => ({ id: firstPrekeyId + i, key: fakeKey() })),
+    },
+  };
+}
+
+export function signSpk(privateKey, id, key) {
+  return sign(null, signedPreKeyMessage(id, key), privateKey).toString('base64');
+}
+
+/** Registers a device for [token]; returns {deviceId, keys}. */
+export async function registerDevice(base, token, opts = {}) {
+  const keys = newDeviceKeys(opts);
+  const res = await api(base, 'PUT', '/api/devices/current', {
+    token,
+    body: { ...keys.body, name: opts.name ?? 'test device', ...(opts.deviceId ? { device_id: opts.deviceId } : {}) },
+  });
+  if (res.status !== 201 && res.status !== 200) {
+    throw new Error(`device registration failed: ${res.status} ${JSON.stringify(res.body)}`);
+  }
+  return { deviceId: res.body.device_id, keys };
+}
+
 let counter = 0;
-export async function signup(base, name = `user${++counter}`) {
+/** Signs up and (unless device:false) registers a first device. */
+export async function signup(base, name = `user${++counter}`, { device = true } = {}) {
   const username = `${name}_${randomUUID().slice(0, 6)}`.toLowerCase().slice(0, 30);
   const creds = {
     email: `${username}@example.test`,
     password: 'correct horse battery staple',
     username,
     display_name: name,
-    signing_public_key: fakeKey(),
-    encryption_public_key: fakeKey(),
   };
   const res = await api(base, 'POST', '/api/auth/signup', { body: creds });
   if (res.status !== 201) throw new Error(`signup failed: ${res.status} ${JSON.stringify(res.body)}`);
-  return { ...creds, token: res.body.token, id: res.body.user.user_id, user: res.body.user };
+  const user = { ...creds, token: res.body.token, id: res.body.user.user_id, user: res.body.user };
+  if (device) {
+    const d = await registerDevice(base, user.token);
+    user.deviceId = d.deviceId;
+    user.deviceKeys = d.keys;
+  }
+  return user;
+}
+
+/** Signs [user] in again as another device: {token, deviceId}. */
+export async function addDevice(base, user, opts = {}) {
+  const res = await api(base, 'POST', '/api/auth/signin', { body: { email: user.email, password: user.password } });
+  if (res.status !== 200) throw new Error(`signin failed: ${res.status}`);
+  const d = await registerDevice(base, res.body.token, opts);
+  return { ...user, token: res.body.token, deviceId: d.deviceId, deviceKeys: d.keys };
 }
 
 export async function makeContacts(base, a, b) {
@@ -130,13 +182,30 @@ export async function makeContacts(base, a, b) {
   if (acc.status !== 200) throw new Error(`accept failed: ${acc.status} ${JSON.stringify(acc.body)}`);
 }
 
-export function envelopeFrom(senderId) {
+/** A well-formed v3 envelope from [sender]'s device to [recipientDevice]. */
+export function envelopeFrom(sender, recipientDevice, overrides = {}) {
   return JSON.stringify({
-    v: 2,
+    v: 3,
     id: randomUUID(),
-    s: senderId,
+    s: sender.id,
+    sd: sender.deviceId,
+    rd: recipientDevice,
     t: Date.now(),
+    h: JSON.stringify({ dh: fakeKey(), pn: 0, n: 0 }),
     c: randomBytes(120).toString('base64'),
+    ...overrides,
+  });
+}
+
+/** Relays one envelope to each device in [devices] of [to]. */
+export function relaySend(base, from, to, { devices = [to.deviceId], known = devices, envelopes } = {}) {
+  return api(base, 'POST', '/api/relay', {
+    token: from.token,
+    body: {
+      recipient_id: to.id,
+      known_devices: known,
+      messages: devices.map((d, i) => ({ device_id: d, envelope: envelopes?.[i] ?? envelopeFrom(from, d) })),
+    },
   });
 }
 

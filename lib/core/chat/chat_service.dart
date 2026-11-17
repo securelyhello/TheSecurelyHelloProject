@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:securelyhello/core/chat/wire_protocol.dart';
 import 'package:securelyhello/core/crypto/crypto_core.dart';
+import 'package:securelyhello/core/crypto/device_manager.dart';
+import 'package:securelyhello/core/crypto/ratchet.dart';
+import 'package:securelyhello/core/crypto/session_manager.dart';
 import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
 import 'package:securelyhello/core/storage/local_storage.dart';
@@ -21,7 +25,7 @@ class Message {
   final String conversationId;
   final String senderId;
 
-  /// Decrypted plaintext for display.
+  /// Decrypted text (may be empty when there is an attachment).
   final String content;
 
   final DateTime timestamp;
@@ -35,6 +39,9 @@ class Message {
   /// `text` for chat messages, `system` for local notices.
   final String kind;
 
+  /// Attachment metadata (see `AttachmentService`), if any.
+  final Map<String, dynamic>? attachment;
+
   const Message({
     required this.id,
     required this.conversationId,
@@ -44,11 +51,20 @@ class Message {
     required this.status,
     required this.isFromMe,
     this.kind = 'text',
+    this.attachment,
   });
 
   bool get isSystem => kind == 'system';
+  bool get hasAttachment => attachment != null;
 
   factory Message.fromMap(Map<String, dynamic> map) {
+    final att = map['attachment'] as String?;
+    Map<String, dynamic>? attachment;
+    if (att != null) {
+      try {
+        attachment = Map<String, dynamic>.from(jsonDecode(att) as Map);
+      } catch (_) {}
+    }
     return Message(
       id: map['id'] as String,
       conversationId: map['conversation_id'] as String,
@@ -58,6 +74,7 @@ class Message {
       status: map['status'] as String,
       isFromMe: (map['is_from_me'] as int) == 1,
       kind: map['kind'] as String? ?? 'text',
+      attachment: attachment,
     );
   }
 }
@@ -98,9 +115,10 @@ class TypingEvent {
   const TypingEvent(this.contactId, this.isTyping);
 }
 
-/// One in-flight WebRTC handshake with a contact.
+/// One in-flight WebRTC handshake with one device of a contact.
 class _Negotiation {
-  final String contactId;
+  final String userId;
+  final String deviceId;
   final bool isCaller;
   final String sessionId;
   bool answerApplied = false;
@@ -114,25 +132,32 @@ class _Negotiation {
   final List<Map<String, dynamic>> pendingLocalIce = [];
   final List<Map<String, dynamic>> pendingRemoteIce = [];
 
-  _Negotiation(this.contactId,
+  _Negotiation(this.userId, this.deviceId,
       {required this.isCaller, required this.sessionId});
+
+  String get address => '$userId:$deviceId';
 }
 
-enum _OpenResult { handled, undecryptable }
+/// Splits a P2P address `user:device`.
+({String userId, String deviceId}) _splitAddress(String address) {
+  final i = address.indexOf(':');
+  return (userId: address.substring(0, i), deviceId: address.substring(i + 1));
+}
 
 // =============================================================================
 // ChatService
 // =============================================================================
 
-/// Orchestrates end-to-end encrypted messaging.
+/// Orchestrates end-to-end encrypted messaging between devices.
 ///
-/// Transport order for every outgoing payload:
-/// 1. the WebRTC data channel, if one is open;
-/// 2. otherwise the server's relay queue (ciphertext only, 24h expiry),
-///    while a P2P connection is negotiated in the background.
-///
-/// All payloads are signed with the sender's Ed25519 key and encrypted to the
-/// recipient's X25519 key before leaving the device (see [WireCodec]).
+/// A message to a contact is encrypted separately for each of their devices
+/// with that device's Double Ratchet session (forward secrecy), and copied
+/// to each of our own other devices as a `sync` payload. Per device, the
+/// envelope goes:
+/// 1. over the WebRTC data channel with that device, if one is open;
+/// 2. otherwise into that device's relay queue on the server (ciphertext
+///    only, 24 h expiry), while a P2P connection is negotiated in the
+///    background.
 class ChatService {
   static const _negotiationTimeout = Duration(seconds: 30);
   static const _receiptDebounce = Duration(milliseconds: 300);
@@ -140,19 +165,22 @@ class ChatService {
   final LocalStorage _storage;
   final P2PConnectionManager _p2p;
   final DirectoryService _directory;
+  final DeviceManager _devices;
   final _uuid = const Uuid();
 
   CryptoIdentity? _identity;
   String? _myUserId;
+  String? _myDeviceId;
+  SessionManager? _sessions;
   bool _started = false;
   String? _activeConversationId;
 
   /// When `false`, incoming messages are only acknowledged as delivered.
   bool sendReadReceipts = true;
 
+  /// Keyed by P2P address (`user:device`).
   final Map<String, _Negotiation> _negotiations = {};
   final Set<String> _handledOfferSessions = {};
-  final Set<String> _onlineContacts = {};
   final Set<String> _directLinks = {};
   Future<void> _relayChain = Future.value();
   final List<StreamSubscription<dynamic>> _subscriptions = [];
@@ -171,14 +199,19 @@ class ChatService {
       StreamController<Message>.broadcast();
   final StreamController<TypingEvent> _typingController =
       StreamController<TypingEvent>.broadcast();
+  final StreamController<String> _devicesChangedController =
+      StreamController<String>.broadcast();
 
   ChatService({
     required LocalStorage storage,
     required P2PConnectionManager p2p,
     required DirectoryService directory,
+    DeviceManager? deviceManager,
   })  : _storage = storage,
         _p2p = p2p,
-        _directory = directory;
+        _directory = directory,
+        _devices = deviceManager ??
+            DeviceManager(storage: storage, directory: directory);
 
   /// Emits a contact id whenever that conversation's messages or metadata
   /// changed (new message, status update, system notice…).
@@ -191,26 +224,40 @@ class ChatService {
   /// Emits typing indicators from peers.
   Stream<TypingEvent> get onTyping => _typingController.stream;
 
+  /// Emits a user id when that user's (or our own) devices changed.
+  Stream<String> get onDevicesChanged => _devicesChangedController.stream;
+
   bool get isStarted => _started;
   String? get myUserId => _myUserId;
+  String? get myDeviceId => _myDeviceId;
   CryptoIdentity? get identity => _identity;
+  DeviceManager get deviceManager => _devices;
 
   // ===========================================================================
   // Lifecycle
   // ===========================================================================
 
-  /// Starts messaging for the signed-in user.  Idempotent per user.
+  /// Starts messaging for the signed-in user on this device.  Idempotent
+  /// per user.  [deviceId] is the id the device registered with.
   Future<void> start({
     required CryptoIdentity identity,
     required String myUserId,
+    required String deviceId,
   }) async {
-    if (_started && _myUserId == myUserId) return;
+    if (_started && _myUserId == myUserId && _myDeviceId == deviceId) return;
     await stop();
 
     _identity = identity;
     _myUserId = myUserId;
-
-    await _directory.startRealtime();
+    _myDeviceId = deviceId;
+    _sessions = SessionManager(
+      storage: _storage,
+      directory: _directory,
+      identity: identity,
+      myUserId: myUserId,
+      myDeviceId: deviceId,
+      onDevicesChanged: _onDeviceListChanged,
+    );
 
     _subscriptions
       ..add(_directory.signals.listen(_onSignal))
@@ -219,6 +266,7 @@ class ChatService {
       ..add(_directory.realtimeState.listen(_onRealtimeState))
       ..add(_directory.presenceEvents.listen(_onPresence))
       ..add(_directory.contactEvents.listen(_onContactEvent))
+      ..add(_directory.prekeysLow.listen((_) => unawaited(_devices.topUp())))
       ..add(_p2p.onIceCandidate.listen(_onLocalIceCandidate))
       ..add(_p2p.onConnectionStateChange.listen(_onConnectionStateChange))
       ..add(_p2p.onDataChannelMessage
@@ -231,43 +279,52 @@ class ChatService {
     await _directory.startRealtime();
     await drainRelayQueue();
     unawaited(resendUnsent());
+    unawaited(_storage.pruneSeenEnvelopes(DateTime.now()
+        .subtract(const Duration(days: 30))
+        .millisecondsSinceEpoch));
   }
 
   /// The socket is (back) up: collect what we missed, push what was stuck,
   /// and bring the open chat's direct link back.
   void _onRealtimeState(bool up) {
-    if (!up) {
-      _onlineContacts.clear();
-      return;
-    }
-    if (!_started) return;
+    if (!up || !_started) return;
     unawaited(drainRelayQueue().then((_) => resendUnsent()));
     final active = _activeConversationId;
     if (active != null) unawaited(connect(active));
   }
 
   void _onPresence(PresenceEvent event) {
-    if (event.online) {
-      _onlineContacts.add(event.userId);
-      // They just came online and we are looking at their chat: go direct.
-      if (_activeConversationId == event.userId) {
-        unawaited(connect(event.userId));
-      }
-    } else {
-      _onlineContacts.remove(event.userId);
+    // They just came online and we are looking at their chat: go direct.
+    if (event.online && _activeConversationId == event.userId) {
+      unawaited(connect(event.userId));
     }
   }
 
   void _onContactEvent(ContactEvent event) {
     final userId = event.userId;
     if (userId == null) return;
-    if (event.type == 'keys_changed') {
-      unawaited(_refreshPeerKeys(userId).catchError((Object _) => null));
+    if (event.type == 'devices_changed') {
+      unawaited(_sessions
+          ?.devices(userId, refresh: true)
+          .then<void>((_) {})
+          .catchError((Object e) => debugPrint('Device refresh failed: $e')));
     } else if (event.type == 'contact_removed') {
-      final neg = _negotiations[userId];
-      if (neg != null) unawaited(_abandon(neg, notifyPeer: false));
-      unawaited(_p2p.closeConnection(userId));
+      for (final neg in _negotiations.values.toList()) {
+        if (neg.userId == userId) unawaited(_abandon(neg, notifyPeer: false));
+      }
+      unawaited(_p2p.closeConnectionsWithPrefix('$userId:'));
     }
+  }
+
+  void _onDeviceListChanged(String userId, DeviceListChange change) {
+    if (!_devicesChangedController.isClosed) {
+      _devicesChangedController.add(userId);
+    }
+    if (userId == _myUserId) return;
+    for (final d in change.removed) {
+      unawaited(_p2p.closeConnection('$userId:$d'));
+    }
+    unawaited(_noteDevicesChanged(userId, change));
   }
 
   /// Stops everything for the current user (sign-out / account switch).
@@ -283,7 +340,6 @@ class ChatService {
     }
     _negotiations.clear();
     _handledOfferSessions.clear();
-    _onlineContacts.clear();
     _directLinks.clear();
 
     for (final t in _receiptTimers.values) {
@@ -297,6 +353,8 @@ class ChatService {
 
     _identity = null;
     _myUserId = null;
+    _myDeviceId = null;
+    _sessions = null;
     _activeConversationId = null;
   }
 
@@ -325,6 +383,11 @@ class ChatService {
     return rows.map(Message.fromMap).toList();
   }
 
+  Future<Message?> getMessage(String id) async {
+    final row = await _storage.getMessage(id);
+    return row == null ? null : Message.fromMap(row);
+  }
+
   /// Ensures a (possibly empty) conversation row exists for [contactId].
   Future<void> ensureConversation(String contactId) async {
     await _storage.updateConversation(id: contactId, contactUserId: contactId);
@@ -340,33 +403,52 @@ class ChatService {
     _changed(contactId);
   }
 
-  /// The 60-digit safety number shared with [contactId], or `null` if their
-  /// keys are unknown.
+  /// Device keys of [userId] (for ourselves: every device, this one first).
+  Future<List<DeviceKeys>> devicesOf(String userId, {bool refresh = false}) async {
+    final sessions = _sessions;
+    if (sessions == null) return const [];
+    if (refresh) await sessions.devices(userId, refresh: true);
+    return sessions.allDeviceKeys(userId);
+  }
+
+  /// The 60-digit safety number shared with [contactId]. It covers every
+  /// device of both people, so it changes whenever either adds a device.
   Future<String?> safetyNumberFor(String contactId) async {
-    final identity = _identity;
     final me = _myUserId;
-    if (identity == null || me == null) return null;
-    final keys = await _peerKeys(contactId);
-    if (keys == null) return null;
-    return CryptoCore.safetyNumber(
-      myUserId: me,
-      mySigningKey: identity.publicSigningKeyBase64,
-      myEncryptionKey: identity.publicEncryptionKeyBase64,
-      theirUserId: contactId,
-      theirSigningKey: keys.signingKey,
-      theirEncryptionKey: keys.encryptionKey,
-    );
+    if (me == null || _sessions == null) return null;
+    try {
+      final mine = await devicesOf(me);
+      final theirs = await devicesOf(contactId);
+      if (theirs.isEmpty) return null;
+      return CryptoCore.safetyNumber(
+        myUserId: me,
+        myDeviceKeys: [for (final d in mine) '${d.signingKey}|${d.identityKey}'],
+        theirUserId: contactId,
+        theirDeviceKeys: [
+          for (final d in theirs) '${d.signingKey}|${d.identityKey}'
+        ],
+      );
+    } catch (e) {
+      debugPrint('Safety number unavailable: $e');
+      return null;
+    }
   }
 
   // ===========================================================================
   // Sending
   // ===========================================================================
 
-  /// Stores [plaintext] locally and delivers it to [contactId].
-  Future<Message> sendMessage(String contactId, String plaintext) async {
+  /// Stores a message locally and delivers it to [contactId]'s devices (and
+  /// a copy to our own other devices).
+  Future<Message> sendMessage(
+    String contactId,
+    String plaintext, {
+    Map<String, dynamic>? attachment,
+  }) async {
     final me = _requireUserId();
     final id = _uuid.v4();
     final now = DateTime.now();
+    final attachmentJson = attachment == null ? null : jsonEncode(attachment);
 
     await _storage.insertMessage(
       id: id,
@@ -376,20 +458,32 @@ class ChatService {
       timestamp: now.millisecondsSinceEpoch,
       status: 'sending',
       isFromMe: true,
+      attachment: attachmentJson,
     );
     await _storage.updateConversation(
       id: contactId,
       contactUserId: contactId,
-      lastMessage: plaintext,
+      lastMessage: previewText(plaintext, attachment),
       lastMessageTime: now.millisecondsSinceEpoch,
     );
     _changed(contactId);
 
-    final status = await _transmitText(
-        contactId, id, plaintext, now.millisecondsSinceEpoch);
+    final status = await _transmitMessage(contactId, id, plaintext,
+        now.millisecondsSinceEpoch, attachment);
     _changed(contactId);
 
-    if (!_p2p.isConnected(contactId)) unawaited(connect(contactId));
+    unawaited(_syncToOwnDevices(WirePayload.sentSync(
+      me: me,
+      conversation: contactId,
+      messageId: id,
+      timestampMs: now.millisecondsSinceEpoch,
+      body: plaintext,
+      attachment: attachment == null ? null : _wireAttachment(attachment),
+    )));
+
+    if (!_p2p.hasConnectionWithPrefix('$contactId:')) {
+      unawaited(connect(contactId));
+    }
 
     return Message(
       id: id,
@@ -399,8 +493,22 @@ class ChatService {
       timestamp: now,
       status: status,
       isFromMe: true,
+      attachment: attachment,
     );
   }
+
+  /// One-line preview for the conversation list.
+  static String previewText(String text, Map<String, dynamic>? attachment) {
+    if (attachment == null) return text;
+    final isImage = (attachment['mime'] as String? ?? '').startsWith('image/');
+    final label = isImage ? '📷 Photo' : '📎 ${attachment['name'] ?? 'File'}';
+    return text.isEmpty ? label : '$label · $text';
+  }
+
+  /// Attachment metadata as sent to other devices (local-only fields
+  /// stripped).
+  static Map<String, dynamic> _wireAttachment(Map<String, dynamic> a) =>
+      Map.of(a)..removeWhere((k, _) => k.startsWith('local_'));
 
   /// Retries outgoing messages that previously failed to leave the device.
   Future<void> resendUnsent() async {
@@ -409,10 +517,10 @@ class ChatService {
     try {
       final rows = await _storage.getUnsentMessages();
       for (final row in rows) {
-        final contactId = row['conversation_id'] as String;
-        await _transmitText(contactId, row['id'] as String,
-            row['content'] as String, row['timestamp'] as int);
-        _changed(contactId);
+        final m = Message.fromMap(row);
+        await _transmitMessage(m.conversationId, m.id, m.content,
+            m.timestamp.millisecondsSinceEpoch, m.attachment);
+        _changed(m.conversationId);
       }
     } catch (e) {
       debugPrint('resendUnsent failed: $e');
@@ -424,22 +532,30 @@ class ChatService {
   /// Sends a typing indicator.  P2P only — never goes through the server.
   Future<void> sendTyping(String contactId, bool isTyping) async {
     final me = _myUserId;
-    if (!_started || me == null || !_p2p.isConnected(contactId)) return;
+    final sessions = _sessions;
+    if (!_started || me == null || sessions == null) return;
     try {
-      await _deliver(
-        contactId,
-        WirePayload.typing(
-          from: me,
-          to: contactId,
-          timestampMs: DateTime.now().millisecondsSinceEpoch,
-          isTyping: isTyping,
-        ),
-        allowRelay: false,
+      final devices = (await sessions.devices(contactId))
+          .where((d) => _p2p.isConnected(d.address))
+          .toList();
+      if (devices.isEmpty) return;
+      final payload = WirePayload.typing(
+        from: me,
+        to: contactId,
+        timestampMs: DateTime.now().millisecondsSinceEpoch,
+        isTyping: isTyping,
       );
+      final sealed =
+          await sessions.seal(contactId, devices, payload, envelopeId: _uuid.v4());
+      for (final d in devices) {
+        final env = sealed[d.deviceId];
+        if (env != null) await _p2p.sendMessage(d.address, env.encode());
+      }
     } catch (_) {}
   }
 
-  /// Clears the unread badge and sends read receipts for [contactId].
+  /// Clears the unread badge and sends read receipts for [contactId] (and
+  /// tells our other devices).
   Future<void> markConversationRead(String contactId) async {
     await _storage.clearUnreadCount(contactId);
     final ids = await _storage.getUnreadIncomingIds(contactId);
@@ -449,12 +565,21 @@ class ChatService {
         _queueReceipt(contactId, id,
             sendReadReceipts ? ReceiptStatus.read : ReceiptStatus.delivered);
       }
+      final me = _myUserId;
+      if (me != null) {
+        unawaited(_syncToOwnDevices(WirePayload.readSync(
+          me: me,
+          conversation: contactId,
+          ids: ids,
+          timestampMs: DateTime.now().millisecondsSinceEpoch,
+        )));
+      }
     }
     _changed(contactId);
   }
 
-  Future<String> _transmitText(
-      String contactId, String id, String text, int timestampMs) async {
+  Future<String> _transmitMessage(String contactId, String id, String text,
+      int timestampMs, Map<String, dynamic>? attachment) async {
     final me = _requireUserId();
     var delivered = false;
     try {
@@ -466,6 +591,7 @@ class ChatService {
           to: contactId,
           timestampMs: timestampMs,
           body: text,
+          attachment: attachment == null ? null : _wireAttachment(attachment),
         ),
         envelopeId: id,
       );
@@ -483,30 +609,55 @@ class ChatService {
     return current ?? next;
   }
 
-  /// Seals [payload] for [contactId] and sends it P2P, falling back to the
-  /// relay when [allowRelay].  Returns whether it left the device.
+  Future<void> _syncToOwnDevices(WirePayload payload) async {
+    final me = _myUserId;
+    if (me == null) return;
+    try {
+      await _deliver(me, payload);
+    } catch (e) {
+      debugPrint('Sync to own devices failed: $e');
+    }
+  }
+
+  /// Seals [payload] for every device of [userId] and sends each envelope
+  /// P2P when that device has an open channel, otherwise via its relay
+  /// queue.  Returns whether every device was reached (`false` if [userId]
+  /// has no devices at all).
   Future<bool> _deliver(
-    String contactId,
+    String userId,
     WirePayload payload, {
     String? envelopeId,
-    bool allowRelay = true,
   }) async {
-    final keys = await _peerKeys(contactId);
-    if (keys == null) {
-      throw StateError('No public keys known for $contactId');
+    final sessions = _sessions;
+    if (sessions == null) throw StateError('ChatService.start() has not been called');
+    final envId = envelopeId ?? _uuid.v4();
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final devices = await sessions.devices(userId, refresh: attempt > 0);
+      if (devices.isEmpty) {
+        // Nobody to sync to is fine; a contact without devices can't be reached.
+        return userId == _myUserId;
+      }
+      final sealed =
+          await sessions.seal(userId, devices, payload, envelopeId: envId);
+      final viaRelay = <String, String>{};
+      for (final d in devices) {
+        final env = sealed[d.deviceId];
+        if (env == null) continue; // no session (device vanished); 409 sorts it out
+        if (await _p2p.sendMessage(d.address, env.encode())) continue;
+        viaRelay[d.deviceId] = env.encodeJson();
+      }
+      try {
+        if (viaRelay.isNotEmpty || sealed.length < devices.length) {
+          await _directory.queueRelayMessages(userId,
+              knownDevices: devices.map((d) => d.deviceId).toList(),
+              envelopes: viaRelay);
+        }
+        return sealed.length == devices.length;
+      } on DevicesChangedException {
+        continue; // refresh the device list and seal again
+      }
     }
-    final envelope = WireCodec.seal(
-      envelopeId: envelopeId ?? _uuid.v4(),
-      payload: payload,
-      identity: _requireIdentity(),
-      recipientEncryptionKey: keys.encryptionKey,
-    );
-
-    if (await _p2p.sendMessage(contactId, envelope.encode())) return true;
-    if (!allowRelay) return false;
-
-    await _directory.queueRelayMessage(contactId, envelope.encodeJson());
-    return true;
+    return false;
   }
 
   // ===========================================================================
@@ -576,91 +727,83 @@ class ChatService {
   // Receiving
   // ===========================================================================
 
-  Future<void> _handleIncomingBytes(String contactId, Uint8List raw) async {
+  Future<void> _handleIncomingBytes(String address, Uint8List raw) async {
     try {
       final envelope = WireEnvelope.fromBytes(raw);
-      final result = await _openAndHandle(contactId, envelope);
-      if (result == _OpenResult.undecryptable) {
-        await _noteUndecryptable(contactId);
-      }
+      if (envelope.senderAddress != address) return; // not who we're talking to
+      await _openAndHandle(envelope);
     } catch (e) {
-      debugPrint('Dropped P2P payload from $contactId: $e');
+      debugPrint('Dropped P2P payload from $address: $e');
     }
   }
 
   /// Decrypts and dispatches one envelope.  Network errors propagate so the
   /// relay drain can keep the row for a later retry.
-  Future<_OpenResult> _openAndHandle(
-      String contactId, WireEnvelope envelope) async {
-    final payload = await _openWithKeyRefresh(contactId, envelope);
-    if (payload == null) return _OpenResult.undecryptable;
+  Future<void> _openAndHandle(WireEnvelope envelope) async {
+    final sessions = _sessions;
+    final me = _myUserId;
+    if (sessions == null || me == null) return;
+    final seenKey = '${envelope.senderAddress}/${envelope.id}';
+    if (await _storage.wasEnvelopeSeen(seenKey)) return; // redelivery
 
-    switch (payload.kind) {
-      case PayloadKind.message:
-        await _storeIncomingText(contactId, payload);
-        break;
-      case PayloadKind.receipt:
-        await _applyReceipt(contactId, payload);
-        break;
-      case PayloadKind.typing:
-        if (!_typingController.isClosed) {
-          _typingController.add(TypingEvent(contactId, payload.isTyping));
-        }
-        break;
+    WirePayload payload;
+    try {
+      payload = await sessions.open(envelope);
+    } on UndecryptableException catch (e) {
+      debugPrint('Undecryptable from ${envelope.senderAddress}: ${e.reason}');
+      await _storage.markEnvelopeSeen(seenKey);
+      // Start afresh with that device: our next message is a new X3DH.
+      await sessions.resetSession(envelope.senderAddress);
+      if (envelope.senderId != me) await _noteUndecryptable(envelope.senderId);
+      return;
     }
-    return _OpenResult.handled;
-  }
 
-  Future<WirePayload?> _openWithKeyRefresh(
-      String contactId, WireEnvelope envelope) async {
-    WirePayload? tryOpen(PeerKeys keys) {
-      try {
-        return WireCodec.open(
-          envelope: envelope,
-          identity: _requireIdentity(),
-          sender: keys,
-          expectedSender: contactId,
-          myUserId: _requireUserId(),
-        );
-      } catch (_) {
-        return null;
+    if (envelope.senderId == me) {
+      if (payload.kind == PayloadKind.sync) await _applySync(payload);
+    } else {
+      final contactId = envelope.senderId;
+      switch (payload.kind) {
+        case PayloadKind.message:
+          await _storeIncomingMessage(contactId, payload);
+          break;
+        case PayloadKind.receipt:
+          await _applyReceipt(contactId, payload);
+          break;
+        case PayloadKind.typing:
+          if (!_typingController.isClosed) {
+            _typingController.add(TypingEvent(contactId, payload.isTyping));
+          }
+          break;
+        case PayloadKind.sync:
+          break; // only our own devices send these
       }
     }
-
-    final cached = await _peerKeys(contactId);
-    final first = cached == null ? null : tryOpen(cached);
-    if (first != null) return first;
-
-    // The sender may have rotated keys (new device) — refetch once.
-    final fresh = await _refreshPeerKeys(contactId);
-    if (fresh == null ||
-        (cached != null &&
-            fresh.encryptionKey == cached.encryptionKey &&
-            fresh.signingKey == cached.signingKey)) {
-      return null;
-    }
-    return tryOpen(fresh);
+    await _storage.markEnvelopeSeen(seenKey);
   }
 
-  Future<void> _storeIncomingText(String contactId, WirePayload payload) async {
+  Future<void> _storeIncomingMessage(
+      String contactId, WirePayload payload) async {
     final id = payload.messageId!;
     final existing = await _storage.getMessage(id);
     final isActive = _activeConversationId == contactId;
 
     if (existing == null) {
+      final status = isActive ? 'read' : 'received';
       await _storage.insertMessage(
         id: id,
         conversationId: contactId,
         senderId: contactId,
         content: payload.body!,
         timestamp: payload.timestampMs,
-        status: isActive ? 'read' : 'received',
+        status: status,
         isFromMe: false,
+        attachment:
+            payload.attachment == null ? null : jsonEncode(payload.attachment),
       );
       await _storage.updateConversation(
         id: contactId,
         contactUserId: contactId,
-        lastMessage: payload.body,
+        lastMessage: previewText(payload.body!, payload.attachment),
         lastMessageTime: payload.timestampMs,
       );
       if (!isActive) await _storage.incrementUnreadCount(contactId);
@@ -672,8 +815,9 @@ class ChatService {
           senderId: contactId,
           content: payload.body!,
           timestamp: DateTime.fromMillisecondsSinceEpoch(payload.timestampMs),
-          status: isActive ? 'read' : 'received',
+          status: status,
           isFromMe: false,
+          attachment: payload.attachment,
         ));
       }
       _changed(contactId);
@@ -687,6 +831,49 @@ class ChatService {
           ? ReceiptStatus.read
           : ReceiptStatus.delivered,
     );
+  }
+
+  /// A message we sent, or messages we read, on another of our devices.
+  Future<void> _applySync(WirePayload payload) async {
+    final contactId = payload.conversation!;
+    final me = _requireUserId();
+    if (payload.messageId != null && payload.body != null) {
+      if (await _storage.getMessage(payload.messageId!) == null) {
+        await _storage.insertMessage(
+          id: payload.messageId!,
+          conversationId: contactId,
+          senderId: me,
+          content: payload.body!,
+          timestamp: payload.timestampMs,
+          status: 'sent',
+          isFromMe: true,
+          attachment: payload.attachment == null
+              ? null
+              : jsonEncode(payload.attachment),
+        );
+        await _storage.updateConversation(
+          id: contactId,
+          contactUserId: contactId,
+          lastMessage: previewText(payload.body!, payload.attachment),
+          lastMessageTime: payload.timestampMs,
+        );
+      }
+    }
+    if (payload.readIds.isNotEmpty) {
+      await _storage.markIncomingRead(payload.readIds);
+      // Reading a chat reads everything up to the newest message read.
+      var newest = 0;
+      for (final id in payload.readIds) {
+        final row = await _storage.getMessage(id);
+        final t = row?['timestamp'] as int? ?? 0;
+        if (t > newest) newest = t;
+      }
+      if (newest > 0) await _storage.markIncomingReadUpTo(contactId, newest);
+      final unread = await _storage.getUnreadIncomingIds(contactId);
+      await _storage.updateConversation(
+          id: contactId, contactUserId: contactId, unreadCount: unread.length);
+    }
+    _changed(contactId);
   }
 
   // ===========================================================================
@@ -735,21 +922,23 @@ class ChatService {
   Future<void> _processRelayRows(List<Map<String, dynamic>> rows) async {
     if (!_started) return;
     final done = <String>[];
-    final undecryptableFrom = <String>{};
 
     for (final row in rows) {
       final relayId = row['id'] as String?;
       final senderId = row['sender_id'] as String?;
+      final senderDevice = row['sender_device'] as String?;
       final raw = row['envelope'] as String?;
       if (relayId == null || senderId == null || raw == null) continue;
       try {
         final envelope = WireEnvelope.decodeJson(raw);
-        final result = await _openAndHandle(senderId, envelope);
-        if (result == _OpenResult.undecryptable) {
-          undecryptableFrom.add(senderId);
+        if (envelope.senderId == senderId &&
+            (senderDevice == null || envelope.senderDevice == senderDevice)) {
+          await _openAndHandle(envelope);
         }
       } on FormatException {
-        undecryptableFrom.add(senderId);
+        // Not a v3 envelope: drop it.
+      } on TypeError {
+        // Malformed fields: drop it.
       } catch (e) {
         // Network or storage error: keep it on the server for the next drain.
         debugPrint('Relay envelope $relayId kept for retry: $e');
@@ -763,54 +952,72 @@ class ChatService {
       try {
         await _directory.ackRelayMessages(done);
       } catch (e) {
-        // Redelivered next time; message ids make that harmless.
+        // Redelivered next time; envelope ids make that harmless.
         debugPrint('Relay ack failed: $e');
       }
-    }
-    for (final senderId in undecryptableFrom) {
-      await _noteUndecryptable(senderId);
     }
   }
 
   // ===========================================================================
-  // P2P signaling
+  // P2P signaling (one WebRTC connection per remote device)
   // ===========================================================================
 
-  /// Starts a WebRTC handshake with [contactId] unless one is already open or
-  /// in progress.  Messages keep flowing via the relay meanwhile.
+  /// Starts WebRTC handshakes with every device of [contactId] that has no
+  /// open or pending link.  Messages keep flowing via the relay meanwhile;
+  /// devices that are offline answer `signal_error` and are skipped.
   Future<void> connect(String contactId) async {
+    final sessions = _sessions;
+    if (!_started || sessions == null || !_directory.isRealtimeConnected) return;
+    List<DeviceKeys> devices;
+    try {
+      devices = await sessions.devices(contactId);
+    } catch (e) {
+      debugPrint('P2P connect: no device list for $contactId: $e');
+      return;
+    }
+    for (final d in devices) {
+      unawaited(_connectDevice(contactId, d.deviceId));
+    }
+  }
+
+  Future<void> _connectDevice(String userId, String deviceId) async {
+    final address = '$userId:$deviceId';
     if (!_started ||
-        !_directory.isRealtimeConnected ||
-        _p2p.isConnected(contactId) ||
-        _negotiations.containsKey(contactId)) {
+        _p2p.isConnected(address) ||
+        _negotiations.containsKey(address)) {
       return;
     }
 
-    final neg =
-        _Negotiation(contactId, isCaller: true, sessionId: _uuid.v4());
-    _negotiations[contactId] = neg;
+    final neg = _Negotiation(userId, deviceId,
+        isCaller: true, sessionId: _uuid.v4());
+    _negotiations[address] = neg;
     _armTimeout(neg);
 
     try {
-      final offer = await _p2p.createOffer(contactId);
-      if (!identical(_negotiations[contactId], neg)) {
+      final offer = await _p2p.createOffer(address);
+      if (!identical(_negotiations[address], neg)) {
         return; // superseded (e.g. we yielded to their simultaneous offer)
       }
       neg.peerReady = true;
       if (!_directory.sendSignal(
-          to: contactId, sessionId: neg.sessionId, kind: 'offer', sdp: offer)) {
+          to: userId,
+          toDevice: deviceId,
+          sessionId: neg.sessionId,
+          kind: 'offer',
+          sdp: offer)) {
         throw StateError('signaling socket is down');
       }
       neg.descriptionSent = true;
       _flushLocalIce(neg);
     } catch (e) {
-      debugPrint('P2P connect to $contactId failed: $e');
+      debugPrint('P2P connect to $address failed: $e');
       await _abandon(neg);
     }
   }
 
   void _onSignal(SignalEvent event) {
     if (!_started) return;
+    final address = '${event.from}:${event.fromDevice}';
     switch (event.kind) {
       case 'offer':
         unawaited(_onIncomingOffer(event));
@@ -819,7 +1026,7 @@ class ChatService {
         unawaited(_onAnswer(event));
         break;
       case 'ice':
-        final neg = _negotiations[event.from];
+        final neg = _negotiations[address];
         final candidate = event.candidate;
         if (neg == null ||
             neg.sessionId != event.sessionId ||
@@ -827,13 +1034,13 @@ class ChatService {
           return; // for a handshake we abandoned or yielded
         }
         if (neg.peerReady) {
-          unawaited(_applyRemoteIce(neg.contactId, candidate));
+          unawaited(_applyRemoteIce(address, candidate));
         } else {
           neg.pendingRemoteIce.add(candidate);
         }
         break;
       case 'bye':
-        final neg = _negotiations[event.from];
+        final neg = _negotiations[address];
         if (neg != null && neg.sessionId == event.sessionId) {
           unawaited(_abandon(neg, notifyPeer: false));
         }
@@ -841,10 +1048,10 @@ class ChatService {
     }
   }
 
-  /// The server couldn't forward our frame: the contact is offline (or no
-  /// longer a contact).  Stop waiting; the relay queue carries the messages.
+  /// The server couldn't forward our frame: that device is offline (or the
+  /// user is no longer a contact).  Stop waiting; the relay carries messages.
   void _onSignalError(SignalError error) {
-    final neg = _negotiations[error.to];
+    final neg = _negotiations['${error.to}:${error.toDevice}'];
     if (neg != null && neg.sessionId == error.sessionId) {
       unawaited(_abandon(neg, notifyPeer: false));
     }
@@ -852,20 +1059,20 @@ class ChatService {
 
   Future<void> _onIncomingOffer(SignalEvent event) async {
     final sessionId = event.sessionId;
-    final callerId = event.from;
+    final address = '${event.from}:${event.fromDevice}';
     final offer = event.sdp;
-    final me = _myUserId;
+    final me = _sessions?.myAddress;
     if (offer == null || me == null) return;
     if (!_handledOfferSessions.add(sessionId)) return;
     if (_handledOfferSessions.length > 500) {
       _handledOfferSessions.remove(_handledOfferSessions.first);
     }
 
-    final existing = _negotiations[callerId];
+    final existing = _negotiations[address];
     if (existing != null && existing.isCaller) {
-      // Glare: both sides dialled at once.  The lower user id yields and
+      // Glare: both sides dialled at once.  The lower address yields and
       // answers; the higher one keeps its own offer and ignores this one.
-      if (me.compareTo(callerId) > 0) return;
+      if (me.compareTo(address) > 0) return;
       await _abandon(existing, notifyPeer: false);
     } else if (existing != null) {
       await _abandon(existing, notifyPeer: false);
@@ -873,29 +1080,34 @@ class ChatService {
 
     // Registered synchronously so their ICE candidates, which follow the
     // offer immediately, are buffered instead of dropped.
-    final neg = _Negotiation(callerId, isCaller: false, sessionId: sessionId);
-    _negotiations[callerId] = neg;
+    final neg = _Negotiation(event.from, event.fromDevice,
+        isCaller: false, sessionId: sessionId);
+    _negotiations[address] = neg;
     _armTimeout(neg);
 
     try {
-      final answer = await _p2p.handleOffer(callerId, offer);
-      if (!identical(_negotiations[callerId], neg)) return;
+      final answer = await _p2p.handleOffer(address, offer);
+      if (!identical(_negotiations[address], neg)) return;
       neg.peerReady = true;
       await _flushRemoteIce(neg);
       if (!_directory.sendSignal(
-          to: callerId, sessionId: sessionId, kind: 'answer', sdp: answer)) {
+          to: event.from,
+          toDevice: event.fromDevice,
+          sessionId: sessionId,
+          kind: 'answer',
+          sdp: answer)) {
         throw StateError('signaling socket is down');
       }
       neg.descriptionSent = true;
       _flushLocalIce(neg);
     } catch (e) {
-      debugPrint('Answering offer from $callerId failed: $e');
+      debugPrint('Answering offer from $address failed: $e');
       await _abandon(neg);
     }
   }
 
   Future<void> _onAnswer(SignalEvent event) async {
-    final neg = _negotiations[event.from];
+    final neg = _negotiations['${event.from}:${event.fromDevice}'];
     final answer = event.sdp;
     if (neg == null ||
         !neg.isCaller ||
@@ -907,9 +1119,9 @@ class ChatService {
     neg.answerApplied = true;
 
     try {
-      await _p2p.handleAnswer(neg.contactId, answer);
+      await _p2p.handleAnswer(neg.address, answer);
     } catch (e) {
-      debugPrint('Applying answer from ${event.from} failed: $e');
+      debugPrint('Applying answer from ${neg.address} failed: $e');
       await _abandon(neg);
     }
   }
@@ -926,20 +1138,24 @@ class ChatService {
     if (!neg.descriptionSent) {
       neg.pendingLocalIce.add(candidate);
     } else {
-      _directory.sendSignal(
-          to: neg.contactId,
-          sessionId: neg.sessionId,
-          kind: 'ice',
-          candidate: candidate);
+      _sendIce(neg, candidate);
     }
+  }
+
+  void _sendIce(_Negotiation neg, Map<String, dynamic> candidate) {
+    _directory.sendSignal(
+        to: neg.userId,
+        toDevice: neg.deviceId,
+        sessionId: neg.sessionId,
+        kind: 'ice',
+        candidate: candidate);
   }
 
   void _flushLocalIce(_Negotiation neg) {
     final pending = List.of(neg.pendingLocalIce);
     neg.pendingLocalIce.clear();
     for (final c in pending) {
-      _directory.sendSignal(
-          to: neg.contactId, sessionId: neg.sessionId, kind: 'ice', candidate: c);
+      _sendIce(neg, c);
     }
   }
 
@@ -947,24 +1163,25 @@ class ChatService {
     final pending = List.of(neg.pendingRemoteIce);
     neg.pendingRemoteIce.clear();
     for (final c in pending) {
-      await _applyRemoteIce(neg.contactId, c);
+      await _applyRemoteIce(neg.address, c);
     }
   }
 
   Future<void> _applyRemoteIce(
-      String contactId, Map<String, dynamic> candidate) async {
+      String address, Map<String, dynamic> candidate) async {
     try {
-      await _p2p.addIceCandidate(contactId, candidate);
+      await _p2p.addIceCandidate(address, candidate);
     } catch (_) {
       // Late or duplicate candidate: harmless.
     }
   }
 
   void _onConnectionStateChange(ConnectionStateEvent event) {
-    final neg = _negotiations[event.contactId];
+    final address = event.contactId;
+    final neg = _negotiations[address];
 
     if (event.state == P2PConnectionState.connected) {
-      _directLinks.add(event.contactId);
+      _directLinks.add(address);
       if (neg != null) _finish(neg);
       // A direct link is up: push anything that was stuck.
       unawaited(resendUnsent());
@@ -975,10 +1192,10 @@ class ChatService {
     }
     if ((event.state == P2PConnectionState.disconnected ||
             event.state == P2PConnectionState.failed) &&
-        _directLinks.remove(event.contactId)) {
+        _directLinks.remove(address)) {
       // An established channel died; anything written to it in its last
       // moments may never have arrived.  Re-send it (ids deduplicate).
-      unawaited(_resendUnconfirmed(event.contactId));
+      unawaited(_resendUnconfirmed(_splitAddress(address).userId));
     }
   }
 
@@ -992,8 +1209,9 @@ class ChatService {
           .millisecondsSinceEpoch;
       final rows = await _storage.getSentUnconfirmed(contactId, since);
       for (final row in rows) {
-        await _transmitText(contactId, row['id'] as String,
-            row['content'] as String, row['timestamp'] as int);
+        final m = Message.fromMap(row);
+        await _transmitMessage(contactId, m.id, m.content,
+            m.timestamp.millisecondsSinceEpoch, m.attachment);
       }
     } catch (e) {
       debugPrint('Re-sending unconfirmed messages failed: $e');
@@ -1002,7 +1220,7 @@ class ChatService {
 
   void _armTimeout(_Negotiation neg) {
     neg.timeout = Timer(_negotiationTimeout, () {
-      if (!_p2p.isConnected(neg.contactId)) unawaited(_abandon(neg));
+      if (!_p2p.isConnected(neg.address)) unawaited(_abandon(neg));
     });
   }
 
@@ -1010,75 +1228,46 @@ class ChatService {
   /// clean up.
   void _finish(_Negotiation neg) {
     neg.timeout?.cancel();
-    if (identical(_negotiations[neg.contactId], neg)) {
-      _negotiations.remove(neg.contactId);
+    if (identical(_negotiations[neg.address], neg)) {
+      _negotiations.remove(neg.address);
     }
   }
 
   /// Handshake failed or was superseded: tear it down.
   Future<void> _abandon(_Negotiation neg, {bool notifyPeer = true}) async {
     neg.timeout?.cancel();
-    if (identical(_negotiations[neg.contactId], neg)) {
-      _negotiations.remove(neg.contactId);
-      if (!_p2p.isConnected(neg.contactId)) {
-        await _p2p.closeConnection(neg.contactId);
+    if (identical(_negotiations[neg.address], neg)) {
+      _negotiations.remove(neg.address);
+      if (!_p2p.isConnected(neg.address)) {
+        await _p2p.closeConnection(neg.address);
       }
     }
     if (notifyPeer && neg.descriptionSent) {
       _directory.sendSignal(
-          to: neg.contactId, sessionId: neg.sessionId, kind: 'bye');
+          to: neg.userId,
+          toDevice: neg.deviceId,
+          sessionId: neg.sessionId,
+          kind: 'bye');
     }
   }
 
   // ===========================================================================
-  // Keys
+  // Notices
   // ===========================================================================
 
-  /// Returns [contactId]'s public keys from the local cache, fetching them
-  /// from the directory if needed.  Returns `null` if the user is unknown.
-  Future<PeerKeys?> _peerKeys(String contactId) async {
+  Future<void> _noteDevicesChanged(
+      String contactId, DeviceListChange change) async {
+    if (!_started || await _storage.getConversation(contactId) == null) return;
     final cached = await _storage.getCachedContact(contactId);
-    if (cached != null) {
-      final keys = PeerKeys(
-        signingKey: cached['public_signing_key'] as String? ?? '',
-        encryptionKey: cached['public_encryption_key'] as String? ?? '',
-      );
-      if (keys.isComplete) return keys;
-    }
-    return _refreshPeerKeys(contactId);
-  }
-
-  Future<PeerKeys?> _refreshPeerKeys(String contactId) async {
-    final user = await _directory.getUserById(contactId);
-    if (user == null) return null;
-
-    final keys = PeerKeys(
-      signingKey: user['signing_public_key'] as String? ?? '',
-      encryptionKey: user['encryption_public_key'] as String? ?? '',
-    );
-    final changed = await _storage.cacheContact(
-      userId: contactId,
-      username: user['username'] as String?,
-      displayName: user['display_name'] as String?,
-      publicSigningKey: keys.signingKey,
-      publicEncryptionKey: keys.encryptionKey,
-      isOnline: user['status'] == 'online',
-    );
-    if (changed) {
-      await noteSafetyNumberChanged(
-          contactId, user['display_name'] as String? ?? 'This contact');
-    }
-    return keys.isComplete ? keys : null;
-  }
-
-  /// Adds a local notice that [contactId]'s keys changed.
-  Future<void> noteSafetyNumberChanged(
-      String contactId, String displayName) async {
-    if (await _storage.getConversation(contactId) == null) return;
+    final name = cached?['display_name'] as String? ?? 'This contact';
+    final what = change.added.isNotEmpty && change.removed.isEmpty
+        ? '$name signed in on a new device.'
+        : change.removed.isNotEmpty && change.added.isEmpty && change.changed.isEmpty
+            ? '$name removed a device.'
+            : "$name's devices changed.";
     await _storage.insertSystemMessage(
       contactId,
-      "$displayName's safety number changed. They may have reinstalled or "
-      'signed in on a new device. Verify it in contact info.',
+      '$what Your safety number with them changed; verify it in contact info.',
       id: _uuid.v4(),
     );
     _changed(contactId);
@@ -1088,8 +1277,8 @@ class ChatService {
     await ensureConversation(contactId);
     await _storage.insertSystemMessage(
       contactId,
-      "A message couldn't be decrypted. It was encrypted to an old key of "
-      'yours; ask the sender to resend it.',
+      "A message couldn't be decrypted, so a new secure session was started. "
+      'Ask the sender to resend it if it was important.',
       id: _uuid.v4(),
     );
     _changed(contactId);
@@ -1098,12 +1287,6 @@ class ChatService {
   // ===========================================================================
   // Helpers
   // ===========================================================================
-
-  CryptoIdentity _requireIdentity() {
-    final id = _identity;
-    if (id == null) throw StateError('ChatService.start() has not been called');
-    return id;
-  }
 
   String _requireUserId() {
     final uid = _myUserId;
@@ -1123,5 +1306,6 @@ class ChatService {
     await _conversationChangedController.close();
     await _onMessageReceivedController.close();
     await _typingController.close();
+    await _devicesChangedController.close();
   }
 }

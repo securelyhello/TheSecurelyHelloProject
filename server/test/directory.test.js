@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 
-import { api, connectWs, fakeKey, makeContacts, ofType, signup, startServer } from './helpers.js';
+import { api, connectWs, makeContacts, ofType, signup, startServer } from './helpers.js';
 
 let srv;
 before(async () => {
@@ -10,26 +10,17 @@ before(async () => {
 after(() => srv.close());
 
 describe('directory', () => {
-  test('me, profile update, key update', async () => {
+  test('me, profile update; keys live on devices, not the profile', async () => {
     const a = await signup(srv.base, 'me');
     const me = await api(srv.base, 'GET', '/api/me', { token: a.token });
     assert.equal(me.body.user_id, a.id);
-    assert.equal(me.body.signing_public_key, a.signing_public_key);
+    assert.equal(me.body.signing_public_key, undefined);
     assert.equal(me.body.password_hash, undefined);
 
     const patched = await api(srv.base, 'PATCH', '/api/me', { token: a.token, body: { display_name: '  New Name ' } });
     assert.equal(patched.body.display_name, 'New Name');
     assert.equal((await api(srv.base, 'PATCH', '/api/me', { token: a.token, body: {} })).status, 400);
-
-    const newKeys = { signing_public_key: fakeKey(), encryption_public_key: fakeKey() };
-    const keys = await api(srv.base, 'PUT', '/api/me/keys', { token: a.token, body: newKeys });
-    assert.equal(keys.status, 200);
-    assert.equal(keys.body.encryption_public_key, newKeys.encryption_public_key);
-    const bad = await api(srv.base, 'PUT', '/api/me/keys', {
-      token: a.token,
-      body: { signing_public_key: 'abc', encryption_public_key: fakeKey() },
-    });
-    assert.equal(bad.status, 400);
+    assert.equal((await api(srv.base, 'PUT', '/api/me/keys', { token: a.token, body: {} })).status, 404);
   });
 
   test('search excludes self, escapes wildcards, hides presence from strangers', async () => {
@@ -111,7 +102,6 @@ describe('contact requests', () => {
     assert.deepEqual(contactsA.body.map((c) => c.contact_user_id), [b.id]);
     assert.deepEqual(contactsB.body.map((c) => c.contact_user_id), [a.id]);
     assert.equal(contactsA.body[0].contact_user.status, 'online');
-    assert.equal(contactsA.body[0].contact_user.signing_public_key, b.signing_public_key);
 
     assert.deepEqual((await api(srv.base, 'GET', '/api/contact-requests', { token: a.token })).body, []);
     const dup = await api(srv.base, 'POST', '/api/contact-requests', { token: b.token, body: { receiver_id: a.id } });

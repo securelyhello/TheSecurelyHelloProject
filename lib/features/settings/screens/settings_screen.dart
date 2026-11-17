@@ -32,12 +32,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final identity = auth.identity;
     final keys = identity == null
         ? null
-        : 'Signing (Ed25519):\n${identity.publicSigningKeyBase64}\n\n'
-              'Encryption (X25519):\n${identity.publicEncryptionKeyBase64}';
+        : 'Device: ${auth.deviceId ?? 'not registered'}\n\n'
+              'Signing (Ed25519):\n${identity.publicSigningKeyBase64}\n\n'
+              'Identity (X25519):\n${identity.publicEncryptionKeyBase64}';
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Your public keys'),
+        title: const Text("This device's public keys"),
         content: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 440),
           child: Column(
@@ -45,8 +46,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Contacts use these to encrypt messages to you and to verify '
-                'your signatures. Your private keys never leave this device.',
+                'Contacts use these, with short-lived prekeys, to start '
+                'forward-secret sessions with this device. Your other devices '
+                'have keys of their own. Private keys never leave the device.',
               ),
               const SizedBox(height: 16),
               Container(
@@ -275,8 +277,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           constraints: const BoxConstraints(maxWidth: 440),
           child: const SingleChildScrollView(
             child: Text(
-              '• Every message is signed and encrypted on your device before '
-              'it leaves it. Only the recipient’s device can decrypt it.\n\n'
+              '• Every message is encrypted on your device before it leaves '
+              'it, separately for each of the recipient’s devices. Only those '
+              'devices can decrypt it.\n\n'
+              '• Keys change with every message (Double Ratchet), so a key '
+              'stolen today can’t decrypt yesterday’s messages.\n\n'
               '• When both of you are online, messages travel directly '
               'between devices (peer to peer). Otherwise the encrypted '
               'message waits in a short-lived relay queue and is deleted '
@@ -458,8 +463,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onTap: _pickContactForSafetyNumber,
                     ),
                     ListTile(
+                      key: const ValueKey('settings-devices'),
+                      leading: const Icon(LucideIcons.monitorSmartphone),
+                      title: const Text('Linked devices'),
+                      subtitle: const Text('Phones and computers on your account'),
+                      trailing: Icon(
+                        LucideIcons.chevronRight,
+                        size: 18,
+                        color: p.textMuted,
+                      ),
+                      onTap: () => Navigator.of(context).pushNamed('/devices'),
+                    ),
+                    ListTile(
                       leading: const Icon(LucideIcons.keyRound),
-                      title: const Text('Your public keys'),
+                      title: const Text("This device's keys"),
                       subtitle: const Text('The keys contacts encrypt to'),
                       trailing: Icon(
                         LucideIcons.chevronRight,

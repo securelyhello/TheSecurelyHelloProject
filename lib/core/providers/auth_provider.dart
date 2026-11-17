@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:securelyhello/core/crypto/crypto_core.dart';
+import 'package:securelyhello/core/crypto/device_manager.dart';
 import 'package:securelyhello/core/storage/local_storage.dart';
 import 'package:securelyhello/core/storage/secure_key_store.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
@@ -30,17 +31,20 @@ class AuthUser {
 /// 1. loads its profile from the server (or the cached copy when offline),
 /// 2. opens this account's encrypted local database,
 /// 3. loads its private keys from the platform keystore (generating a new
-///    identity on a fresh install), and
-/// 4. publishes its public keys if the directory holds different ones, so
-///    contacts always encrypt to the device that is actually signed in.
+///    device identity on a fresh install), and
+/// 4. registers itself as one of the account's devices (public identity
+///    keys, signed prekey and one-time prekeys), so contacts can start
+///    forward-secret sessions with it.
 class AuthProvider extends ChangeNotifier {
   final DirectoryService _directoryService;
   final LocalStorage _localStorage;
   final SecureKeyStore _keyStore;
+  final DeviceManager _deviceManager;
 
   AuthStatus _status = AuthStatus.initial;
   AuthUser? _user;
   CryptoIdentity? _identity;
+  String? _deviceId;
   Map<String, dynamic>? _profile;
   String? _errorMessage;
   bool _isLoading = false;
@@ -53,14 +57,20 @@ class AuthProvider extends ChangeNotifier {
     required DirectoryService directoryService,
     required LocalStorage localStorage,
     required SecureKeyStore keyStore,
+    DeviceManager? deviceManager,
   })  : _directoryService = directoryService,
         _localStorage = localStorage,
-        _keyStore = keyStore;
+        _keyStore = keyStore,
+        _deviceManager = deviceManager ??
+            DeviceManager(storage: localStorage, directory: directoryService);
 
   // -- Getters --
   AuthStatus get status => _status;
   AuthUser? get user => _user;
   CryptoIdentity? get identity => _identity;
+
+  /// This device's id within the account (set once registered).
+  String? get deviceId => _deviceId;
   String? get errorMessage => _errorMessage;
   bool get isLoading => _isLoading;
   bool get isAuthenticated => _status == AuthStatus.authenticated;
@@ -146,18 +156,15 @@ class AuthProvider extends ChangeNotifier {
     _clearError();
 
     try {
-      // Keys are generated on-device; only public halves ever leave it.
-      final identity = CryptoCore.generateIdentity();
+      // Keys are generated on-device (in _bootstrap); only public halves
+      // ever leave it.
       final profile = await _directoryService.signUp(
         email: email,
         password: password,
         username: username.trim().toLowerCase(),
         displayName: displayName,
-        publicSigningKey: identity.publicSigningKeyBase64,
-        publicEncryptionKey: identity.publicEncryptionKeyBase64,
       );
       final userId = profile['user_id'] as String;
-      await _keyStore.saveIdentity(userId, identity);
       final ok = await _bootstrap(userId,
           email: profile['email'] as String?, knownProfile: profile);
       _setLoading(false);
@@ -280,6 +287,40 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Linked devices
+  // ---------------------------------------------------------------------------
+
+  /// This account's devices (`device_id`, `name`, `created_at`,
+  /// `last_seen_at`, `current`, public keys).
+  Future<List<Map<String, dynamic>>> listDevices() =>
+      _directoryService.listMyDevices();
+
+  /// Unlinks another device: it is signed out and stops receiving messages.
+  Future<bool> removeDevice(String deviceId) async {
+    _errorMessage = null;
+    try {
+      await _directoryService.removeDevice(deviceId);
+      return true;
+    } catch (e) {
+      _errorMessage = _describe(e, 'Could not remove the device');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> renameThisDevice(String name) async {
+    _errorMessage = null;
+    try {
+      await _directoryService.renameCurrentDevice(name.trim());
+      return true;
+    } catch (e) {
+      _errorMessage = _describe(e, 'Could not rename the device');
+      notifyListeners();
+      return false;
+    }
+  }
+
   /// Changes the password. Other devices are signed out by the server.
   Future<bool> changePassword({
     required String currentPassword,
@@ -397,24 +438,26 @@ class AuthProvider extends ChangeNotifier {
     }
     _identity = identity;
 
-    // 4. Make sure contacts encrypt to *this* device.
-    if (profile['signing_public_key'] != identity.publicSigningKeyBase64 ||
-        profile['encryption_public_key'] !=
-            identity.publicEncryptionKeyBase64) {
-      try {
-        await _directoryService.updatePublicKeys(
-          publicSigningKey: identity.publicSigningKeyBase64,
-          publicEncryptionKey: identity.publicEncryptionKeyBase64,
-        );
-        _profile = {
-          ...profile,
-          'signing_public_key': identity.publicSigningKeyBase64,
-          'encryption_public_key': identity.publicEncryptionKeyBase64,
-        };
-        await _cacheProfile(userId, _profile!);
-      } catch (e) {
-        // Retried automatically on next launch (the mismatch persists).
-        debugPrint('Publishing public keys failed: $e');
+    // 4. Register this device (or re-bind it after signing in again).
+    try {
+      _deviceId = await _deviceManager.register(identity);
+    } on ApiException catch (e) {
+      if (e.isUnauthorized) {
+        await _directoryService.forgetSession();
+        _setStatus(AuthStatus.unauthenticated);
+        return false;
+      }
+      _deviceId = await _deviceManager.storedDeviceId();
+      if (_deviceId == null) {
+        _setError(_describe(e, 'Could not register this device'));
+        return false;
+      }
+    } catch (e) {
+      // Offline start: keep using the device we registered before.
+      _deviceId = await _deviceManager.storedDeviceId();
+      if (_deviceId == null) {
+        _setError("Can't reach the server. Check your connection and try again.");
+        return false;
       }
     }
 
@@ -457,6 +500,7 @@ class AuthProvider extends ChangeNotifier {
     await _localStorage.close();
     _user = null;
     _identity = null;
+    _deviceId = null;
     _profile = null;
     _setStatus(AuthStatus.unauthenticated);
   }
@@ -473,8 +517,6 @@ class AuthProvider extends ChangeNotifier {
       'email': profile['email'],
       'username': profile['username'],
       'display_name': profile['display_name'],
-      'signing_public_key': profile['signing_public_key'],
-      'encryption_public_key': profile['encryption_public_key'],
       'email_verified': profile['email_verified'],
       'email_verification_required': profile['email_verification_required'],
     }));

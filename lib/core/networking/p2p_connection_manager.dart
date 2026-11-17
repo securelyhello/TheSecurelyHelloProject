@@ -34,7 +34,11 @@ class DataChannelMessageEvent {
   const DataChannelMessageEvent(this.contactId, this.data);
 }
 
-/// Manages one [RTCPeerConnection] + [RTCDataChannel] per remote contact.
+/// Manages one [RTCPeerConnection] + [RTCDataChannel] per remote device.
+///
+/// Peers are keyed by an opaque string; `ChatService` uses the device
+/// address `userId:deviceId`, and the `*WithPrefix` helpers answer
+/// questions about all devices of one user (`'$userId:'`).
 ///
 /// A peer only counts as [P2PConnectionState.connected] once its data
 /// channel is open, so [isConnected] is a reliable "can send right now"
@@ -199,6 +203,35 @@ class P2PConnectionManager {
   /// `true` if a data channel to [contactId] is open and usable.
   bool isConnected(String contactId) {
     return getConnectionState(contactId) == P2PConnectionState.connected;
+  }
+
+  /// The best state among peers whose key starts with [prefix] (e.g. every
+  /// device of one contact).
+  P2PConnectionState bestStateWithPrefix(String prefix) {
+    const order = [
+      P2PConnectionState.connected,
+      P2PConnectionState.connecting,
+      P2PConnectionState.disconnected,
+      P2PConnectionState.failed,
+      P2PConnectionState.idle,
+    ];
+    var best = P2PConnectionState.idle;
+    for (final e in _connectionStates.entries) {
+      if (!e.key.startsWith(prefix)) continue;
+      if (order.indexOf(e.value) < order.indexOf(best)) best = e.value;
+    }
+    return best;
+  }
+
+  /// `true` if any peer under [prefix] has an open channel.
+  bool hasConnectionWithPrefix(String prefix) =>
+      bestStateWithPrefix(prefix) == P2PConnectionState.connected;
+
+  /// Closes every peer under [prefix].
+  Future<void> closeConnectionsWithPrefix(String prefix) async {
+    for (final key in _connectionStates.keys.toList()) {
+      if (key.startsWith(prefix)) await closeConnection(key);
+    }
   }
 
   /// `true` if any peer connection object exists for [contactId].

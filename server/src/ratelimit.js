@@ -15,6 +15,8 @@ export const DEFAULT_LIMITS = {
   publicIp: { capacity: 60, perMs: MIN },
   // general authenticated API calls, per user
   api: { capacity: 300, perMs: MIN },
+  // prekey bundle claims, per user (each one spends a one-time prekey)
+  prekeyClaim: { capacity: 60, perMs: MIN },
   // relay envelopes, per sender
   relay: { capacity: 120, perMs: MIN },
   // contact requests, per sender

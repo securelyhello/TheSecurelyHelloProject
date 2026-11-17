@@ -7,8 +7,8 @@ import 'package:pinenacl/x25519.dart';
 
 /// Holds both signing (Ed25519) and encryption (X25519) keypairs.
 ///
-/// Private keys are only ever stored locally via [LocalStorage].
-/// Only public keys are exported to Supabase for contact discovery.
+/// The identity of one device. Private keys stay in the platform keystore;
+/// only the public halves are registered with the server.
 class CryptoIdentity {
   /// Ed25519 signing keypair — used to sign outgoing messages
   /// so recipients can verify authenticity.
@@ -37,24 +37,16 @@ class CryptoIdentity {
       Uint8List.fromList(signingKey.sign(message).toList());
 
   // ---------------------------------------------------------------------------
-  // Public key export (safe to send to Supabase)
+  // Public key export (safe to publish)
   // ---------------------------------------------------------------------------
 
-  /// Returns only the public signing key as Base64 — safe for Supabase storage.
+  /// Returns only the public signing key as Base64 (safe to publish).
   String get publicSigningKeyBase64 =>
       base64Encode(Uint8List.fromList(verifyKey));
 
-  /// Returns only the public encryption key as Base64 — safe for Supabase storage.
+  /// Returns only the public encryption key as Base64 (safe to publish).
   String get publicEncryptionKeyBase64 =>
       base64Encode(Uint8List.fromList(encryptionPublicKey));
-
-  /// Convenience map of the two public keys for [SupabaseDirectoryService].
-  Map<String, String> exportPublicKeys() {
-    return {
-      'public_signing_key': publicSigningKeyBase64,
-      'public_encryption_key': publicEncryptionKeyBase64,
-    };
-  }
 
   // ---------------------------------------------------------------------------
   // Full serialization (for LOCAL storage only — includes private keys)
@@ -255,26 +247,28 @@ class CryptoCore {
   // Safety numbers
   // ---------------------------------------------------------------------------
 
-  /// Computes a 60-digit safety number for the pair of identities.
+  /// Computes a 60-digit safety number for two people.
   ///
-  /// The result is symmetric — both parties derive the same digits — and
-  /// changes whenever either side's public keys change.  Users compare it
-  /// out-of-band (in person, on a call) to rule out a key-substitution
-  /// attack by the directory server.
+  /// Each side is a user id plus the keys of all of that user's devices
+  /// (`"<signing key>|<identity key>"`, in any order). The result is
+  /// symmetric (both people derive the same digits) and changes whenever
+  /// either side adds, removes or re-keys a device. Users compare it out of
+  /// band (in person, on a call) to rule out a key-substitution attack by
+  /// the directory server.
   static String safetyNumber({
     required String myUserId,
-    required String mySigningKey,
-    required String myEncryptionKey,
+    required List<String> myDeviceKeys,
     required String theirUserId,
-    required String theirSigningKey,
-    required String theirEncryptionKey,
+    required List<String> theirDeviceKeys,
   }) {
+    String party(String id, List<String> keys) =>
+        '$id|${([...keys]..sort()).join(',')}';
     final parties = [
-      '$myUserId|$mySigningKey|$myEncryptionKey',
-      '$theirUserId|$theirSigningKey|$theirEncryptionKey',
+      party(myUserId, myDeviceKeys),
+      party(theirUserId, theirDeviceKeys),
     ]..sort();
     final digest = Hash.sha512(
-        Uint8List.fromList(utf8.encode('securelyhello-sn-v1|${parties.join('#')}')));
+        Uint8List.fromList(utf8.encode('securelyhello-sn-v2|${parties.join('#')}')));
 
     final groups = <String>[];
     for (var i = 0; i < 12; i++) {

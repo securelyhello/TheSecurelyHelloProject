@@ -1,40 +1,39 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:securelyhello/core/crypto/crypto_core.dart';
-
 // =============================================================================
-// Wire protocol
+// Wire protocol v3
 // =============================================================================
 //
-// Everything that leaves the device — over a WebRTC data channel or through
-// the Supabase relay queue — is a [WireEnvelope]:
+// Everything that leaves the device, over a WebRTC data channel or through
+// the server's relay queue, is a [WireEnvelope] addressed to ONE device:
 //
 // ```json
-// { "v": 2, "id": "<uuid>", "s": "<sender user_id>", "t": <unix_ms>,
-//   "c": "<base64 NaCl box>" }
+// { "v": 3, "id": "<uuid>", "s": "<sender user>", "sd": "<sender device>",
+//   "rd": "<recipient device>", "t": <unix ms>,
+//   "h": "<ratchet header JSON>", "c": "<base64 ciphertext>" }
 // ```
 //
-// For v2 the box contains `Ed25519 signature ‖ payload JSON`, where the
-// payload is a [WirePayload].  The payload repeats the sender and recipient
-// ids *inside* the signed, encrypted part so a relayed blob cannot be
-// re-attributed to another user.
-//
-// v1 envelopes (no "v" field) carried the raw UTF-8 text in the box.  They are
-// still accepted on receive so older builds can talk to this one.
+// `h` and `c` come from the Double Ratchet session between the two devices
+// (see `ratchet.dart`). `c` decrypts to a [WirePayload] (JSON), which
+// repeats the sender and recipient user ids inside the authenticated part.
+// A message to a contact is sealed once per device of theirs, plus a `sync`
+// copy for each of our own other devices.
 
-const int kWireVersion = 2;
+const int kWireVersion = 3;
 
-/// The kind of data carried by a [WirePayload].
 enum PayloadKind {
-  /// A chat text message.
+  /// A chat message (text and/or one attachment).
   message('msg'),
 
   /// Delivery / read acknowledgement for one or more message ids.
   receipt('receipt'),
 
-  /// Typing indicator.  Only ever sent over a live P2P channel.
-  typing('typing');
+  /// Typing indicator. Only ever sent over a live P2P channel.
+  typing('typing'),
+
+  /// To our own other devices: a message we sent, or messages we read.
+  sync('sync');
 
   const PayloadKind(this.wire);
   final String wire;
@@ -54,27 +53,38 @@ enum ReceiptStatus {
           orElse: () => throw FormatException('Unknown receipt $value'));
 }
 
-/// Outer, unencrypted envelope.
+/// Outer envelope: routing only; the server sees nothing else.
 class WireEnvelope {
-  final int version;
   final String id;
   final String senderId;
+  final String senderDevice;
+  final String recipientDevice;
   final int timestampMs;
+
+  /// Ratchet header, exactly as authenticated.
+  final String header;
   final String ciphertextBase64;
 
   const WireEnvelope({
-    this.version = kWireVersion,
     required this.id,
     required this.senderId,
+    required this.senderDevice,
+    required this.recipientDevice,
     required this.timestampMs,
+    required this.header,
     required this.ciphertextBase64,
   });
 
+  String get senderAddress => '$senderId:$senderDevice';
+
   Map<String, dynamic> toJson() => {
-        'v': version,
+        'v': kWireVersion,
         'id': id,
         's': senderId,
+        'sd': senderDevice,
+        'rd': recipientDevice,
         't': timestampMs,
+        'h': header,
         'c': ciphertextBase64,
       };
 
@@ -82,13 +92,20 @@ class WireEnvelope {
 
   Uint8List encode() => Uint8List.fromList(utf8.encode(encodeJson()));
 
-  static WireEnvelope fromJson(Map<String, dynamic> json) => WireEnvelope(
-        version: (json['v'] as int?) ?? 1,
-        id: json['id'] as String,
-        senderId: json['s'] as String,
-        timestampMs: json['t'] as int,
-        ciphertextBase64: json['c'] as String,
-      );
+  static WireEnvelope fromJson(Map<String, dynamic> json) {
+    if (json['v'] != kWireVersion) {
+      throw FormatException('Unsupported envelope version ${json['v']}');
+    }
+    return WireEnvelope(
+      id: json['id'] as String,
+      senderId: json['s'] as String,
+      senderDevice: json['sd'] as String,
+      recipientDevice: json['rd'] as String,
+      timestampMs: json['t'] as int,
+      header: json['h'] as String,
+      ciphertextBase64: json['c'] as String,
+    );
+  }
 
   static WireEnvelope decodeJson(String source) =>
       fromJson(jsonDecode(source) as Map<String, dynamic>);
@@ -97,18 +114,21 @@ class WireEnvelope {
       decodeJson(utf8.decode(bytes));
 }
 
-/// Inner, signed + encrypted payload.
+/// Inner payload (encrypted).
 class WirePayload {
   final PayloadKind kind;
 
-  /// Message id for [PayloadKind.message]; unused otherwise.
+  /// Message id for [PayloadKind.message] and sent-message syncs.
   final String? messageId;
   final String from;
   final String to;
   final int timestampMs;
 
-  /// Text body for [PayloadKind.message].
+  /// Text for [PayloadKind.message] (may be empty with an attachment).
   final String? body;
+
+  /// Attachment metadata (id, key, digest, name, mime, size …), if any.
+  final Map<String, dynamic>? attachment;
 
   /// Acknowledged message ids for [PayloadKind.receipt].
   final List<String> receiptIds;
@@ -117,6 +137,12 @@ class WirePayload {
   /// For [PayloadKind.typing].
   final bool isTyping;
 
+  /// [PayloadKind.sync]: the contact the synced messages belong to.
+  final String? conversation;
+
+  /// [PayloadKind.sync]: incoming message ids we read on another device.
+  final List<String> readIds;
+
   const WirePayload._({
     required this.kind,
     required this.from,
@@ -124,9 +150,12 @@ class WirePayload {
     required this.timestampMs,
     this.messageId,
     this.body,
+    this.attachment,
     this.receiptIds = const [],
     this.receiptStatus,
     this.isTyping = false,
+    this.conversation,
+    this.readIds = const [],
   });
 
   factory WirePayload.message({
@@ -135,6 +164,7 @@ class WirePayload {
     required String to,
     required int timestampMs,
     required String body,
+    Map<String, dynamic>? attachment,
   }) =>
       WirePayload._(
         kind: PayloadKind.message,
@@ -143,6 +173,7 @@ class WirePayload {
         to: to,
         timestampMs: timestampMs,
         body: body,
+        attachment: attachment,
       );
 
   factory WirePayload.receipt({
@@ -175,6 +206,42 @@ class WirePayload {
         isTyping: isTyping,
       );
 
+  /// Copy of a message we sent to [conversation], for our other devices.
+  factory WirePayload.sentSync({
+    required String me,
+    required String conversation,
+    required String messageId,
+    required int timestampMs,
+    required String body,
+    Map<String, dynamic>? attachment,
+  }) =>
+      WirePayload._(
+        kind: PayloadKind.sync,
+        from: me,
+        to: me,
+        conversation: conversation,
+        messageId: messageId,
+        timestampMs: timestampMs,
+        body: body,
+        attachment: attachment,
+      );
+
+  /// We read [ids] from [conversation] on this device.
+  factory WirePayload.readSync({
+    required String me,
+    required String conversation,
+    required List<String> ids,
+    required int timestampMs,
+  }) =>
+      WirePayload._(
+        kind: PayloadKind.sync,
+        from: me,
+        to: me,
+        conversation: conversation,
+        readIds: ids,
+        timestampMs: timestampMs,
+      );
+
   Map<String, dynamic> toJson() => {
         'k': kind.wire,
         'from': from,
@@ -182,109 +249,57 @@ class WirePayload {
         't': timestampMs,
         if (messageId != null) 'id': messageId,
         if (body != null) 'body': body,
+        if (attachment != null) 'att': attachment,
         if (kind == PayloadKind.receipt) 'ids': receiptIds,
         if (receiptStatus != null) 'st': receiptStatus!.name,
         if (kind == PayloadKind.typing) 'on': isTyping,
+        if (conversation != null) 'conv': conversation,
+        if (readIds.isNotEmpty) 'read': readIds,
       };
+
+  Uint8List encode() => Uint8List.fromList(utf8.encode(jsonEncode(toJson())));
+
+  static WirePayload decode(Uint8List bytes) =>
+      fromJson(jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>);
 
   static WirePayload fromJson(Map<String, dynamic> json) {
     final kind = PayloadKind.fromWire(json['k'] as String);
-    return WirePayload._(
+    final att = json['att'];
+    final payload = WirePayload._(
       kind: kind,
       from: json['from'] as String,
       to: json['to'] as String,
       timestampMs: json['t'] as int,
       messageId: json['id'] as String?,
       body: json['body'] as String?,
+      attachment: att is Map ? Map<String, dynamic>.from(att) : null,
       receiptIds: (json['ids'] as List<dynamic>?)?.cast<String>() ?? const [],
       receiptStatus: json['st'] != null
           ? ReceiptStatus.fromWire(json['st'] as String)
           : null,
       isTyping: json['on'] as bool? ?? false,
+      conversation: json['conv'] as String?,
+      readIds: (json['read'] as List<dynamic>?)?.cast<String>() ?? const [],
     );
-  }
-}
-
-/// Public keys of the remote party, Base64-encoded as stored in Supabase.
-class PeerKeys {
-  final String signingKey;
-  final String encryptionKey;
-  const PeerKeys({required this.signingKey, required this.encryptionKey});
-
-  bool get isComplete => signingKey.isNotEmpty && encryptionKey.isNotEmpty;
-}
-
-/// Seals and opens [WirePayload]s.
-class WireCodec {
-  WireCodec._();
-
-  /// Signs [payload] with our Ed25519 key, encrypts it to the recipient's
-  /// X25519 key, and wraps it in an envelope.
-  static WireEnvelope seal({
-    required String envelopeId,
-    required WirePayload payload,
-    required CryptoIdentity identity,
-    required String recipientEncryptionKey,
-  }) {
-    final payloadBytes =
-        Uint8List.fromList(utf8.encode(jsonEncode(payload.toJson())));
-    final signed = identity.sign(payloadBytes);
-    final ciphertext = CryptoCore.encrypt(
-      signed,
-      CryptoCore.fromBase64(recipientEncryptionKey),
-      identity.encryptionPrivateKeyBytes,
-    );
-    return WireEnvelope(
-      id: envelopeId,
-      senderId: payload.from,
-      timestampMs: payload.timestampMs,
-      ciphertextBase64: CryptoCore.toBase64(ciphertext),
-    );
-  }
-
-  /// Decrypts, verifies and parses [envelope].
-  ///
-  /// Throws if decryption or signature verification fails, or if the ids
-  /// inside the signed payload don't match [expectedSender] / [myUserId].
-  static WirePayload open({
-    required WireEnvelope envelope,
-    required CryptoIdentity identity,
-    required PeerKeys sender,
-    required String expectedSender,
-    required String myUserId,
-  }) {
-    if (envelope.senderId != expectedSender) {
-      throw const FormatException('Envelope sender mismatch');
-    }
-
-    final plain = CryptoCore.decrypt(
-      CryptoCore.fromBase64(envelope.ciphertextBase64),
-      CryptoCore.fromBase64(sender.encryptionKey),
-      identity.encryptionPrivateKeyBytes,
-    );
-
-    if (envelope.version < 2) {
-      // Legacy v1: the box holds the bare text.
-      return WirePayload.message(
-        messageId: envelope.id,
-        from: envelope.senderId,
-        to: myUserId,
-        timestampMs: envelope.timestampMs,
-        body: utf8.decode(plain),
-      );
-    }
-
-    final payloadBytes =
-        CryptoCore.openSigned(plain, CryptoCore.fromBase64(sender.signingKey));
-    final payload = WirePayload.fromJson(
-        jsonDecode(utf8.decode(payloadBytes)) as Map<String, dynamic>);
-
-    if (payload.from != expectedSender || payload.to != myUserId) {
-      throw const FormatException('Payload addressed to someone else');
-    }
-    if (payload.kind == PayloadKind.message &&
-        (payload.messageId == null || payload.body == null)) {
-      throw const FormatException('Malformed message payload');
+    switch (kind) {
+      case PayloadKind.message:
+        if (payload.messageId == null || payload.body == null) {
+          throw const FormatException('Malformed message payload');
+        }
+        break;
+      case PayloadKind.receipt:
+        if (payload.receiptStatus == null) {
+          throw const FormatException('Malformed receipt');
+        }
+        break;
+      case PayloadKind.sync:
+        if (payload.conversation == null ||
+            (payload.messageId == null && payload.readIds.isEmpty)) {
+          throw const FormatException('Malformed sync payload');
+        }
+        break;
+      case PayloadKind.typing:
+        break;
     }
     return payload;
   }

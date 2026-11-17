@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 
-import { api, envelopeFrom, fakeKey, makeContacts, signup, startServer } from './helpers.js';
+import { api, makeContacts, relaySend, signup, startServer } from './helpers.js';
 
 let srv;
 before(async () => {
@@ -17,8 +17,6 @@ describe('auth', () => {
         password: 'a long enough password',
         username: 'Alice_1',
         display_name: 'Alice',
-        signing_public_key: fakeKey(),
-        encryption_public_key: fakeKey(),
       },
     });
     assert.equal(res.status, 201);
@@ -57,8 +55,6 @@ describe('auth', () => {
       password: 'a long enough password',
       username: 'valid_name',
       display_name: 'V',
-      signing_public_key: fakeKey(),
-      encryption_public_key: fakeKey(),
     };
     const cases = [
       [{ password: 'short' }, 'weak_password'],
@@ -67,7 +63,6 @@ describe('auth', () => {
       [{ username: 'ab' }, 'invalid_username'],
       [{ username: "x'; DROP TABLE users;--" }, 'invalid_username'],
       [{ email: 'not-an-email' }, 'invalid_email'],
-      [{ signing_public_key: 'not a key' }, 'invalid_input'],
       [{ display_name: 'x'.repeat(65) }, 'invalid_input'],
     ];
     for (const [patch, code] of cases) {
@@ -181,8 +176,8 @@ describe('auth', () => {
     const c = await signup(srv.base, 'del_c');
     await makeContacts(srv.base, a, b);
     await api(srv.base, 'POST', '/api/contact-requests', { token: a.token, body: { receiver_id: c.id } });
-    await api(srv.base, 'POST', '/api/relay', { token: a.token, body: { recipient_id: b.id, envelope: envelopeFrom(a.id) } });
-    await api(srv.base, 'POST', '/api/relay', { token: b.token, body: { recipient_id: a.id, envelope: envelopeFrom(b.id) } });
+    assert.equal((await relaySend(srv.base, a, b)).status, 201);
+    assert.equal((await relaySend(srv.base, b, a)).status, 201);
 
     assert.equal((await api(srv.base, 'DELETE', '/api/me', { token: a.token })).status, 204);
     assert.equal((await api(srv.base, 'GET', '/api/me', { token: a.token })).status, 401);

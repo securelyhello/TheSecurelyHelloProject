@@ -374,6 +374,7 @@ class _SafetyNumberCard extends StatelessWidget {
             },
           ),
           const SizedBox(height: 4),
+          _DeviceCoverage(name: name),
           Text(
             'Compare these digits with $name in person or on a call. If they '
             'match, only the two of you can read your messages. The number '
@@ -382,6 +383,43 @@ class _SafetyNumberCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// "Covers 2 devices of Mira's and 1 of yours." (needs the contact id via
+/// the enclosing sheet).
+class _DeviceCoverage extends StatelessWidget {
+  const _DeviceCoverage({required this.name});
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final sheet = context.findAncestorStateOfType<_ContactInfoSheetState>();
+    final chat = context.read<ChatProvider>();
+    final me = chat.myUserId;
+    if (sheet == null || me == null) return const SizedBox.shrink();
+    return FutureBuilder<List<int>>(
+      future: Future.wait([
+        chat.deviceCount(sheet.c.userId),
+        chat.deviceCount(me),
+      ]),
+      builder: (context, snap) {
+        final counts = snap.data;
+        if (counts == null) return const SizedBox(height: 4);
+        String n(int x) => x == 1 ? '1 device' : '$x devices';
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Text(
+            "Covers ${n(counts[0])} of $name's and ${n(counts[1])} of yours.",
+            key: const ValueKey('safety-coverage'),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: context.palette.accent,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+        );
+      },
     );
   }
 }

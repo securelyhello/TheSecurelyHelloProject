@@ -25,6 +25,7 @@ import 'package:securelyhello/features/home/home_screen.dart';
 import 'package:securelyhello/features/contacts/screens/add_contact_screen.dart';
 import 'package:securelyhello/features/contacts/screens/contact_requests_screen.dart';
 import 'package:securelyhello/features/chat/screens/chat_screen.dart';
+import 'package:securelyhello/features/settings/screens/linked_devices_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -88,7 +89,6 @@ Future<void> main() async {
   final contactsProvider = ContactsProvider(
     directoryService: directoryService,
     localStorage: localStorage,
-    chatService: chatService,
   );
   final connectionProvider = ConnectionProvider(
     connectionManager: connectionManager,
@@ -171,6 +171,7 @@ class SecurelyHelloApp extends StatelessWidget {
           '/home': (context) => const HomeScreen(),
           '/add-contact': (context) => const AddContactScreen(),
           '/contact-requests': (context) => const ContactRequestsScreen(),
+          '/devices': (context) => const LinkedDevicesScreen(),
         },
         onGenerateRoute: (settings) {
           // Handle routes with arguments

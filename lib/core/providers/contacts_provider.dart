@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:securelyhello/core/chat/chat_service.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
 import 'package:securelyhello/core/storage/local_storage.dart';
 
@@ -10,8 +9,6 @@ class Contact {
   final String username;
   final String displayName;
   final String? avatarUrl;
-  final String publicSigningKey;
-  final String publicEncryptionKey;
   final bool isOnline;
   final DateTime? lastSeen;
   final String? nickname;
@@ -21,8 +18,6 @@ class Contact {
     required this.username,
     required this.displayName,
     this.avatarUrl,
-    required this.publicSigningKey,
-    required this.publicEncryptionKey,
     this.isOnline = false,
     this.lastSeen,
     this.nickname,
@@ -36,8 +31,6 @@ class Contact {
       username: userData['username']?.toString() ?? '',
       displayName: userData['display_name']?.toString() ?? '',
       avatarUrl: null, // Removed from schema
-      publicSigningKey: userData['signing_public_key']?.toString() ?? '',
-      publicEncryptionKey: userData['encryption_public_key']?.toString() ?? '',
       isOnline: userData['status'] == 'online',
       lastSeen: userData['last_seen'] != null
           ? DateTime.tryParse(userData['last_seen'].toString())
@@ -51,8 +44,6 @@ class Contact {
         username: username,
         displayName: displayName,
         avatarUrl: avatarUrl,
-        publicSigningKey: publicSigningKey,
-        publicEncryptionKey: publicEncryptionKey,
         isOnline: isOnline,
         lastSeen: lastSeen ?? this.lastSeen,
         nickname: nickname,
@@ -139,7 +130,6 @@ class UserSearchResult {
 class ContactsProvider extends ChangeNotifier {
   final DirectoryService _directoryService;
   final LocalStorage _localStorage;
-  final ChatService _chatService;
 
   List<Contact> _contacts = [];
   List<UserSearchResult> _searchResults = [];
@@ -155,10 +145,8 @@ class ContactsProvider extends ChangeNotifier {
   ContactsProvider({
     required DirectoryService directoryService,
     required LocalStorage localStorage,
-    required ChatService chatService,
   })  : _directoryService = directoryService,
-        _localStorage = localStorage,
-        _chatService = chatService;
+        _localStorage = localStorage;
 
   final List<StreamSubscription<dynamic>> _subs = [];
   String? _myUserId;
@@ -183,7 +171,7 @@ class ContactsProvider extends ChangeNotifier {
   }
 
   Future<void> _onContactEvent(ContactEvent event) async {
-    if (event.type == 'keys_changed') return; // ChatService refreshes keys
+    if (event.type == 'devices_changed') return; // ChatService handles it
     await loadContacts(silent: true);
     if (event.type == 'contact_request') {
       _newRequestController.add('You have a new contact request');
@@ -296,23 +284,18 @@ class ContactsProvider extends ChangeNotifier {
     _receivedRequests =
         allRequests.where((r) => r.receiverId == myUserId).toList();
 
-    // Cache contacts locally and flag changed safety numbers.
+    // Cache contacts locally (names for offline start and notices). Device
+    // keys are tracked by ChatService, which flags safety-number changes.
     for (final contact in List.of(_contacts)) {
       if (!_localStorage.isOpen) break;
-      final keysChanged = await _localStorage.cacheContact(
+      await _localStorage.cacheContact(
         userId: contact.userId,
         username: contact.username,
         displayName: contact.displayName,
         avatarUrl: contact.avatarUrl,
-        publicSigningKey: contact.publicSigningKey,
-        publicEncryptionKey: contact.publicEncryptionKey,
         isOnline: contact.isOnline,
         lastSeen: contact.lastSeen?.millisecondsSinceEpoch,
       );
-      if (keysChanged) {
-        await _chatService.noteSafetyNumberChanged(
-            contact.userId, contact.displayLabel);
-      }
     }
   }
 

@@ -8,6 +8,7 @@
 // "You" are a real app instance; "Mira" is a second, headless client stack in
 // the same process that answers.
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
@@ -33,6 +34,24 @@ const _baseUrl =
     String.fromEnvironment('API_BASE_URL', defaultValue: 'http://127.0.0.1:8787');
 const _shotDir = String.fromEnvironment('SHOT_DIR');
 
+/// Where the server writes e-mails (MAIL_TRANSPORT=file, MAIL_FILE_DIR).
+const _mailDir = String.fromEnvironment('MAIL_DIR', defaultValue: '/tmp/sh_mail');
+
+/// The newest 6-digit code e-mailed to [to], or null.
+String? latestCode(String to) {
+  final dir = Directory(_mailDir);
+  if (!dir.existsSync()) return null;
+  final files = dir.listSync().whereType<File>().toList()
+    ..sort((a, b) => b.path.compareTo(a.path));
+  for (final f in files) {
+    final mail = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+    if ((mail['to'] as String).toLowerCase() == to.toLowerCase()) {
+      return RegExp(r'\b(\d{6})\b').firstMatch(mail['text'] as String)?.group(1);
+    }
+  }
+  return null;
+}
+
 class Client {
   final Directory dir;
   late final SecureKeyStore keyStore =
@@ -47,7 +66,7 @@ class Client {
   late final AuthProvider auth = AuthProvider(
       directoryService: directory, localStorage: storage, keyStore: keyStore);
   late final ContactsProvider contacts = ContactsProvider(
-      directoryService: directory, localStorage: storage, chatService: chat);
+      directoryService: directory, localStorage: storage);
   late final ChatProvider chatProvider = ChatProvider(chatService: chat);
   late final ConnectionProvider connection =
       ConnectionProvider(connectionManager: p2p, chatService: chat)..init();
@@ -116,7 +135,9 @@ void main() {
           reason: mira.auth.errorMessage);
       mira.contacts.init();
       await mira.chat.start(
-          identity: mira.auth.identity!, myUserId: mira.auth.myUserId!);
+          identity: mira.auth.identity!,
+          myUserId: mira.auth.myUserId!,
+          deviceId: mira.auth.deviceId!);
       final miraId = mira.auth.myUserId!;
 
       // ---- the real app, phone-sized -------------------------------------
@@ -144,6 +165,14 @@ void main() {
       await waitFor(find.text('Wrong email or password'), 'login error');
       await shot('03_login_error');
 
+      // Forgot password: a two-step flow behind the login screen.
+      await tester.tap(find.byKey(const ValueKey('forgot-password')));
+      await waitFor(find.text('Reset your password'), 'forgot-password screen');
+      await settle(800);
+      await shot('03b_forgot_password');
+      nav().pop();
+      await settle(800);
+
       await tester.tap(find.widgetWithText(TextButton, 'Sign up'));
       await waitFor(find.text('Create your account'), 'signup screen');
       await settle(1200); // let the login route finish animating out
@@ -158,7 +187,22 @@ void main() {
       await shot('04_signup_filled');
       await tester.ensureVisible(find.widgetWithText(ElevatedButton, 'Sign up'));
       await tester.tap(find.widgetWithText(ElevatedButton, 'Sign up'));
+      // With e-mail configured the app asks for the code we were sent.
+      final end = DateTime.now().add(const Duration(seconds: 20));
+      while (find.text('Check your inbox').evaluate().isEmpty &&
+          find.text('Search chats').evaluate().isEmpty) {
+        if (DateTime.now().isAfter(end)) fail('Never left the sign-up screen');
+        await settle(100);
+      }
+      if (find.text('Check your inbox').evaluate().isNotEmpty) {
+        await settle(800);
+        await shot('04b_verify_email');
+        final code = latestCode('tirth_$tag@example.test');
+        expect(code, isNotNull, reason: 'server must run with MAIL_TRANSPORT=file');
+        await tester.enterText(find.byType(EditableText).first, code!);
+      }
       await waitFor(find.text('Search chats'), 'home screen after sign up');
+      expect(me.auth.emailVerified || latestCode('tirth_$tag@example.test') == null, isTrue);
       await settle(1500);
       await shot('05_home_empty');
 
@@ -234,6 +278,12 @@ void main() {
       await tester.tap(find.text('Settings').last);
       await settle(900);
       await shot('17_settings');
+      unawaited(nav().pushNamed('/devices'));
+      await waitFor(find.text('This device'), 'linked devices screen');
+      await settle(800);
+      await shot('17b_linked_devices');
+      nav().pop();
+      await settle(700);
 
       // ---- wide window: two panes ----------------------------------------
       setWindow(1280, 800);

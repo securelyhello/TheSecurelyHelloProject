@@ -4,7 +4,7 @@ import { after, before, describe, test } from 'node:test';
 
 import WebSocket from 'ws';
 
-import { api, connectWs, makeContacts, ofType, signup, startServer } from './helpers.js';
+import { addDevice, api, connectWs, makeContacts, ofType, signup, startServer } from './helpers.js';
 
 let srv;
 before(async () => {
@@ -46,14 +46,31 @@ describe('websocket', () => {
 
     const session = randomUUID();
     // `from` in the client frame is ignored; the server stamps the real sender.
-    aWs.send({ type: 'signal', to: b.id, session_id: session, kind: 'offer', sdp: 'v=0 offer', from: b.id });
+    aWs.send({
+      type: 'signal',
+      to: b.id,
+      to_device: b.deviceId,
+      session_id: session,
+      kind: 'offer',
+      sdp: 'v=0 offer',
+      from: b.id,
+      from_device: b.deviceId,
+    });
     const offer = await bWs.next(ofType('signal'));
-    assert.deepEqual(offer, { type: 'signal', from: a.id, session_id: session, kind: 'offer', sdp: 'v=0 offer' });
+    assert.deepEqual(offer, {
+      type: 'signal',
+      from: a.id,
+      from_device: a.deviceId,
+      session_id: session,
+      kind: 'offer',
+      sdp: 'v=0 offer',
+    });
 
     // ICE sent before the answer is still delivered, in order.
     aWs.send({
       type: 'signal',
       to: b.id,
+      to_device: b.deviceId,
       session_id: session,
       kind: 'ice',
       candidate: { candidate: 'candidate:1 1 udp 1 10.0.0.1 9 typ host', sdpMid: '0', sdpMLineIndex: 0 },
@@ -62,12 +79,12 @@ describe('websocket', () => {
     assert.equal(ice.from, a.id);
     assert.equal(ice.candidate.sdpMLineIndex, 0);
 
-    bWs.send({ type: 'signal', to: a.id, session_id: session, kind: 'answer', sdp: 'v=0 answer' });
+    bWs.send({ type: 'signal', to: a.id, to_device: a.deviceId, session_id: session, kind: 'answer', sdp: 'v=0 answer' });
     const answer = await aWs.next(ofType('signal', (f) => f.kind === 'answer'));
     assert.equal(answer.from, b.id);
     assert.equal(answer.sdp, 'v=0 answer');
 
-    bWs.send({ type: 'signal', to: a.id, session_id: session, kind: 'bye', reason: 'timeout' });
+    bWs.send({ type: 'signal', to: a.id, to_device: a.deviceId, session_id: session, kind: 'bye', reason: 'timeout' });
     const bye = await aWs.next(ofType('signal', (f) => f.kind === 'bye'));
     assert.equal(bye.reason, 'timeout');
 
@@ -77,7 +94,16 @@ describe('websocket', () => {
     );
     assert.deepEqual(
       rows.map((r) => r.table_name),
-      ['contact_requests', 'contacts', 'email_codes', 'schema_migrations', 'sessions', 'users'],
+      [
+        'contact_requests',
+        'contacts',
+        'devices',
+        'email_codes',
+        'one_time_prekeys',
+        'schema_migrations',
+        'sessions',
+        'users',
+      ],
     );
     await aWs.close();
     await bWs.close();
@@ -91,12 +117,12 @@ describe('websocket', () => {
     await aWs.next(ofType('hello'));
 
     const s1 = randomUUID();
-    aWs.send({ type: 'signal', to: b.id, session_id: s1, kind: 'offer', sdp: 'x' });
+    aWs.send({ type: 'signal', to: b.id, to_device: b.deviceId, session_id: s1, kind: 'offer', sdp: 'x' });
     const off = await aWs.next(ofType('signal_error'));
-    assert.deepEqual(off, { type: 'signal_error', to: b.id, session_id: s1, reason: 'offline' });
+    assert.deepEqual(off, { type: 'signal_error', to: b.id, to_device: b.deviceId, session_id: s1, reason: 'offline' });
 
     const s2 = randomUUID();
-    aWs.send({ type: 'signal', to: stranger.id, session_id: s2, kind: 'offer', sdp: 'x' });
+    aWs.send({ type: 'signal', to: stranger.id, to_device: stranger.deviceId, session_id: s2, kind: 'offer', sdp: 'x' });
     const nc = await aWs.next(ofType('signal_error'));
     assert.equal(nc.reason, 'not_contacts');
     await sWs.none(ofType('signal'));
@@ -112,13 +138,16 @@ describe('websocket', () => {
     assert.equal((await aWs.next(ofType('error'))).code, 'malformed_json');
     aWs.send({ type: 'nope' });
     assert.equal((await aWs.next(ofType('error'))).code, 'unknown_type');
-    aWs.send({ type: 'signal', to: 'x', session_id: randomUUID(), kind: 'offer', sdp: 'x' });
+    const sig = (extra) => aWs.send({ type: 'signal', to: b.id, to_device: b.deviceId, session_id: randomUUID(), ...extra });
+    sig({ to: 'x', kind: 'offer', sdp: 'x' });
     assert.equal((await aWs.next(ofType('error'))).code, 'invalid_signal');
-    aWs.send({ type: 'signal', to: a.id, session_id: randomUUID(), kind: 'offer', sdp: 'x' });
+    sig({ to_device: undefined, kind: 'offer', sdp: 'x' });
+    assert.equal((await aWs.next(ofType('error'))).code, 'invalid_signal', 'to_device is required');
+    sig({ to: a.id, to_device: a.deviceId, kind: 'offer', sdp: 'x' });
     assert.equal((await aWs.next(ofType('error'))).code, 'invalid_signal', 'cannot signal yourself');
-    aWs.send({ type: 'signal', to: b.id, session_id: randomUUID(), kind: 'offer', sdp: 'x'.repeat(40_000) });
+    sig({ kind: 'offer', sdp: 'x'.repeat(40_000) });
     assert.equal((await aWs.next(ofType('error'))).code, 'invalid_signal');
-    aWs.send({ type: 'signal', to: b.id, session_id: randomUUID(), kind: 'ice', candidate: { candidate: 5 } });
+    sig({ kind: 'ice', candidate: { candidate: 5 } });
     assert.equal((await aWs.next(ofType('error'))).code, 'invalid_signal');
 
     // > maxPayload (64 KiB): the server closes the socket (1009).
@@ -177,14 +206,17 @@ describe('websocket', () => {
     await aWs.close();
   });
 
-  test('keys_changed is pushed to contacts', async () => {
-    const [a, b] = await pair('keys');
+  test('signaling reaches only the addressed device', async () => {
+    const [a, b] = await pair('sigdev');
+    const b2 = await addDevice(srv.base, b);
     const aWs = await connectWs(srv.wsUrl, a.token);
-    await aWs.next(ofType('hello'));
-    const k = { signing_public_key: b.encryption_public_key, encryption_public_key: b.signing_public_key };
-    await api(srv.base, 'PUT', '/api/me/keys', { token: b.token, body: k });
-    assert.equal((await aWs.next(ofType('keys_changed'))).user_id, b.id);
-    await aWs.close();
+    const bWs = await connectWs(srv.wsUrl, b.token);
+    const b2Ws = await connectWs(srv.wsUrl, b2.token);
+    await Promise.all([aWs, bWs, b2Ws].map((w) => w.next(ofType('hello'))));
+    aWs.send({ type: 'signal', to: b.id, to_device: b2.deviceId, session_id: randomUUID(), kind: 'offer', sdp: 'x' });
+    assert.equal((await b2Ws.next(ofType('signal'))).from_device, a.deviceId);
+    await bWs.none(ofType('signal'));
+    await Promise.all([aWs, bWs, b2Ws].map((w) => w.close()));
   });
 
   test('deleting an account closes its sockets', async () => {

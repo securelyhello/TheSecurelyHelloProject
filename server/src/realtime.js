@@ -1,32 +1,36 @@
 // One authenticated WebSocket per client device (GET /api/ws, Bearer token).
 //
 // Client → server frames
-//   {type:'signal', to, session_id, kind:'offer'|'answer'|'ice'|'bye', sdp?, candidate?, reason?}
+//   {type:'signal', to, to_device, session_id, kind:'offer'|'answer'|'ice'|'bye', sdp?, candidate?, reason?}
 //   {type:'relay_ack', ids:[uuid…]}
 //   {type:'presence', state:'online'|'away'}
 //   {type:'ping'}
 //
 // Server → client frames
-//   {type:'hello', user_id, online:[contact ids currently online]}
-//   {type:'signal', from, session_id, kind, sdp?, candidate?, reason?}
-//   {type:'signal_error', to, session_id, reason:'offline'|'not_contacts'}
+//   {type:'hello', user_id, device_id, online:[contact ids currently online]}
+//   {type:'signal', from, from_device, session_id, kind, sdp?, candidate?, reason?}
+//   {type:'signal_error', to, to_device, session_id, reason:'offline'|'not_contacts'}
 //   {type:'presence', user_id, online, last_seen}
 //   {type:'contact_request', request}            new incoming request
 //   {type:'contact_request_update', request}     our request accepted / rejected / cancelled
 //   {type:'contact_removed', user_id}
-//   {type:'keys_changed', user_id}
-//   {type:'relay', message:{id, sender_id, envelope, created_at}}
+//   {type:'devices_changed', user_id}           a contact (or you) added / removed a device
+//   {type:'prekeys_low', remaining}              upload more one-time prekeys
+//   {type:'relay', message:{id, sender_id, sender_device, envelope, created_at}}
 //   {type:'pong'} | {type:'error', code, message?}
 //
+// A socket belongs to one device (the one its session registered). Relay
+// pushes and signaling are addressed to devices; presence stays per user.
 // Signaling is forwarded in memory only: nothing about SDP or ICE is stored.
-// It is only forwarded between accepted contacts, and `from` is always the
-// authenticated sender. Frame handling talks to Redis (caches, presence,
+// It is only forwarded between accepted contacts, and `from`/`from_device`
+// are always the authenticated sender. Frame handling talks to Redis (caches, presence,
 // relay acks), not to Postgres, except on a cold contact-cache miss.
 //
 // Routing is in-process: run ONE server instance (see DEPLOY.md).
 import { WebSocketServer } from 'ws';
 
 import { bearerToken, clientIp } from './http.js';
+import { hashToken } from './security.js';
 import { isUuid } from './validate.js';
 
 const MAX_FRAME_BYTES = 64 * 1024;
@@ -73,16 +77,19 @@ export class RealtimeHub {
       const token = bearerToken(req);
       const user = token ? await this.services.authenticate(token) : null;
       if (!user) return reject(401, 'Unauthorized');
-      this.wss.handleUpgrade(req, socket, head, (ws) => this.#onConnection(ws, user));
+      const tokenHash = hashToken(token).toString('hex');
+      this.wss.handleUpgrade(req, socket, head, (ws) => this.#onConnection(ws, user, tokenHash));
     } catch (err) {
       this.log.error('ws upgrade failed', { error: err.message });
       reject(503, 'Service Unavailable');
     }
   }
 
-  async #onConnection(ws, user) {
+  async #onConnection(ws, user, tokenHash) {
     const userId = user.id;
     ws.userId = userId;
+    ws.deviceId = user.deviceId ?? null;
+    ws.tokenHash = tokenHash;
     ws.away = false;
     ws.alive = true;
     const wasOnline = this.isOnline(userId);
@@ -119,6 +126,7 @@ export class RealtimeHub {
       this.#send(ws, {
         type: 'hello',
         user_id: userId,
+        device_id: ws.deviceId,
         online: contacts.filter((id) => presence.get(id)?.online),
       });
       if (!wasOnline) this.#broadcastPresence(userId, contacts, true, null);
@@ -194,12 +202,16 @@ export class RealtimeHub {
   async #onSignal(ws, msg) {
     const from = ws.userId;
     const fail = (message) => this.#send(ws, { type: 'error', code: 'invalid_signal', message });
-    const { to, session_id: sessionId, kind } = msg;
-    if (!isUuid(to) || !isUuid(sessionId)) return fail('to and session_id must be UUIDs');
+    const { to, to_device: toDevice, session_id: sessionId, kind } = msg;
+    if (!ws.deviceId) return fail('register this device first');
+    if (!isUuid(to) || !isUuid(toDevice) || !isUuid(sessionId)) {
+      return fail('to, to_device and session_id must be UUIDs');
+    }
     const target = to.toLowerCase();
+    const targetDevice = toDevice.toLowerCase();
     if (target === from) return fail('cannot signal yourself');
 
-    const out = { type: 'signal', from, session_id: sessionId.toLowerCase(), kind };
+    const out = { type: 'signal', from, from_device: ws.deviceId, session_id: sessionId.toLowerCase(), kind };
     switch (kind) {
       case 'offer':
       case 'answer':
@@ -238,12 +250,10 @@ export class RealtimeHub {
         return fail('kind must be offer, answer, ice or bye');
     }
 
-    if (!(await this.services.areContacts(from, target))) {
-      return this.#send(ws, { type: 'signal_error', to: target, session_id: out.session_id, reason: 'not_contacts' });
-    }
-    if (this.sendTo(target, out) === 0) {
-      this.#send(ws, { type: 'signal_error', to: target, session_id: out.session_id, reason: 'offline' });
-    }
+    const error = (reason) =>
+      this.#send(ws, { type: 'signal_error', to: target, to_device: targetDevice, session_id: out.session_id, reason });
+    if (!(await this.services.areContacts(from, target))) return error('not_contacts');
+    if (this.sendToDevice(target, targetDevice, out) === 0) error('offline');
   }
 
   async #onRelayAck(ws, msg) {
@@ -251,7 +261,8 @@ export class RealtimeHub {
     if (!Array.isArray(ids) || ids.length === 0 || ids.length > 200 || !ids.every(isUuid)) {
       return this.#send(ws, { type: 'error', code: 'invalid_ack', message: 'ids must be 1-200 UUIDs' });
     }
-    await this.store.relayAck(ws.userId, ids.map((id) => id.toLowerCase()));
+    if (!ws.deviceId) return;
+    await this.store.relayAck(ws.deviceId, ids.map((id) => id.toLowerCase()));
   }
 
   async #onPresence(ws, msg) {
@@ -295,6 +306,44 @@ export class RealtimeHub {
       }
     }
     return n;
+  }
+
+  /** Sends [frame] to the sockets of one device; returns how many got it. */
+  sendToDevice(userId, deviceId, frame) {
+    const set = this.sockets.get(userId);
+    if (!set) return 0;
+    const payload = JSON.stringify(frame);
+    let n = 0;
+    for (const ws of set) {
+      if (ws.deviceId === deviceId && ws.readyState === ws.OPEN) {
+        ws.send(payload);
+        n++;
+      }
+    }
+    return n;
+  }
+
+  /** Whether [deviceId] has a live socket (relay pushes reach it directly). */
+  isDeviceConnected(userId, deviceId) {
+    for (const ws of this.sockets.get(userId) ?? []) {
+      if (ws.deviceId === deviceId && ws.readyState === ws.OPEN) return true;
+    }
+    return false;
+  }
+
+  /** A session registered its device after opening its socket. */
+  bindDevice(userId, token, deviceId) {
+    const hash = hashToken(token).toString('hex');
+    for (const ws of this.sockets.get(userId) ?? []) {
+      if (ws.tokenHash === hash) ws.deviceId = deviceId;
+    }
+  }
+
+  /** Closes the sockets of one device (device removed). */
+  disconnectDevice(userId, deviceId, code = 4004, reason = 'device removed') {
+    for (const ws of this.sockets.get(userId) ?? []) {
+      if (ws.deviceId === deviceId) ws.close(code, reason);
+    }
   }
 
   /** Closes every socket of [userId] (account deletion). */

@@ -13,13 +13,25 @@ class ApiException implements Exception {
   final int status;
   final String code;
   final String message;
-  const ApiException(this.status, this.code, this.message);
+
+  /// The full error body, for errors that carry data (e.g. device lists).
+  final Map<String, dynamic>? details;
+  const ApiException(this.status, this.code, this.message, {this.details});
 
   bool get isUnauthorized => status == 401;
   bool get isRateLimited => status == 429;
 
   @override
   String toString() => message;
+}
+
+/// A relay send listed a stale set of the recipient's devices. [devices]
+/// is the current list; refresh and retry.
+class DevicesChangedException implements Exception {
+  final List<String> devices;
+  const DevicesChangedException(this.devices);
+  @override
+  String toString() => 'The recipient\'s devices changed';
 }
 
 /// The server could not be reached at all (offline, DNS, TLS, timeout).
@@ -30,9 +42,10 @@ class NetworkException implements Exception {
   String toString() => message;
 }
 
-/// One WebRTC signaling frame from a contact.
+/// One WebRTC signaling frame from a contact's device.
 class SignalEvent {
   final String from;
+  final String fromDevice;
   final String sessionId;
 
   /// `offer`, `answer`, `ice` or `bye`.
@@ -41,6 +54,7 @@ class SignalEvent {
   final Map<String, dynamic>? candidate;
   const SignalEvent({
     required this.from,
+    required this.fromDevice,
     required this.sessionId,
     required this.kind,
     this.sdp,
@@ -51,11 +65,12 @@ class SignalEvent {
 /// The server could not forward one of our signaling frames.
 class SignalError {
   final String to;
+  final String toDevice;
   final String sessionId;
 
   /// `offline` or `not_contacts`.
   final String reason;
-  const SignalError(this.to, this.sessionId, this.reason);
+  const SignalError(this.to, this.toDevice, this.sessionId, this.reason);
 }
 
 /// A contact came online or went offline.
@@ -70,7 +85,8 @@ class PresenceEvent {
 ///
 /// [type] is `contact_request` (new incoming request),
 /// `contact_request_update` (one we sent was accepted / rejected, or one we
-/// received was cancelled), `contact_removed` or `keys_changed`.
+/// received was cancelled), `contact_removed` or `devices_changed` (the
+/// user, a contact or we ourselves added or removed a device).
 class ContactEvent {
   final String type;
   final Map<String, dynamic>? request;
@@ -119,6 +135,7 @@ class DirectoryService {
   final _presence = StreamController<PresenceEvent>.broadcast();
   final _contactEvents = StreamController<ContactEvent>.broadcast();
   final _relayPushes = StreamController<Map<String, dynamic>>.broadcast();
+  final _prekeysLow = StreamController<int>.broadcast();
   final _realtimeState = StreamController<bool>.broadcast();
   final _sessionExpired = StreamController<void>.broadcast();
 
@@ -153,8 +170,12 @@ class DirectoryService {
   Stream<PresenceEvent> get presenceEvents => _presence.stream;
   Stream<ContactEvent> get contactEvents => _contactEvents.stream;
 
-  /// Relay envelopes pushed live: `{id, sender_id, envelope, created_at}`.
+  /// Relay envelopes pushed live:
+  /// `{id, sender_id, sender_device, envelope, created_at}`.
   Stream<Map<String, dynamic>> get relayPushes => _relayPushes.stream;
+
+  /// The server handed out one-time prekeys and this device is running low.
+  Stream<int> get prekeysLow => _prekeysLow.stream;
 
   /// `true` each time the socket is authenticated and ready (also after a
   /// reconnect: fetch whatever was missed), `false` when it drops.
@@ -177,22 +198,19 @@ class DirectoryService {
     return _session;
   }
 
-  /// Creates an account and signs in. Only *public* keys are sent.
+  /// Creates an account and signs in. Keys are registered per device
+  /// afterwards ([registerDevice]).
   Future<Map<String, dynamic>> signUp({
     required String email,
     required String password,
     required String username,
     required String displayName,
-    required String publicSigningKey,
-    required String publicEncryptionKey,
   }) async {
     final res = await _request('POST', '/api/auth/signup', auth: false, body: {
       'email': email,
       'password': password,
       'username': username,
       'display_name': displayName,
-      'signing_public_key': publicSigningKey,
-      'encryption_public_key': publicEncryptionKey,
     }) as Map<String, dynamic>;
     return _adoptSession(res);
   }
@@ -296,16 +314,68 @@ class DirectoryService {
   Future<Map<String, dynamic>> getMyProfile() async =>
       Map<String, dynamic>.from(await _request('GET', '/api/me') as Map);
 
-  /// Publishes a new pair of public keys (new device or reinstall).
-  Future<void> updatePublicKeys({
-    required String publicSigningKey,
-    required String publicEncryptionKey,
-  }) async {
-    await _request('PUT', '/api/me/keys', body: {
-      'signing_public_key': publicSigningKey,
-      'encryption_public_key': publicEncryptionKey,
-    });
+  // ===========================================================================
+  // Devices and prekeys (only public keys are ever sent)
+  // ===========================================================================
+
+  /// Registers (or re-registers) this device and binds the session to it.
+  /// Returns `{device_id, prekeys_remaining}`.
+  Future<Map<String, dynamic>> registerDevice({
+    String? deviceId,
+    required String name,
+    required String signingKey,
+    required String identityKey,
+    required Map<String, dynamic> signedPreKey,
+    List<Map<String, dynamic>> oneTimePreKeys = const [],
+  }) async =>
+      Map<String, dynamic>.from(await _request('PUT', '/api/devices/current',
+          body: {
+            if (deviceId != null) 'device_id': deviceId,
+            'name': name,
+            'signing_public_key': signingKey,
+            'identity_public_key': identityKey,
+            'signed_prekey': signedPreKey,
+            'one_time_prekeys': oneTimePreKeys,
+          }) as Map);
+
+  /// `{device_id, prekeys_remaining}` for this session's device.
+  Future<Map<String, dynamic>> getCurrentDevice() async =>
+      Map<String, dynamic>.from(
+          await _request('GET', '/api/devices/current') as Map);
+
+  /// Uploads more one-time prekeys; returns how many the server now holds.
+  Future<int> uploadPreKeys(List<Map<String, dynamic>> keys) async {
+    final res = await _request('POST', '/api/devices/current/prekeys',
+        body: {'one_time_prekeys': keys}) as Map;
+    return res['prekeys_remaining'] as int;
   }
+
+  Future<void> rotateSignedPreKey(Map<String, dynamic> spk) =>
+      _request('PUT', '/api/devices/current/signed-prekey', body: spk);
+
+  /// Our own devices with names: `{device_id, name, created_at,
+  /// last_seen_at, current, signing_public_key, identity_public_key}`.
+  Future<List<Map<String, dynamic>>> listMyDevices() async =>
+      _list(await _request('GET', '/api/devices'));
+
+  Future<void> renameCurrentDevice(String name) =>
+      _request('PATCH', '/api/devices/current', body: {'name': name});
+
+  /// Unlinks one of our devices (its sessions end, its queue is dropped).
+  Future<void> removeDevice(String deviceId) =>
+      _request('DELETE', '/api/devices/${Uri.encodeComponent(deviceId)}');
+
+  /// Public device keys of [userId].
+  Future<List<Map<String, dynamic>>> getUserDevices(String userId) async =>
+      _list(await _request(
+          'GET', '/api/users/${Uri.encodeComponent(userId)}/devices'));
+
+  /// Claims one prekey bundle per device (contacts or ourselves only).
+  Future<List<Map<String, dynamic>>> claimPreKeyBundles(
+          String userId, List<String> deviceIds) async =>
+      _list(await _request(
+          'POST', '/api/users/${Uri.encodeComponent(userId)}/prekey-bundles',
+          body: {'device_ids': deviceIds}));
 
   Future<void> updateProfile({String? displayName, String? username}) async {
     final body = <String, dynamic>{
@@ -382,14 +452,34 @@ class DirectoryService {
   // Relay queue (ciphertext only)
   // ===========================================================================
 
-  /// Parks an encrypted envelope for a contact we can't reach directly. The
-  /// server pushes it at once if they are connected, and keeps it for 24 h
-  /// otherwise.
-  Future<void> queueRelayMessage(String recipientId, String envelopeJson) =>
-      _request('POST', '/api/relay',
-          body: {'recipient_id': recipientId, 'envelope': envelopeJson});
+  /// Parks one envelope per device of [recipientId] (ourselves for sync).
+  /// [knownDevices] is our view of all their devices; the server refuses a
+  /// stale view with [DevicesChangedException]. [envelopes] maps device id
+  /// to envelope JSON and may cover a subset (the rest went P2P).
+  Future<void> queueRelayMessages(String recipientId,
+      {required List<String> knownDevices,
+      required Map<String, String> envelopes}) async {
+    try {
+      await _request('POST', '/api/relay', body: {
+        'recipient_id': recipientId,
+        'known_devices': knownDevices,
+        'messages': [
+          for (final e in envelopes.entries)
+            {'device_id': e.key, 'envelope': e.value}
+        ],
+      });
+    } on ApiException catch (e) {
+      if (e.status == 409 && e.code == 'devices_changed') {
+        throw DevicesChangedException(e.details?['devices'] is List
+            ? (e.details!['devices'] as List).cast<String>()
+            : const []);
+      }
+      rethrow;
+    }
+  }
 
-  /// Envelopes waiting for us, oldest first: `{id, sender_id, envelope}`.
+  /// Envelopes waiting for this device, oldest first:
+  /// `{id, sender_id, sender_device, envelope}`.
   Future<List<Map<String, dynamic>>> fetchRelayMessages() async =>
       _list(await _request('GET', '/api/relay?limit=200'));
 
@@ -450,9 +540,11 @@ class DirectoryService {
     _sendFrame({'type': 'presence', 'state': away ? 'away' : 'online'});
   }
 
-  /// Sends one signaling frame. Returns `false` if the socket is down.
+  /// Sends one signaling frame to one device. Returns `false` if the socket
+  /// is down.
   bool sendSignal({
     required String to,
+    required String toDevice,
     required String sessionId,
     required String kind,
     String? sdp,
@@ -462,6 +554,7 @@ class DirectoryService {
       _sendFrame({
         'type': 'signal',
         'to': to,
+        'to_device': toDevice,
         'session_id': sessionId,
         'kind': kind,
         if (sdp != null) 'sdp': sdp,
@@ -529,8 +622,8 @@ class DirectoryService {
     final wasReady = _socketReady;
     _socketReady = false;
     if (wasReady && !_realtimeState.isClosed) _realtimeState.add(false);
-    if (code == 4003) {
-      // Account deleted elsewhere.
+    if (code == 4003 || code == 4004) {
+      // Account deleted, or this device unlinked, elsewhere.
       if (!_sessionExpired.isClosed) _sessionExpired.add(null);
       return;
     }
@@ -579,6 +672,7 @@ class DirectoryService {
         final candidate = frame['candidate'];
         _signals.add(SignalEvent(
           from: frame['from'] as String,
+          fromDevice: frame['from_device'] as String,
           sessionId: frame['session_id'] as String,
           kind: frame['kind'] as String,
           sdp: frame['sdp'] as String?,
@@ -588,8 +682,11 @@ class DirectoryService {
         ));
         break;
       case 'signal_error':
-        _signalErrors.add(SignalError(frame['to'] as String,
-            frame['session_id'] as String, frame['reason'] as String));
+        _signalErrors.add(SignalError(
+            frame['to'] as String,
+            frame['to_device'] as String,
+            frame['session_id'] as String,
+            frame['reason'] as String));
         break;
       case 'presence':
         final lastSeen = frame['last_seen'] as String?;
@@ -609,8 +706,11 @@ class DirectoryService {
           request: Map<String, dynamic>.from(frame['request'] as Map),
         ));
         break;
+      case 'prekeys_low':
+        _prekeysLow.add(frame['remaining'] as int? ?? 0);
+        break;
       case 'contact_removed':
-      case 'keys_changed':
+      case 'devices_changed':
         _contactEvents.add(ContactEvent(frame['type'] as String,
             userId: frame['user_id'] as String?));
         break;
@@ -692,6 +792,7 @@ class DirectoryService {
           (response.statusCode == 429
               ? 'Too many requests. Please wait a moment.'
               : 'Server error (${response.statusCode})'),
+      details: decoded is Map ? Map<String, dynamic>.from(decoded) : null,
     );
     // Our token was rejected: the session is gone for good.
     if (auth &&
@@ -711,6 +812,7 @@ class DirectoryService {
     await _presence.close();
     await _contactEvents.close();
     await _relayPushes.close();
+    await _prekeysLow.close();
     await _realtimeState.close();
     await _sessionExpired.close();
   }

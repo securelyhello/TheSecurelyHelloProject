@@ -1,6 +1,7 @@
 import http from 'node:http';
 
 import { registerRoutes } from './api.js';
+import { registerDeviceRoutes } from './devices.js';
 import { HotStore } from './hotstore.js';
 import { Router, bearerToken, clientIp, readJsonBody, sendJson } from './http.js';
 import { logger } from './log.js';
@@ -48,6 +49,7 @@ export function createApp({
   storeOptions = {},
   log = logger,
   mailer = createMailer(),
+  notifier = null,
 }) {
   config = { ...config };
   if (!mailer.enabled) {
@@ -68,6 +70,7 @@ export function createApp({
   const hub = new RealtimeHub({ services, store, limits, trustProxyHops: config.trustProxyHops, log });
   const router = new Router();
   registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log });
+  registerDeviceRoutes(router, { pool, hub, store, services, limits, log, notifier });
 
   const server = http.createServer(async (req, res) => {
     const started = Date.now();

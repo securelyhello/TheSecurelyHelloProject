@@ -41,7 +41,7 @@ class Stack {
   late final AuthProvider auth = AuthProvider(
       directoryService: directory, localStorage: storage, keyStore: keyStore);
   late final ContactsProvider contacts = ContactsProvider(
-      directoryService: directory, localStorage: storage, chatService: chat);
+      directoryService: directory, localStorage: storage);
 
   late final String username;
   late final String email;
@@ -63,8 +63,22 @@ class Stack {
         displayName: name);
     expect(ok, isTrue, reason: auth.errorMessage);
     contacts.init();
-    await chat.start(identity: auth.identity!, myUserId: id);
+    await startChat();
   }
+
+  /// Signs in to [other]'s account as an additional device of it.
+  Future<void> signInAs(Stack other) async {
+    username = other.username;
+    email = other.email;
+    await auth.init();
+    final ok = await auth.signIn(email: email, password: password);
+    expect(ok, isTrue, reason: auth.errorMessage);
+    contacts.init();
+    await startChat();
+  }
+
+  Future<void> startChat() => chat.start(
+      identity: auth.identity!, myUserId: id, deviceId: auth.deviceId!);
 
   Future<List<Message>> messagesWith(Stack other) =>
       chat.fetchMessages(other.id);
@@ -121,12 +135,22 @@ void main() {
           bob.directory.isRealtimeConnected,
           what: 'both sockets connected');
 
-      // The private keys never left the device: the server profile only has
-      // the public halves.
-      final aliceProfile = await alice.directory.getMyProfile();
-      expect(aliceProfile['signing_public_key'],
+      // The private keys never left the device: the server knows one device
+      // with the public halves and a stock of public prekeys.
+      final aliceDevices = await bob.directory.getUserDevices(alice.id);
+      expect(aliceDevices, hasLength(1));
+      expect(aliceDevices.single['device_id'], alice.auth.deviceId);
+      expect(aliceDevices.single['signing_public_key'],
           alice.auth.identity!.publicSigningKeyBase64);
+      expect(aliceDevices.single['identity_public_key'],
+          alice.auth.identity!.publicEncryptionKeyBase64);
+      final current = await alice.directory.getCurrentDevice();
+      expect(current['prekeys_remaining'], 100);
+      final aliceProfile = await alice.directory.getMyProfile();
       expect(jsonEncode(aliceProfile).contains('private'), isFalse);
+      expect(jsonEncode(aliceDevices).contains(base64Encode(
+              alice.auth.identity!.encryptionPrivateKeyBytes)),
+          isFalse);
 
       // ---- contact request ------------------------------------------------
       final found = await alice.directory.searchUsers(bob.username);
@@ -166,7 +190,9 @@ void main() {
       await alice.chat.resendUnsent();
       await alice.chat.connect(bob.id);
       await until(
-          () => alice.p2p.isConnected(bob.id) && bob.p2p.isConnected(alice.id),
+          () =>
+              alice.p2p.hasConnectionWithPrefix('${bob.id}:') &&
+              bob.p2p.hasConnectionWithPrefix('${alice.id}:'),
           timeout: const Duration(seconds: 40),
           what: 'WebRTC data channel open on both sides');
 
@@ -202,7 +228,7 @@ void main() {
 
       // ---- offline: relay queue -------------------------------------------
       await bob.chat.stop(); // closes Bob's socket and peer connection
-      await until(() => !alice.p2p.isConnected(bob.id),
+      await until(() => !alice.p2p.hasConnectionWithPrefix('${bob.id}:'),
           timeout: const Duration(seconds: 40),
           what: 'Alice notices the direct link is gone');
       await until(() => !(alice.contacts.getContact(bob.id)?.isOnline ?? true),
@@ -221,15 +247,19 @@ void main() {
       expect(mine, hasLength(1));
       final env =
           jsonDecode(mine.single['envelope'] as String) as Map<String, dynamic>;
-      expect(env.keys.toSet(), {'v', 'id', 's', 't', 'c'});
+      expect(env.keys.toSet(), {'v', 'id', 's', 'sd', 'rd', 't', 'h', 'c'});
+      expect(env['v'], 3);
       expect(env['s'], alice.id);
+      expect(env['sd'], alice.auth.deviceId);
+      expect(env['rd'], bob.auth.deviceId);
+      expect(env['h'], isNot(contains(secret)));
       expect(mine.single['envelope'], isNot(contains(secret)));
       expect(utf8.decode(base64Decode(env['c'] as String), allowMalformed: true),
           isNot(contains(secret)));
       expect(await statusOf(alice, bob, queued.id), 'sent');
 
       // Bob comes back: the queue is drained, decrypted and acknowledged.
-      await bob.chat.start(identity: bob.auth.identity!, myUserId: bob.id);
+      await bob.startChat();
       await until(
           () async => (await bob.messagesWith(alice))
               .any((m) => m.content == secret && !m.isFromMe),
@@ -246,6 +276,73 @@ void main() {
       expect(raw.every((r) => (r['content'] as String).startsWith('enc1:')),
           isTrue);
 
+      // ---- a second device for Alice ----------------------------------------
+      final laptop = Stack('alice_laptop');
+      await laptop.signInAs(alice);
+      expect(laptop.id, alice.id);
+      expect(laptop.auth.deviceId, isNot(alice.auth.deviceId));
+      await until(
+          () async => (await bob.chat.devicesOf(alice.id, refresh: true)).length == 2,
+          what: "Bob sees Alice's second device");
+      await until(
+          () async => (await bob.messagesWith(alice))
+              .any((m) => m.isSystem && m.content.contains('new device')),
+          what: 'Bob is told her devices changed');
+
+      // Bob writes once: both of Alice's devices receive it.
+      final toBoth = await bob.chat.sendMessage(alice.id, 'to all your devices');
+      expect(toBoth.status, anyOf('sent', 'delivered', 'read'));
+      await until(
+          () async => (await laptop.messagesWith(bob))
+              .any((m) => m.id == toBoth.id && !m.isFromMe),
+          what: 'the laptop receives it');
+      await until(
+          () async => (await alice.messagesWith(bob))
+              .any((m) => m.id == toBoth.id && !m.isFromMe),
+          what: 'the phone receives it');
+
+      // Alice writes from the laptop: Bob gets it, the phone gets a copy.
+      final fromLaptop = await laptop.chat.sendMessage(bob.id, 'sent from my laptop');
+      await until(
+          () async => (await bob.messagesWith(alice))
+              .any((m) => m.id == fromLaptop.id && !m.isFromMe),
+          what: 'Bob receives the laptop message');
+      await until(
+          () async => (await alice.messagesWith(bob))
+              .any((m) => m.id == fromLaptop.id && m.isFromMe),
+          what: "the phone shows it as Alice's own message");
+
+      // Reading on the laptop clears the phone's unread badge.
+      await alice.chat.ensureConversation(bob.id);
+      Future<int> unreadOnPhone() async => (await alice.chat.fetchConversations())
+          .firstWhere((c) => c.contactUserId == bob.id)
+          .unreadCount;
+      expect(await unreadOnPhone(), greaterThan(0));
+      await laptop.chat.markConversationRead(bob.id);
+      await until(() async => await unreadOnPhone() == 0,
+          what: 'read state synced to the phone');
+
+      // Every party computes the same safety number over all devices.
+      final snBob = await bob.chat.safetyNumberFor(alice.id);
+      expect(snBob, isNotNull);
+      expect(await alice.chat.safetyNumberFor(bob.id), snBob);
+      expect(await laptop.chat.safetyNumberFor(bob.id), snBob);
+
+      // Unlinking the laptop from the phone signs it out.
+      final laptopDevice = laptop.auth.deviceId!;
+      final listed = await alice.directory.listMyDevices();
+      expect(listed.map((d) => d['device_id']), contains(laptopDevice));
+      await alice.directory.removeDevice(laptopDevice);
+      await until(() => laptop.auth.status == AuthStatus.unauthenticated,
+          what: 'the unlinked laptop is signed out');
+      await until(
+          () async => (await bob.chat.devicesOf(alice.id, refresh: true)).length == 1,
+          what: 'Bob stops encrypting to the laptop');
+      await laptop.chat.stop();
+      await laptop.storage.close();
+      await laptop.p2p.dispose();
+      await laptop.directory.dispose();
+
       // ---- sign out revokes the session -----------------------------------
       final oldToken = alice.directory.session!.token;
       final client = HttpClient();
@@ -258,6 +355,7 @@ void main() {
       }
 
       expect(await me(), 200);
+      final deviceBefore = alice.auth.deviceId;
       await alice.chat.stop();
       await alice.auth.signOut();
       expect(alice.auth.status, AuthStatus.unauthenticated);
@@ -271,6 +369,7 @@ void main() {
           reason: alice.auth.errorMessage);
       expect((await alice.messagesWith(bob)).any((m) => m.content == secret),
           isTrue);
+      expect(alice.auth.deviceId, deviceBefore, reason: 'same device, same id');
     });
   }, timeout: const Timeout(Duration(minutes: 4)));
 }
