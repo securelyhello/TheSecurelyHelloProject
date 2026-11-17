@@ -189,6 +189,20 @@ void main() {
           throwsFormatException, reason: 'oversized reaction');
     });
 
+    test('disappearing: timer payloads and message expiry round-trip', () {
+      final t = WirePayload.decode(
+          WirePayload.timer(from: 'a', to: 'b', timestampMs: 1, seconds: 3600).encode());
+      expect(t.kind, PayloadKind.timer);
+      expect(t.expireSeconds, 3600);
+      final m = WirePayload.decode(WirePayload.message(
+              messageId: 'm', from: 'a', to: 'b', timestampMs: 1, body: 'x', expireSeconds: 300)
+          .encode());
+      expect(m.expireSeconds, 300);
+      expect(() => WirePayload.decode(bytes(jsonEncode(
+              {'k': 'timer', 'from': 'a', 'to': 'b', 't': 1, 'exp': -5}))),
+          throwsFormatException);
+    });
+
     test('malformed payloads are rejected', () {
       Uint8List enc(Map<String, dynamic> m) => bytes(jsonEncode(m));
       expect(() => WirePayload.decode(enc({'k': 'msg', 'from': 'a', 'to': 'b', 't': 1})),

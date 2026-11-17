@@ -222,6 +222,16 @@ class AttachmentService {
     await f.writeAsBytes(sealed, flush: true);
   }
 
+  /// The message is gone (expired / deleted): drop every local copy.
+  Future<void> forget(Map<String, dynamic> meta) async {
+    final id = meta['id'] as String?;
+    if (id == null) return;
+    final bytes = _memory.remove(id);
+    if (bytes != null) _memoryBytes -= bytes.length;
+    final f = await _cacheFile(id);
+    if (f != null && f.existsSync()) await f.delete();
+  }
+
   /// Sign-out: forget decrypted bytes held in memory.
   void clearMemory() {
     _memory.clear();

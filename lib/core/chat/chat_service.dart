@@ -55,6 +55,9 @@ class Message {
   /// Reactions: user id → emoji.
   final Map<String, String> reactions;
 
+  /// When this message disappears (disappearing messages), if ever.
+  final DateTime? expiresAt;
+
   const Message({
     required this.id,
     required this.conversationId,
@@ -69,6 +72,7 @@ class Message {
     this.editedAt,
     this.deleted = false,
     this.reactions = const {},
+    this.expiresAt,
   });
 
   bool get isSystem => kind == 'system';
@@ -87,6 +91,7 @@ class Message {
         editedAt: editedAt,
         deleted: deleted,
         reactions: r,
+        expiresAt: expiresAt,
       );
   bool get hasAttachment => attachment != null;
 
@@ -102,6 +107,7 @@ class Message {
 
     final attachment = json(map['attachment'] as String?);
     final edited = map['edited_at'] as int?;
+    final expires = map['expires_at'] as int?;
     return Message(
       id: map['id'] as String,
       conversationId: map['conversation_id'] as String,
@@ -115,6 +121,7 @@ class Message {
       replyTo: json(map['reply_to'] as String?),
       editedAt: edited == null ? null : DateTime.fromMillisecondsSinceEpoch(edited),
       deleted: (map['deleted'] as int? ?? 0) == 1,
+      expiresAt: expires == null ? null : DateTime.fromMillisecondsSinceEpoch(expires),
     );
   }
 }
@@ -315,6 +322,8 @@ class ChatService {
           .listen((e) => _handleIncomingBytes(e.contactId, e.data)));
 
     _started = true;
+    _sweeper = Timer.periodic(const Duration(seconds: 30), (_) => unawaited(sweepExpired()));
+    unawaited(sweepExpired());
 
     // Opens the socket; if we are offline it keeps retrying on its own and
     // `_onRealtimeState(true)` picks up from there.
@@ -372,6 +381,8 @@ class ChatService {
   /// Stops everything for the current user (sign-out / account switch).
   Future<void> stop() async {
     _started = false;
+    _sweeper?.cancel();
+    _sweeper = null;
     for (final sub in _subscriptions) {
       await sub.cancel();
     }
@@ -499,6 +510,8 @@ class ChatService {
     final now = DateTime.now();
     final attachmentJson = attachment == null ? null : jsonEncode(attachment);
     final reply = replyTo == null ? null : _replyRef(replyTo);
+    final timer = await _storage.disappearAfter(contactId);
+    final expiresAt = timer > 0 ? now.millisecondsSinceEpoch + timer * 1000 : null;
 
     await _storage.insertMessage(
       id: id,
@@ -510,6 +523,7 @@ class ChatService {
       isFromMe: true,
       attachment: attachmentJson,
       replyTo: reply == null ? null : jsonEncode(reply),
+      expiresAt: expiresAt,
     );
     await _storage.updateConversation(
       id: contactId,
@@ -520,7 +534,7 @@ class ChatService {
     _changed(contactId);
 
     final status = await _transmitMessage(contactId, id, plaintext,
-        now.millisecondsSinceEpoch, attachment, reply);
+        now.millisecondsSinceEpoch, attachment, reply, timer > 0 ? timer : null);
     _changed(contactId);
 
     unawaited(_syncToOwnDevices(WirePayload.sentSync(
@@ -531,6 +545,7 @@ class ChatService {
       body: plaintext,
       attachment: attachment == null ? null : _wireAttachment(attachment),
       reply: reply,
+      expireSeconds: timer > 0 ? timer : null,
     )));
 
     if (!_p2p.hasConnectionWithPrefix('$contactId:')) {
@@ -547,6 +562,7 @@ class ChatService {
       isFromMe: true,
       attachment: attachment,
       replyTo: reply,
+      expiresAt: expiresAt == null ? null : DateTime.fromMillisecondsSinceEpoch(expiresAt),
     );
   }
 
@@ -614,6 +630,88 @@ class ChatService {
     await _storage.deleteMessage(messageId);
     await _refreshPreview(contactId);
     _changed(contactId);
+  }
+
+  // ===========================================================================
+  // Disappearing messages
+  // ===========================================================================
+
+  static const disappearChoices = [0, 300, 3600, 86400, 604800];
+
+  static String disappearLabel(int seconds) => switch (seconds) {
+        0 => 'Off',
+        300 => '5 minutes',
+        3600 => '1 hour',
+        86400 => '1 day',
+        604800 => '1 week',
+        _ => seconds < 3600 ? '${seconds ~/ 60} minutes' : '${seconds ~/ 3600} hours',
+      };
+
+  Future<int> disappearAfter(String contactId) => _storage.disappearAfter(contactId);
+
+  /// Sets the timer for new messages with [contactId] (0 turns it off) for
+  /// both people and all of their devices.
+  Future<void> setDisappearing(String contactId, int seconds) async {
+    final me = _requireUserId();
+    await _applyTimer(contactId, me, seconds);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    try {
+      await _deliver(contactId,
+          WirePayload.timer(from: me, to: contactId, timestampMs: now, seconds: seconds));
+    } catch (e) {
+      debugPrint('Timer to $contactId failed: $e');
+    }
+    unawaited(_syncToOwnDevices(WirePayload.timer(
+        from: me, to: me, timestampMs: now, seconds: seconds, conversation: contactId)));
+  }
+
+  Future<void> _applyTimer(String conversation, String actor, int seconds) async {
+    if (await _storage.disappearAfter(conversation) == seconds) return;
+    await _storage.setDisappearAfter(conversation, seconds);
+    final who = actor == _myUserId
+        ? 'You'
+        : ((await _storage.getCachedContact(actor))?['display_name'] as String? ?? 'Your contact');
+    await _storage.insertSystemMessage(
+      conversation,
+      seconds == 0
+          ? '$who turned off disappearing messages.'
+          : '$who set messages to disappear after ${disappearLabel(seconds).toLowerCase()}.',
+      id: _uuid.v4(),
+    );
+    _changed(conversation);
+  }
+
+  int? _expiryFrom(int? seconds) => seconds == null || seconds <= 0
+      ? null
+      : DateTime.now().millisecondsSinceEpoch + seconds * 1000;
+
+  /// Seconds left for a message being re-sent (keeps the original deadline).
+  int? _remaining(Message m) {
+    final e = m.expiresAt;
+    if (e == null) return null;
+    final left = e.difference(DateTime.now()).inSeconds;
+    return left > 0 ? left : 1;
+  }
+
+  Timer? _sweeper;
+
+  /// Removes expired messages (and their cached attachments) now.
+  Future<void> sweepExpired() async {
+    if (!_started) return;
+    try {
+      final gone = await _storage.deleteExpired(DateTime.now().millisecondsSinceEpoch);
+      for (final raw in gone.attachments) {
+        try {
+          await attachments.forget(Map<String, dynamic>.from(jsonDecode(raw) as Map));
+        } catch (_) {}
+      }
+      for (final c in gone.conversations) {
+        await _refreshPreview(c);
+        _changed(c);
+      }
+    } catch (e) {
+      debugPrint('Expiry sweep failed: $e');
+    }
   }
 
   /// Sends an action without the local checks, as a modified client could.
@@ -717,7 +815,7 @@ class ChatService {
       for (final row in rows) {
         final m = Message.fromMap(row);
         await _transmitMessage(m.conversationId, m.id, m.content,
-            m.timestamp.millisecondsSinceEpoch, m.attachment, m.replyTo);
+            m.timestamp.millisecondsSinceEpoch, m.attachment, m.replyTo, _remaining(m));
         _changed(m.conversationId);
       }
     } catch (e) {
@@ -778,7 +876,7 @@ class ChatService {
 
   Future<String> _transmitMessage(String contactId, String id, String text,
       int timestampMs, Map<String, dynamic>? attachment,
-      [Map<String, dynamic>? reply]) async {
+      [Map<String, dynamic>? reply, int? expireSeconds]) async {
     final me = _requireUserId();
     var delivered = false;
     try {
@@ -792,6 +890,7 @@ class ChatService {
           body: text,
           attachment: attachment == null ? null : _wireAttachment(attachment),
           reply: reply,
+          expireSeconds: expireSeconds,
         ),
         envelopeId: id,
       );
@@ -961,6 +1060,8 @@ class ChatService {
     if (envelope.senderId == me) {
       if (payload.kind == PayloadKind.sync) {
         await _applySync(payload);
+      } else if (payload.kind == PayloadKind.timer && payload.conversation != null) {
+        await _applyTimer(payload.conversation!, me, payload.expireSeconds!);
       } else if (payload.conversation != null &&
           (payload.kind == PayloadKind.react ||
               payload.kind == PayloadKind.edit ||
@@ -985,6 +1086,9 @@ class ChatService {
         case PayloadKind.edit:
         case PayloadKind.delete:
           await _applyAction(contactId, contactId, payload);
+          break;
+        case PayloadKind.timer:
+          await _applyTimer(contactId, contactId, payload.expireSeconds!);
           break;
         case PayloadKind.sync:
           break; // only our own devices send these
@@ -1012,6 +1116,7 @@ class ChatService {
         attachment:
             payload.attachment == null ? null : jsonEncode(payload.attachment),
         replyTo: payload.reply == null ? null : jsonEncode(_replyRef(payload.reply!)),
+        expiresAt: _expiryFrom(payload.expireSeconds),
       );
       await _storage.updateConversation(
         id: contactId,
@@ -1064,6 +1169,7 @@ class ChatService {
               ? null
               : jsonEncode(payload.attachment),
           replyTo: payload.reply == null ? null : jsonEncode(_replyRef(payload.reply!)),
+          expiresAt: _expiryFrom(payload.expireSeconds),
         );
         await _storage.updateConversation(
           id: contactId,
@@ -1425,7 +1531,7 @@ class ChatService {
       for (final row in rows) {
         final m = Message.fromMap(row);
         await _transmitMessage(contactId, m.id, m.content,
-            m.timestamp.millisecondsSinceEpoch, m.attachment, m.replyTo);
+            m.timestamp.millisecondsSinceEpoch, m.attachment, m.replyTo, _remaining(m));
       }
     } catch (e) {
       debugPrint('Re-sending unconfirmed messages failed: $e');

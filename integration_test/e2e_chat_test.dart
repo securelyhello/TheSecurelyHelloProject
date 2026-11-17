@@ -265,6 +265,30 @@ void main() {
       final tomb = await bob.storage.getMessage(sent.id);
       expect(tomb!['content'], '', reason: 'the text is gone, only a tombstone remains');
 
+      // ---- disappearing messages ---------------------------------------------
+      await alice.chat.setDisappearing(bob.id, 300);
+      await until(() async => await bob.chat.disappearAfter(alice.id) == 300,
+          what: 'Bob gets the new timer');
+      expect((await bob.messagesWith(alice)).any((m) => m.isSystem && m.content.contains('5 minutes')),
+          isTrue);
+      final fleeting = await alice.chat.sendMessage(bob.id, 'this will self-destruct');
+      expect(fleeting.expiresAt, isNotNull);
+      await until(() async => (await find(bob, alice, fleeting.id))?.expiresAt != null,
+          what: 'Bob gets it with an expiry');
+      // Jump past the deadline on both sides, then sweep.
+      for (final who in [alice, bob]) {
+        await who.storage.db.update('messages', {'expires_at': 1},
+            where: 'id = ?', whereArgs: [fleeting.id]);
+        await who.chat.sweepExpired();
+      }
+      expect(await find(bob, alice, fleeting.id), isNull);
+      expect(await find(alice, bob, fleeting.id), isNull);
+      await bob.chat.setDisappearing(alice.id, 0);
+      await until(() async => await alice.chat.disappearAfter(bob.id) == 0,
+          what: 'either side can turn it off');
+      final lasting = await alice.chat.sendMessage(bob.id, 'this one stays');
+      expect(lasting.expiresAt, isNull);
+
       // ---- attachments: small ones inside the message, large ones uploaded --
       Future<Message> receivedBy(Stack who, Stack from, String id) async {
         late Message got;

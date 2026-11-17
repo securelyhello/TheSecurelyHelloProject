@@ -42,7 +42,10 @@ enum PayloadKind {
   edit('edit'),
 
   /// The sender deleted one of their messages for everyone.
-  delete('del');
+  delete('del'),
+
+  /// Disappearing-messages timer for the conversation changed.
+  timer('timer');
 
   const PayloadKind(this.wire);
   final String wire;
@@ -161,6 +164,10 @@ class WirePayload {
   /// [react]: the emoji, or '' to remove.
   final String? emoji;
 
+  /// [message]: seconds until it disappears; [timer]: the new setting
+  /// (0 = off).
+  final int? expireSeconds;
+
   const WirePayload._({
     required this.kind,
     required this.from,
@@ -177,6 +184,7 @@ class WirePayload {
     this.reply,
     this.target,
     this.emoji,
+    this.expireSeconds,
   });
 
   factory WirePayload.message({
@@ -187,9 +195,11 @@ class WirePayload {
     required String body,
     Map<String, dynamic>? attachment,
     Map<String, dynamic>? reply,
+    int? expireSeconds,
   }) =>
       WirePayload._(
         kind: PayloadKind.message,
+        expireSeconds: expireSeconds,
         messageId: messageId,
         from: from,
         to: to,
@@ -197,6 +207,24 @@ class WirePayload {
         body: body,
         attachment: attachment,
         reply: reply,
+      );
+
+  /// The disappearing-messages timer of a conversation changed. To the
+  /// contact without [conversation]; to our devices with it.
+  factory WirePayload.timer({
+    required String from,
+    required String to,
+    required int timestampMs,
+    required int seconds,
+    String? conversation,
+  }) =>
+      WirePayload._(
+        kind: PayloadKind.timer,
+        from: from,
+        to: to,
+        timestampMs: timestampMs,
+        expireSeconds: seconds,
+        conversation: conversation,
       );
 
   /// A reaction, edit or deletion of message [target]. Sent to the contact
@@ -262,9 +290,11 @@ class WirePayload {
     required String body,
     Map<String, dynamic>? attachment,
     Map<String, dynamic>? reply,
+    int? expireSeconds,
   }) =>
       WirePayload._(
         kind: PayloadKind.sync,
+        expireSeconds: expireSeconds,
         from: me,
         to: me,
         conversation: conversation,
@@ -307,6 +337,7 @@ class WirePayload {
         if (reply != null) 'reply': reply,
         if (target != null) 'target': target,
         if (emoji != null) 'emoji': emoji,
+        if (expireSeconds != null) 'exp': expireSeconds,
       };
 
   Uint8List encode() => Uint8List.fromList(utf8.encode(jsonEncode(toJson())));
@@ -336,6 +367,7 @@ class WirePayload {
       reply: reply is Map ? Map<String, dynamic>.from(reply) : null,
       target: json['target'] as String?,
       emoji: json['emoji'] as String?,
+      expireSeconds: json['exp'] as int?,
     );
     switch (kind) {
       case PayloadKind.message:
@@ -367,8 +399,18 @@ class WirePayload {
       case PayloadKind.delete:
         if (payload.target == null) throw const FormatException('Malformed delete');
         break;
+      case PayloadKind.timer:
+        final s = payload.expireSeconds;
+        if (s == null || s < 0 || s > 365 * 86400) {
+          throw const FormatException('Malformed timer');
+        }
+        break;
       case PayloadKind.typing:
         break;
+    }
+    if (payload.expireSeconds != null &&
+        (payload.expireSeconds! < 0 || payload.expireSeconds! > 365 * 86400)) {
+      throw const FormatException('Bad expiry');
     }
     return payload;
   }

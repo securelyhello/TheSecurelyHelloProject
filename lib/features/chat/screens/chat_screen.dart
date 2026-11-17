@@ -56,7 +56,7 @@ enum _MsgAction { reply, react, copy, edit, delete, info, retry }
 /// Quick reactions offered in the message menu.
 const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
-enum _MenuAction { info, connect, clear }
+enum _MenuAction { info, timer, connect, clear }
 
 class _ChatScreenState extends State<ChatScreen> {
   /// Unsent text per conversation, kept while the app runs.
@@ -84,6 +84,45 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _unreadMarkerId;
   String? _highlightId;
 
+  /// Disappearing-messages timer of this chat (seconds, 0 = off).
+  int _timer = 0;
+
+  Future<void> _loadTimer() async {
+    final t = await _chat.disappearAfter(_id);
+    if (mounted && t != _timer) setState(() => _timer = t);
+  }
+
+  Future<void> _chooseTimer() async {
+    final picked = await showDialog<int>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Disappearing messages'),
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(24, 0, 24, 8),
+            child: Text('New messages in this chat disappear for both of you, on every device, '
+                'after the time you choose.'),
+          ),
+          RadioGroup<int>(
+            groupValue: _timer,
+            onChanged: (v) => Navigator.pop(ctx, v),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              for (final s in ChatService.disappearChoices)
+                RadioListTile<int>(
+                  key: ValueKey('timer-$s'),
+                  value: s,
+                  title: Text(ChatService.disappearLabel(s)),
+                ),
+            ]),
+          ),
+        ],
+      ),
+    );
+    if (picked == null || picked == _timer) return;
+    setState(() => _timer = picked);
+    await _chat.setDisappearing(_id, picked);
+  }
+
   /// The message being replied to, or edited, from the composer.
   Message? _replyTo;
   Message? _editing;
@@ -102,6 +141,8 @@ class _ChatScreenState extends State<ChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (Composer.enterSends) _focus.requestFocus();
       await _chat.openConversation(_id);
+      _chat.addListener(_loadTimer);
+      await _loadTimer();
       if (mounted) setState(() => _opened = true);
     });
   }
@@ -127,6 +168,7 @@ class _ChatScreenState extends State<ChatScreen> {
     Future.microtask(() {
       if (chat.activeConversationId == id) chat.closeConversation();
     });
+    _chat.removeListener(_loadTimer);
     super.dispose();
   }
 
@@ -470,6 +512,15 @@ class _ChatScreenState extends State<ChatScreen> {
           onTap: () => _openInfo(contact),
         ),
         actions: [
+          if (_timer > 0)
+            Tooltip(
+              message: 'Messages disappear after ${ChatService.disappearLabel(_timer).toLowerCase()}',
+              child: Padding(
+                key: const ValueKey('timer-badge'),
+                padding: const EdgeInsets.only(right: 2),
+                child: Icon(LucideIcons.timer, size: 20, color: p.accent),
+              ),
+            ),
           PopupMenuButton<_MenuAction>(
             tooltip: 'More options',
             icon: const Icon(LucideIcons.ellipsisVertical),
@@ -477,6 +528,8 @@ class _ChatScreenState extends State<ChatScreen> {
               switch (v) {
                 case _MenuAction.info:
                   _openInfo(contact);
+                case _MenuAction.timer:
+                  _chooseTimer();
                 case _MenuAction.connect:
                   conn.reconnect(_id);
                   showAppSnackBar(context, 'Trying a direct connection…');
@@ -489,6 +542,13 @@ class _ChatScreenState extends State<ChatScreen> {
                 _MenuAction.info,
                 LucideIcons.shieldCheck,
                 'Contact info & safety number',
+              ),
+              _menuItem(
+                _MenuAction.timer,
+                LucideIcons.timer,
+                _timer == 0
+                    ? 'Disappearing messages'
+                    : 'Disappearing: ${ChatService.disappearLabel(_timer)}',
               ),
               if (transport == PeerConnectionState.offline)
                 _menuItem(

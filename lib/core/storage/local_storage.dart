@@ -28,7 +28,7 @@ import 'package:securelyhello/core/crypto/crypto_core.dart';
 /// **Nothing stored here ever leaves the device.**
 class LocalStorage {
   static const _legacyDbName = 'securelyhello.db';
-  static const _dbVersion = 4;
+  static const _dbVersion = 5;
   static const _sealedPrefix = 'enc1:';
 
   final DatabaseFactory _factory;
@@ -194,6 +194,17 @@ class LocalStorage {
     await batch.commit(noResult: true);
     await _createV3(db);
     await _createV4(db);
+    await _createV5(db);
+  }
+
+  /// Disappearing messages.
+  static Future<void> _createV5(Database db) async {
+    final batch = db.batch()
+      ..execute('ALTER TABLE conversations ADD COLUMN disappear_after INTEGER NOT NULL DEFAULT 0')
+      ..execute('ALTER TABLE messages ADD COLUMN expires_at INTEGER')
+      ..execute('CREATE INDEX IF NOT EXISTS idx_messages_expiry ON messages(expires_at) '
+          'WHERE expires_at IS NOT NULL');
+    await batch.commit(noResult: true);
   }
 
   /// Replies, edits, deletions and reactions.
@@ -323,6 +334,7 @@ class LocalStorage {
           {'public_signing_key': null, 'public_encryption_key': null});
     }
     if (oldVersion < 4) await _createV4(db);
+    if (oldVersion < 5) await _createV5(db);
   }
 
   /// Closes the database.  Safe to call multiple times.
@@ -430,6 +442,7 @@ class LocalStorage {
     String kind = 'text',
     String? attachment,
     String? replyTo,
+    int? expiresAt,
   }) async {
     await db.insert(
       'messages',
@@ -444,6 +457,7 @@ class LocalStorage {
         'kind': kind,
         'attachment': attachment == null ? null : _seal(attachment),
         'reply_to': replyTo == null ? null : _seal(replyTo),
+        'expires_at': expiresAt,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -1018,5 +1032,48 @@ class LocalStorage {
     final text = rows.isEmpty ? null : preview(_unsealMessage(rows.first));
     await db.update('conversations', {'last_message': text == null ? null : _seal(text)},
         where: 'id = ?', whereArgs: [conversationId]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Disappearing messages
+  // ---------------------------------------------------------------------------
+
+  /// Seconds after which new messages in [conversationId] disappear (0 = off).
+  Future<int> disappearAfter(String conversationId) async {
+    final rows = await db.query('conversations',
+        columns: ['disappear_after'], where: 'id = ?', whereArgs: [conversationId], limit: 1);
+    return rows.isEmpty ? 0 : (rows.first['disappear_after'] as int? ?? 0);
+  }
+
+  Future<void> setDisappearAfter(String conversationId, int seconds) async {
+    await updateConversation(id: conversationId, contactUserId: conversationId);
+    await db.update('conversations', {'disappear_after': seconds},
+        where: 'id = ?', whereArgs: [conversationId]);
+  }
+
+  /// Deletes messages whose time is up; returns their conversations and
+  /// attachment metadata (so cached files can be removed too).
+  Future<({Set<String> conversations, List<String> attachments})> deleteExpired(int nowMs) async {
+    final rows = await db.query('messages',
+        columns: ['id', 'conversation_id', 'attachment'],
+        where: 'expires_at IS NOT NULL AND expires_at <= ?',
+        whereArgs: [nowMs]);
+    if (rows.isEmpty) return (conversations: <String>{}, attachments: <String>[]);
+    final ids = [for (final r in rows) r['id'] as String];
+    final batch = db.batch();
+    for (var i = 0; i < ids.length; i += 500) {
+      final chunk = ids.sublist(i, i + 500 > ids.length ? ids.length : i + 500);
+      final marks = List.filled(chunk.length, '?').join(',');
+      batch.delete('messages', where: 'id IN ($marks)', whereArgs: chunk);
+      batch.delete('reactions', where: 'message_id IN ($marks)', whereArgs: chunk);
+    }
+    await batch.commit(noResult: true);
+    return (
+      conversations: {for (final r in rows) r['conversation_id'] as String},
+      attachments: [
+        for (final r in rows)
+          if (r['attachment'] != null) _unseal(r['attachment'] as String)
+      ],
+    );
   }
 }

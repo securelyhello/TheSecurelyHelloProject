@@ -192,6 +192,13 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<int> disappearAfter(String contactId) => _chatService.disappearAfter(contactId);
+
+  Future<void> setDisappearing(String contactId, int seconds) async {
+    await _chatService.setDisappearing(contactId, seconds);
+    notifyListeners();
+  }
+
   /// React to a message ('' removes our reaction).
   Future<void> react(String contactId, String messageId, String emoji) =>
       _chatService.react(contactId, messageId, emoji);
