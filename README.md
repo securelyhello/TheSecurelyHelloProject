@@ -103,6 +103,16 @@ flutter test integration_test/e2e_chat_test.dart -d linux   # two real clients a
 flutter test integration_test/ui_flow_test.dart -d linux    # drives the UI, saves screenshots (run files one at a time)
 ```
 
+`flutter test` needs a `.env` file (it is bundled as an asset), so run
+`cp .env.example .env` first on a fresh clone.
+
+On a headless Linux machine (CI, containers) run the integration tests under
+`xvfb-run -a dbus-run-session -- …` and provide an audio device: libwebrtc
+aborts at the first peer connection if it cannot open one
+(`Check failed: 0 == adm->Init()`). A PulseAudio null sink is enough:
+`pulseaudio -D --exit-idle-time=-1 && pactl load-module module-null-sink`.
+`.github/workflows/ci.yml` runs all four suites this way on every push.
+
 `integration_test/e2e_chat_test.dart` signs up two accounts, exchanges a
 contact request, opens a real WebRTC data channel, checks delivered/read
 receipts, then takes one side offline and checks that the relay queue holds
