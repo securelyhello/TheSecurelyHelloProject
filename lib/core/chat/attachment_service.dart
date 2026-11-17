@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart' as hash;
 import 'package:mime/mime.dart';
 import 'package:path/path.dart' as p;
 
+import 'package:securelyhello/core/chat/file_string_codec.dart';
 import 'package:securelyhello/core/crypto/crypto_core.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
 
@@ -27,6 +28,11 @@ class AttachmentCorruptException implements Exception {
 
 /// Encrypted attachments.
 ///
+/// Small files travel *inside* the message: they are converted to an FTS1
+/// string (see `file_string_codec.dart`) that rides in the end-to-end
+/// encrypted payload, so nothing is uploaded or stored on the server. A file
+/// whose FTS1 string is longer than [inlineMaxChars] is uploaded instead:
+///
 /// Sending: the file is encrypted on the device with a fresh random 32-byte
 /// key (XSalsa20-Poly1305 secretbox), and only the ciphertext is uploaded.
 /// The returned metadata (blob id, key, SHA-256 of the ciphertext, name,
@@ -39,6 +45,13 @@ class AttachmentCorruptException implements Exception {
 class AttachmentService {
   /// Server default is 16 MB per blob (ATTACHMENT_MAX_MB); secretbox adds 40.
   static const maxBytes = 16 * 1024 * 1024 - 64;
+
+  /// Largest FTS1 string sent inside a message. Encrypted and wrapped it
+  /// stays well under the server's 128 KB per-envelope limit.
+  static const inlineMaxChars = 48 * 1024;
+
+  /// Whether [meta] describes a file carried inside the message.
+  static bool isInline(Map<String, dynamic> meta) => meta['inline'] is String;
 
   /// Images up to this size are fetched as soon as they are shown.
   static const autoDownloadBytes = 8 * 1024 * 1024;
@@ -74,23 +87,43 @@ class AttachmentService {
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
-  /// Encrypts and uploads [bytes]; returns the metadata to send.
+  /// Prepares [bytes] for sending and returns the metadata that goes into
+  /// the message: the file itself as an FTS1 string when it is small,
+  /// otherwise the blob id and key of an encrypted upload.
   Future<Map<String, dynamic>> upload(Uint8List bytes,
       {required String name, String? mime}) async {
     if (bytes.length > maxBytes) throw AttachmentTooLargeException(bytes.length);
+    final cleanName = p.basename(name).trim().isEmpty ? 'file' : p.basename(name).trim();
+    final type = mime ?? mimeFor(name, bytes.take(32).toList());
+    // Base64 inside FTS1: smaller than base45 for JSON transport.
+    if (bytes.length <= inlineMaxChars) {
+      final fts = FileStringCodec.encode(bytes, filename: cleanName);
+      if (fts.length <= inlineMaxChars) {
+        // A local id only (keys the UI and the memory cache); nothing is
+        // uploaded, so no server ever holds this file.
+        final id = _localId();
+        _remember(id, bytes);
+        return {
+          'id': id,
+          'inline': fts,
+          'name': cleanName,
+          'mime': type,
+          'size': bytes.length,
+        };
+      }
+    }
     final key = CryptoCore.randomBytes(32);
     final sealed = CryptoCore.secretEncrypt(bytes, key);
     final digest = hash.sha256.convert(sealed).bytes;
     final id = await _directory.uploadAttachment(sealed);
     await _writeCache(id, sealed);
     _remember(id, bytes);
-    final cleanName = p.basename(name).trim();
     return {
       'id': id,
       'key': CryptoCore.toBase64(key),
       'sha256': CryptoCore.toBase64(Uint8List.fromList(digest)),
-      'name': cleanName.isEmpty ? 'file' : cleanName,
-      'mime': mime ?? mimeFor(name, bytes.take(32).toList()),
+      'name': cleanName,
+      'mime': type,
       'size': bytes.length,
     };
   }
@@ -112,6 +145,7 @@ class AttachmentService {
 
   /// Already on this device (no download needed)?
   Future<bool> isAvailableOffline(Map<String, dynamic> meta) async {
+    if (isInline(meta)) return true;
     final id = meta['id'] as String;
     if (_memory.containsKey(id)) return true;
     final f = await _cacheFile(id);
@@ -120,6 +154,18 @@ class AttachmentService {
 
   Future<Uint8List> _load(Map<String, dynamic> meta) async {
     final id = meta['id'] as String;
+    final inline = meta['inline'];
+    if (inline is String) {
+      // Verified (size + SHA-256) by the codec; the message it came in was
+      // already authenticated end to end.
+      try {
+        final decoded = FileStringCodec.decode(inline, maxBytes: maxBytes);
+        _remember(id, decoded.bytes);
+        return decoded.bytes;
+      } on FileStringException {
+        throw const AttachmentCorruptException();
+      }
+    }
     final key = CryptoCore.fromBase64(meta['key'] as String);
     final expected = meta['sha256'] as String;
 
@@ -143,6 +189,15 @@ class AttachmentService {
 
   static String _digest(Uint8List bytes) =>
       CryptoCore.toBase64(Uint8List.fromList(hash.sha256.convert(bytes).bytes));
+
+  static String _localId() {
+    final b = CryptoCore.randomBytes(16);
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    final h = b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+    return '${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-'
+        '${h.substring(16, 20)}-${h.substring(20)}';
+  }
 
   void _remember(String id, Uint8List bytes) {
     if (bytes.length > _memoryLimit ~/ 4) return;

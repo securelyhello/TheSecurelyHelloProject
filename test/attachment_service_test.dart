@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -46,16 +47,20 @@ void main() {
     receiver = AttachmentService(directory: server, cacheDirectory: () async => receiverDir.path);
   });
 
-  final file = Uint8List.fromList(utf8.encode('secret plans ' * 500));
+  // Large and incompressible: too big to travel inside a message.
+  final rng = Random(7);
+  final file = Uint8List.fromList(List.generate(100000, (_) => rng.nextInt(256)));
+  final small = Uint8List.fromList(utf8.encode('secret plans ' * 500));
 
   test('round trip: only ciphertext is uploaded; the receiver decrypts it', () async {
     final meta = await sender.upload(file, name: '../../etc/plans.txt');
     expect(meta['name'], 'plans.txt', reason: 'path components stripped');
     expect(meta['mime'], 'text/plain');
     expect(meta['size'], file.length);
+    expect(AttachmentService.isInline(meta), isFalse);
     final blob = server.blobs[meta['id']]!;
     expect(blob.length, file.length + 40);
-    expect(utf8.decode(blob, allowMalformed: true), isNot(contains('secret')));
+    expect(blob.sublist(40, 140), isNot(file.sublist(0, 100)), reason: 'ciphertext, not the file');
 
     expect(await receiver.load(meta), file);
     expect(server.downloads, 1);
@@ -67,9 +72,40 @@ void main() {
     expect(server.downloads, 1, reason: 'served from the disk cache');
   });
 
+  test('small files travel inside the message: nothing is uploaded', () async {
+    final meta = await sender.upload(small, name: 'notes/plans.txt');
+    expect(AttachmentService.isInline(meta), isTrue);
+    expect(server.blobs, isEmpty, reason: 'no server holds it');
+    expect(meta['name'], 'plans.txt');
+    expect(meta.containsKey('key'), isFalse);
+    expect((meta['inline'] as String).startsWith('FTS1|'), isTrue);
+    expect((meta['inline'] as String).length, lessThanOrEqualTo(AttachmentService.inlineMaxChars));
+    expect(await receiver.load(meta), small);
+    expect(server.downloads, 0);
+    expect(await receiver.isAvailableOffline(meta), isTrue);
+
+    // A corrupted inline string is rejected (size + SHA-256 in the codec).
+    final s = meta['inline'] as String;
+    final bad = {...meta, 'id': 'x', 'inline': '${s.substring(0, s.length - 8)}AAAAAAAA'};
+    receiver.clearMemory();
+    await expectLater(receiver.load(bad), throwsA(isA<AttachmentCorruptException>()));
+  });
+
+  test('the inline cutoff follows the encoded size, not the raw size', () async {
+    // 40 KB of zeros compresses to almost nothing: inline.
+    final zeros = await sender.upload(Uint8List(40 * 1024), name: 'zeros.bin');
+    expect(AttachmentService.isInline(zeros), isTrue);
+    // 40 KB of random bytes grows past 48 KB in base64: uploaded.
+    final noise = await sender.upload(
+        Uint8List.fromList(List.generate(40 * 1024, (_) => rng.nextInt(256))), name: 'noise.bin');
+    expect(AttachmentService.isInline(noise), isFalse);
+    expect(server.blobs, hasLength(1));
+  });
+
   test('a swapped blob or wrong key is detected', () async {
     final meta = await sender.upload(file, name: 'a.txt');
-    final other = await sender.upload(Uint8List.fromList([1, 2, 3, 4]), name: 'b.bin');
+    final other = await sender.upload(
+        Uint8List.fromList(List.generate(90000, (_) => rng.nextInt(256))), name: 'b.bin');
     final swapped = {...meta, 'id': other['id']};
     await expectLater(receiver.load(swapped), throwsA(isA<AttachmentCorruptException>()));
     final wrongKey = {...meta, 'key': base64Encode(List.filled(32, 9))};

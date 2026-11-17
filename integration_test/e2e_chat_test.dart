@@ -227,37 +227,56 @@ void main() {
       await until(() async => await statusOf(bob, alice, reply.id) == 'delivered',
           what: 'delivered receipt for the reply');
 
-      // ---- encrypted attachment ---------------------------------------------
-      final fileBytes = Uint8List.fromList(
+      // ---- attachments: small ones inside the message, large ones uploaded --
+      Future<Message> receivedBy(Stack who, Stack from, String id) async {
+        late Message got;
+        await until(() async {
+          final found = (await who.messagesWith(from))
+              .where((m) => m.id == id && m.hasAttachment);
+          if (found.isEmpty) return false;
+          got = found.first;
+          return true;
+        }, what: 'attachment message $id arrives');
+        return got;
+      }
+
+      // Small: an FTS1 string inside the encrypted payload, no upload.
+      final small = Uint8List.fromList(
           utf8.encode('quarterly-report: the numbers are fine ' * 200));
-      final withFile = await alice.chat.sendAttachment(bob.id,
-          bytes: fileBytes, name: 'report-q3.txt', caption: 'see attached');
-      expect(withFile.attachment!['name'], 'report-q3.txt');
-      expect(withFile.attachment!['mime'], 'text/plain');
-      late Message got;
-      await until(() async {
-        final found = (await bob.messagesWith(alice))
-            .where((m) => m.id == withFile.id && m.hasAttachment);
-        if (found.isEmpty) return false;
-        got = found.first;
-        return true;
-      }, what: 'Bob receives the attachment message');
-      expect(got.content, 'see attached');
-      expect(await bob.chat.attachments.load(got.attachment!), fileBytes);
-      // The server only ever had ciphertext, and not the file name.
+      final withSmall = await alice.chat.sendAttachment(bob.id,
+          bytes: small, name: 'report-q3.txt', caption: 'see attached');
+      expect(withSmall.attachment!['inline'], startsWith('FTS1|'));
+      expect(withSmall.attachment!.containsKey('key'), isFalse);
+      final gotSmall = await receivedBy(bob, alice, withSmall.id);
+      expect(gotSmall.content, 'see attached');
+      expect(gotSmall.attachment!['mime'], 'text/plain');
+      expect(await bob.chat.attachments.load(gotSmall.attachment!), small);
+      await expectLater(
+          bob.directory.downloadAttachment(gotSmall.attachment!['id'] as String),
+          throwsA(isA<ApiException>()),
+          reason: 'the server never had it');
+
+      // Large: encrypted with a fresh key and uploaded; the server holds
+      // ciphertext only, without the name.
+      final rnd = Random(3);
+      final large = Uint8List.fromList(List.generate(300 * 1024, (_) => rnd.nextInt(256)));
+      final withLarge = await alice.chat.sendAttachment(bob.id,
+          bytes: large, name: 'holiday-video.bin');
+      expect(withLarge.attachment!.containsKey('inline'), isFalse);
+      final gotLarge = await receivedBy(bob, alice, withLarge.id);
+      expect(await bob.chat.attachments.load(gotLarge.attachment!), large);
       final blob =
-          await bob.directory.downloadAttachment(got.attachment!['id'] as String);
-      expect(blob.length, fileBytes.length + 40);
-      expect(utf8.decode(blob, allowMalformed: true), isNot(contains('quarterly')));
-      // Tampering is detected (digest), and a wrong key fails.
-      final tampered = Map<String, dynamic>.from(got.attachment!)
-        ..['id'] = got.attachment!['id']
+          await bob.directory.downloadAttachment(gotLarge.attachment!['id'] as String);
+      expect(blob.length, large.length + 40);
+      expect(blob.sublist(40, 1064), isNot(large.sublist(0, 1024)));
+      // Tampering (wrong key) is detected.
+      final tampered = Map<String, dynamic>.from(gotLarge.attachment!)
         ..['key'] = base64Encode(List.filled(32, 7));
       bob.chat.attachments.clearMemory();
       await expectLater(bob.chat.attachments.load(tampered), throwsA(anything));
       final convs = await bob.chat.fetchConversations();
       expect(convs.firstWhere((c) => c.contactUserId == alice.id).lastMessage,
-          contains('report-q3.txt'));
+          contains('holiday-video.bin'));
 
       // ---- offline: relay queue -------------------------------------------
       await bob.chat.stop(); // closes Bob's socket and peer connection
