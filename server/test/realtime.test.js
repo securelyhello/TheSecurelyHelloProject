@@ -96,11 +96,13 @@ describe('websocket', () => {
       rows.map((r) => r.table_name),
       [
         'attachments',
+        'blocks',
         'contact_requests',
         'contacts',
         'devices',
         'email_codes',
         'one_time_prekeys',
+        'reports',
         'schema_migrations',
         'sessions',
         'users',

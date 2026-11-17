@@ -17,6 +17,8 @@ export const DEFAULT_LIMITS = {
   api: { capacity: 300, perMs: MIN },
   // prekey bundle claims, per user (each one spends a one-time prekey)
   prekeyClaim: { capacity: 60, perMs: MIN },
+  // abuse reports, per user
+  report: { capacity: 10, perMs: 60 * MIN },
   // attachment uploads, per user
   upload: { capacity: 60, perMs: 60 * MIN },
   // relay envelopes, per sender

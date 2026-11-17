@@ -50,6 +50,7 @@ export const GENEROUS_LIMITS = {
   emailSend: generous,
   prekeyClaim: generous,
   upload: generous,
+  report: generous,
 };
 
 export const TEST_REDIS_URL = process.env.TEST_REDIS_URL ?? 'redis://127.0.0.1:56379/15';

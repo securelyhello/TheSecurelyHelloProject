@@ -303,6 +303,10 @@ class ChatProvider extends ChangeNotifier {
   Future<String?> safetyNumberFor(String contactId) =>
       _chatService.safetyNumberFor(contactId);
 
+  /// The latest [limit] messages with [contactId], newest first.
+  Future<List<Message>> recentMessages(String contactId, {int limit = 20}) =>
+      _chatService.fetchMessages(contactId, limit: limit);
+
   /// Each newly received message (for notifications).
   Stream<Message> get onMessageReceived => _chatService.onMessageReceived;
 

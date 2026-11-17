@@ -130,7 +130,7 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
         if (!mounted) return;
         if (result == ContactSheetAction.message) {
           openChat(context, conv.contactUserId);
-        } else if (result == ContactSheetAction.removed) {
+        } else if ((result == ContactSheetAction.removed || result == ContactSheetAction.blocked)) {
           closeChatIfOpen(context, conv.contactUserId);
         }
       case _ConvAction.clear:

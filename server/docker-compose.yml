@@ -25,6 +25,8 @@ services:
       EMAIL_VERIFICATION: ${EMAIL_VERIFICATION:-}
       # Push wake-ups (optional): FCM service-account JSON (inline or base64).
       FCM_SERVICE_ACCOUNT: ${FCM_SERVICE_ACCOUNT:-}
+      # Moderation API (/api/admin/*); at least 32 random characters.
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       ATTACHMENT_MAX_MB: ${ATTACHMENT_MAX_MB:-16}
       ATTACHMENT_TTL_DAYS: ${ATTACHMENT_TTL_DAYS:-30}
       ATTACHMENT_QUOTA_MB: ${ATTACHMENT_QUOTA_MB:-512}

@@ -6,6 +6,7 @@ import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 
 import { withTransaction } from './db.js';
 import { codeEmail } from './mail.js';
+import { hasBlocked } from './safety.js';
 import { burnPasswordCheck, hashPassword, hashToken, newSessionToken, verifyPassword } from './security.js';
 import * as v from './validate.js';
 import { HttpError, bad } from './validate.js';
@@ -210,7 +211,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       await limit('authAccount', email.toLowerCase());
 
       const { rows } = await pool.query(
-        `SELECT ${USER_COLUMNS}, u.password_hash FROM users u WHERE lower(u.email) = lower($1)`,
+        `SELECT ${USER_COLUMNS}, u.password_hash, u.suspended_at FROM users u WHERE lower(u.email) = lower($1)`,
         [email],
       );
       const row = rows[0];
@@ -221,6 +222,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       if (!(await verifyPassword(body.password, row.password_hash))) {
         throw new HttpError(401, 'invalid_credentials', 'Wrong email or password');
       }
+      if (row.suspended_at) throw new HttpError(403, 'suspended', 'This account is suspended');
       const token = await createSession(pool, row.id);
       return { token, user: await me(row) };
     },
@@ -334,8 +336,9 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       const email = v.email(body.email);
       const next = v.password(body.new_password, 'new_password');
       await limit('authAccount', email.toLowerCase());
-      const found = await pool.query('SELECT id FROM users WHERE lower(email) = lower($1)', [email]);
+      const found = await pool.query('SELECT id, suspended_at FROM users WHERE lower(email) = lower($1)', [email]);
       const userId = found.rows[0]?.id;
+      if (found.rows[0]?.suspended_at) throw new HttpError(403, 'suspended', 'This account is suspended');
       if (!userId || !(await consumeCode(userId, 'reset', body.code))) {
         throw new HttpError(400, 'invalid_code', 'That code is wrong or has expired');
       }
@@ -437,6 +440,10 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       `SELECT ${USER_COLUMNS} FROM users u
         WHERE u.username LIKE '%' || $1 || '%' ESCAPE '\\' AND u.id <> $2
           AND ($4::boolean = false OR u.email_verified_at IS NOT NULL)
+          AND u.suspended_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM blocks b
+                           WHERE (b.blocker_id = u.id AND b.blocked_id = $2)
+                              OR (b.blocker_id = $2 AND b.blocked_id = u.id))
         ORDER BY (u.username = $3) DESC, (u.username LIKE $1 || '%' ESCAPE '\\') DESC, u.username
         LIMIT 20`,
       [v.escapeLike(q), user.id, q, verificationRequired],
@@ -447,6 +454,8 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
   async function lookup(user, where, arg) {
     const { rows } = await pool.query(`SELECT ${USER_COLUMNS} FROM users u WHERE ${where}`, [arg]);
     if (!rows[0]) throw notFound('No such user');
+    // Someone who blocked you can't be looked up.
+    if (rows[0].id !== user.id && (await hasBlocked(pool, rows[0].id, user.id))) throw notFound('No such user');
     const visible = new Set(await services.contactIds(user.id));
     visible.add(user.id);
     return (await profiles(rows, visible))[0];
@@ -512,6 +521,8 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     const { rows } = await pool.query(
       `${requestSelect}
         WHERE r.status = 'pending' AND (r.sender_id = $1 OR r.receiver_id = $1)
+          AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = r.receiver_id AND b.blocked_id = r.sender_id
+                            AND r.receiver_id = $1)
         ORDER BY r.created_at DESC
         LIMIT 500`,
       [user.id],
@@ -534,6 +545,12 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       throw bad('receiver_id or username is required');
     }
     if (receiverId === user.id) throw bad('You cannot add yourself', 'self_request');
+    if (await hasBlocked(pool, user.id, receiverId)) {
+      throw new HttpError(409, 'blocked_by_you', 'You blocked this person. Unblock them first.');
+    }
+    // If they blocked us the request is stored as usual but never shown to
+    // them or announced, so the block stays invisible.
+    const silenced = await hasBlocked(pool, receiverId, user.id);
 
     const outcome = await withTransaction(pool, async (client) => {
       // Serialize concurrent requests for this pair.
@@ -550,7 +567,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       if (already.rows[0]) throw new HttpError(409, 'already_contacts', 'You are already contacts');
 
       // They already asked us: sending a request back means "accept".
-      const reverse = await client.query(
+      const reverse = silenced ? { rows: [] } : await client.query(
         `UPDATE contact_requests SET status = 'accepted', updated_at = now()
           WHERE sender_id = $2 AND receiver_id = $1 AND status = 'pending' RETURNING id`,
         [user.id, receiverId],
@@ -576,7 +593,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     if (outcome.accepted) {
       await becameContacts(user.id, receiverId);
       hub.sendTo(receiverId, { type: 'contact_request_update', request });
-    } else {
+    } else if (!silenced) {
       hub.sendTo(receiverId, { type: 'contact_request', request });
       notifier.wakeUser(receiverId, 'request').catch((err) => log.warn('push failed', { error: err.message }));
     }
@@ -595,6 +612,11 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       );
       if (!rows[0]) throw notFound('No pending request with that id addressed to you');
       const sender = rows[0].sender_id;
+      const blocked = await client.query(
+        'SELECT 1 FROM blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)',
+        [user.id, sender],
+      );
+      if (blocked.rows[0]) throw notFound('No pending request with that id addressed to you');
       await makeContacts(client, user.id, sender);
       // A crossing request in the other direction is settled too.
       await client.query(

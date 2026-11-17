@@ -192,7 +192,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     final result = await showContactInfoSheet(context, contact);
     if (!mounted) return;
-    if (result == ContactSheetAction.removed) _close();
+    if ((result == ContactSheetAction.removed || result == ContactSheetAction.blocked)) _close();
   }
 
   void _close() {

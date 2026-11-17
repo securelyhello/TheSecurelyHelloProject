@@ -3,6 +3,7 @@ import http from 'node:http';
 import { registerRoutes } from './api.js';
 import { registerAttachmentRoutes } from './attachments.js';
 import { registerDeviceRoutes } from './devices.js';
+import { registerSafetyRoutes } from './safety.js';
 import { HotStore } from './hotstore.js';
 import { Router, bearerToken, clientIp, readJsonBody, readRawBody, sendBytes, sendJson } from './http.js';
 import { logger } from './log.js';
@@ -35,6 +36,8 @@ export function loadConfig(env = process.env) {
     // and are hidden from search. Defaults to required when real e-mail
     // (SMTP) is configured, optional otherwise.
     emailVerification: (env.EMAIL_VERIFICATION || '').toLowerCase(),
+    // Operator token for /api/admin/* (reports, suspensions); at least 32 chars.
+    adminToken: env.ADMIN_TOKEN || '',
     attachmentMaxBytes: int('ATTACHMENT_MAX_MB', 16) * 1024 * 1024,
     attachmentTtlDays: int('ATTACHMENT_TTL_DAYS', 30),
     attachmentQuotaBytes: int('ATTACHMENT_QUOTA_MB', 512) * 1024 * 1024,
@@ -78,6 +81,7 @@ export function createApp({
   registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier });
   registerDeviceRoutes(router, { pool, hub, store, services, limits, log, notifier });
   registerAttachmentRoutes(router, { pool, services, limits, config });
+  registerSafetyRoutes(router, { pool, hub, services, limits, config });
 
   const server = http.createServer(async (req, res) => {
     const started = Date.now();

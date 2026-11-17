@@ -452,6 +452,30 @@ class DirectoryService {
   Future<List<Map<String, dynamic>>> getContacts() async =>
       _list(await _request('GET', '/api/contacts'));
 
+  /// Blocks [userId] (removes the contact; they can no longer reach us).
+  Future<void> blockUser(String userId) =>
+      _request('POST', '/api/blocks', body: {'user_id': userId});
+
+  Future<void> unblockUser(String userId) =>
+      _request('DELETE', '/api/blocks/${Uri.encodeComponent(userId)}');
+
+  /// `{user_id, username, display_name, blocked_at}`, newest first.
+  Future<List<Map<String, dynamic>>> listBlocked() async =>
+      _list(await _request('GET', '/api/blocks'));
+
+  /// Reports [userId]. [evidence] holds only messages the user chose to
+  /// share: `{from: 'reported'|'reporter', text, at}`.
+  Future<void> reportUser(String userId,
+          {required String reason,
+          String details = '',
+          List<Map<String, dynamic>> evidence = const []}) =>
+      _request('POST', '/api/reports', body: {
+        'user_id': userId,
+        'reason': reason,
+        'details': details,
+        'evidence': evidence,
+      });
+
   /// Removes the contact for both people.
   Future<void> removeContact(String contactUserId) => _request(
       'DELETE', '/api/contacts/${Uri.encodeComponent(contactUserId)}');

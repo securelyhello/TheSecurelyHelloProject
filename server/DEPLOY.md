@@ -32,6 +32,7 @@ Run **one** `app` instance: WebSocket routing is in-process.
    | `SMTP_URL` | recommended | e.g. `smtps://user:pass@smtp.example.com:465`; sends verification and password-reset codes |
    | `MAIL_FROM` | with SMTP | sender address, e.g. `Securely Hello <no-reply@example.com>` |
    | `EMAIL_VERIFICATION` | no | `required` (default with SMTP) or `optional` |
+   | `ADMIN_TOKEN` | no | at least 32 random characters; enables `/api/admin/*` (reports, suspensions) |
    | `FCM_SERVICE_ACCOUNT` | no | Firebase service-account JSON (inline or base64) for push wake-ups |
    | `ATTACHMENT_MAX_MB` / `ATTACHMENT_TTL_DAYS` / `ATTACHMENT_QUOTA_MB` | no | `16` / `30` / `512` |
 
@@ -70,6 +71,25 @@ Attachments are ciphertext blobs in Postgres (`attachments`, swept after
 `ATTACHMENT_TTL_DAYS`). Size Neon storage accordingly, or lower the limits.
 Request bodies for uploads go up to `ATTACHMENT_MAX_MB`, so the proxy must
 allow bodies that large on `/api/attachments`.
+
+## Moderation
+
+Users can block and report each other in the app. Set `ADMIN_TOKEN` (a
+random string of at least 32 characters, e.g. `openssl rand -hex 32`) to
+review reports. Without it the admin endpoints answer 404.
+
+```
+curl -H "Authorization: Bearer $ADMIN_TOKEN" https://api.example.com/api/admin/reports
+curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+     -d '{"status":"resolved"}' https://api.example.com/api/admin/reports/<report id>
+curl -X POST   -H "Authorization: Bearer $ADMIN_TOKEN" https://api.example.com/api/admin/users/<user id>/suspend
+curl -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" https://api.example.com/api/admin/users/<user id>/suspend
+```
+
+A report contains only what the reporter chose to share (reason, notes and
+optionally their last 20 messages with that person); the server can't read
+anything else. Suspending signs the account out everywhere and blocks
+sign-in until lifted.
 
 ## Proxy requirements
 

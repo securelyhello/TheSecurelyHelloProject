@@ -54,7 +54,7 @@ class _ContactListScreenState extends State<ContactListScreen> {
     if (!mounted) return;
     if (result == ContactSheetAction.message) {
       await _message(c);
-    } else if (result == ContactSheetAction.removed) {
+    } else if ((result == ContactSheetAction.removed || result == ContactSheetAction.blocked)) {
       closeChatIfOpen(context, c.userId);
     }
   }

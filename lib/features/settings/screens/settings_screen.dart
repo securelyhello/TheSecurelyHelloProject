@@ -11,6 +11,7 @@ import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/features/contacts/widgets/contact_info_sheet.dart';
 import 'package:securelyhello/features/home/chat_navigation.dart';
+import 'package:securelyhello/features/settings/screens/blocked_users_screen.dart';
 import 'package:securelyhello/features/settings/screens/legal_screen.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/shared/widgets/app_dialogs.dart';
@@ -140,7 +141,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     if (result == ContactSheetAction.message) {
       openChat(context, contact.userId);
-    } else if (result == ContactSheetAction.removed) {
+    } else if ((result == ContactSheetAction.removed || result == ContactSheetAction.blocked)) {
       closeChatIfOpen(context, contact.userId);
     }
   }
@@ -501,6 +502,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: p.textMuted,
                       ),
                       onTap: _pickContactForSafetyNumber,
+                    ),
+                    ListTile(
+                      key: const ValueKey('settings-blocked'),
+                      leading: const Icon(LucideIcons.ban),
+                      title: const Text('Blocked'),
+                      subtitle: const Text("People who can't reach you"),
+                      trailing: Icon(LucideIcons.chevronRight, size: 18, color: p.textMuted),
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                          builder: (_) => const BlockedUsersScreen())),
                     ),
                     ListTile(
                       key: const ValueKey('settings-devices'),

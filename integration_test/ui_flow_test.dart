@@ -305,6 +305,14 @@ void main() {
       await tester.tap(find.text('Mira Kapoor').first);
       await settle(1500);
       await shot('14_contact_info');
+      await tester.ensureVisible(find.byKey(const ValueKey('contact-report')));
+      await settle(400);
+      await tester.tap(find.byKey(const ValueKey('contact-report')));
+      await waitFor(find.byKey(const ValueKey('report-send')), 'report dialog');
+      await settle(600);
+      await shot('14b_report_dialog');
+      await tester.tap(find.text('Cancel'));
+      await settle(600);
       nav().pop();
       await settle(500);
       nav().pop(); // back to the list

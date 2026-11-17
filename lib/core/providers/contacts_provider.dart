@@ -299,6 +299,68 @@ class ContactsProvider extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Blocking and reporting
+  // ---------------------------------------------------------------------------
+
+  List<Map<String, dynamic>> _blocked = [];
+  List<Map<String, dynamic>> get blockedUsers => List.unmodifiable(_blocked);
+
+  Future<void> loadBlocked() async {
+    try {
+      _blocked = List.of(await _directoryService.listBlocked());
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Loading blocked users failed: $e');
+    }
+  }
+
+  /// Blocks [userId]: they are removed from contacts and can't reach you.
+  Future<bool> blockUser(String userId) async {
+    try {
+      await _directoryService.blockUser(userId);
+      _contacts.removeWhere((c) => c.userId == userId);
+      _receivedRequests.removeWhere((r) => r.senderId == userId);
+      _sentRequests.removeWhere((r) => r.receiverId == userId);
+      notifyListeners();
+      await loadBlocked();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> unblockUser(String userId) async {
+    try {
+      await _directoryService.unblockUser(userId);
+      _blocked.removeWhere((b) => b['user_id'] == userId);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Sends a report; [evidence] are messages the user chose to share.
+  Future<bool> reportUser(String userId,
+      {required String reason,
+      String details = '',
+      List<Map<String, dynamic>> evidence = const []}) async {
+    try {
+      await _directoryService.reportUser(userId,
+          reason: reason, details: details, evidence: evidence);
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
   /// Search users by username with debounce.
   void searchUsers(String query) {
     _searchDebounce?.cancel();

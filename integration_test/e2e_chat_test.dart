@@ -422,6 +422,28 @@ void main() {
       expect((await alice.messagesWith(bob)).any((m) => m.content == secret),
           isTrue);
       expect(alice.auth.deviceId, deviceBefore, reason: 'same device, same id');
+
+      // ---- block and report -------------------------------------------------
+      await alice.startChat();
+      expect(await bob.contacts.reportUser(alice.id,
+              reason: 'spam',
+              details: 'test report',
+              evidence: [
+                {'from': 'reported', 'text': 'hello bob, direct', 'at': null}
+              ]),
+          isTrue);
+      expect(await bob.contacts.blockUser(alice.id), isTrue);
+      expect(bob.contacts.getContact(alice.id), isNull);
+      expect(bob.contacts.blockedUsers.map((b) => b['user_id']), [alice.id]);
+      await until(() async {
+        await alice.contacts.loadContacts(silent: true);
+        return alice.contacts.getContact(bob.id) == null;
+      }, what: 'Alice loses the contact');
+      final afterBlock = await alice.chat.sendMessage(bob.id, 'can you hear me?');
+      expect(afterBlock.status, 'failed', reason: 'blocked: nothing gets through');
+      expect(await alice.directory.searchUsers(bob.username), isEmpty);
+      expect(await bob.contacts.unblockUser(alice.id), isTrue);
+      expect((await alice.directory.searchUsers(bob.username)).length, 1);
     });
   }, timeout: const Timeout(Duration(minutes: 4)));
 }

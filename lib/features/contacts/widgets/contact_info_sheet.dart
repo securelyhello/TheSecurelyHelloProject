@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
+import 'package:securelyhello/features/contacts/widgets/report_dialog.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/shared/utils/chat_time_format.dart';
 import 'package:securelyhello/shared/widgets/app_dialogs.dart';
@@ -13,7 +14,7 @@ import 'package:securelyhello/shared/widgets/avatar_widget.dart';
 
 /// What the user did in the contact info sheet, so the caller can react
 /// (open the chat, close a conversation whose contact was removed, …).
-enum ContactSheetAction { message, cleared, removed }
+enum ContactSheetAction { message, cleared, removed, blocked }
 
 /// Shows a contact's profile, the safety number shared with them and the
 /// chat / contact management actions.
@@ -110,6 +111,38 @@ class _ContactInfoSheetState extends State<_ContactInfoSheet> {
         error: true,
       );
     }
+  }
+
+  Future<void> _block() async {
+    final ok = await showConfirmDialog(
+      context,
+      title: 'Block ${c.displayLabel}?',
+      message:
+          "They will be removed from your contacts and won't be able to find you, "
+          "message you or call you. They aren't told. You can unblock them in "
+          'Settings.',
+      confirmLabel: 'Block',
+      destructive: true,
+    );
+    if (!ok || !mounted) return;
+    setState(() => _busy = true);
+    final contacts = context.read<ContactsProvider>();
+    if (await contacts.blockUser(c.userId)) {
+      if (!mounted) return;
+      showAppSnackBar(context, '${c.displayLabel} blocked');
+      Navigator.pop(context, ContactSheetAction.blocked);
+    } else if (mounted) {
+      setState(() => _busy = false);
+      showAppSnackBar(context, friendlyError(contacts.errorMessage), error: true);
+    }
+  }
+
+  Future<void> _report() async {
+    final sent = await showReportDialog(context, userId: c.userId, name: c.displayLabel);
+    if (!sent || !mounted) return;
+    showAppSnackBar(context, 'Thanks. The report was sent to the moderators.');
+    final blocked = !context.read<ContactsProvider>().contacts.any((x) => x.userId == c.userId);
+    if (blocked) Navigator.pop(context, ContactSheetAction.blocked);
   }
 
   @override
@@ -212,6 +245,22 @@ class _ContactInfoSheetState extends State<_ContactInfoSheet> {
                       style: TextStyle(color: p.danger),
                     ),
                     onTap: _removeContact,
+                  ),
+                  const Divider(indent: 56),
+                  ListTile(
+                    key: const ValueKey('contact-block'),
+                    enabled: !_busy,
+                    leading: Icon(LucideIcons.ban, color: p.danger),
+                    title: Text('Block ${c.displayLabel}', style: TextStyle(color: p.danger)),
+                    onTap: _block,
+                  ),
+                  const Divider(indent: 56),
+                  ListTile(
+                    key: const ValueKey('contact-report'),
+                    enabled: !_busy,
+                    leading: Icon(LucideIcons.flag, color: p.danger),
+                    title: Text('Report ${c.displayLabel}', style: TextStyle(color: p.danger)),
+                    onTap: _report,
                   ),
                 ],
               ),
