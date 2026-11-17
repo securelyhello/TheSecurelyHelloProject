@@ -30,9 +30,14 @@ class MessageBubble extends StatefulWidget {
     this.onTap,
     this.onLongPress,
     this.onSecondaryTapDown,
+    this.attachment,
   });
 
   final String message;
+
+  /// Shown above the text (an image or a file card). With an attachment the
+  /// text may be empty.
+  final Widget? attachment;
   final DateTime timestamp;
 
   /// `true` → outgoing (right); `false` → incoming (left).
@@ -196,7 +201,7 @@ class _MessageBubbleState extends State<MessageBubble> {
     final metaWidth = timePainter.width + (isSent ? 20 : 0) + 10;
     timePainter.dispose();
 
-    final body = Stack(
+    final textBody = Stack(
       children: [
         Padding(
           padding: const EdgeInsets.only(bottom: 2),
@@ -213,10 +218,29 @@ class _MessageBubbleState extends State<MessageBubble> {
         Positioned(right: 0, bottom: 0, child: metaRow),
       ],
     );
+    final att = widget.attachment;
+    final Widget body = att == null
+        ? textBody
+        : Column(
+            // Caption reads left to right; a lone time stamp sits right.
+            crossAxisAlignment: widget.message.isEmpty
+                ? CrossAxisAlignment.end
+                : CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: att,
+              ),
+              if (widget.message.isEmpty) metaRow else textBody,
+            ],
+          );
 
     final bubble = AnimatedContainer(
       duration: AppMotion.fast,
-      padding: const EdgeInsets.fromLTRB(11, 7, 9, 6),
+      padding: widget.attachment == null
+          ? const EdgeInsets.fromLTRB(11, 7, 9, 6)
+          : const EdgeInsets.fromLTRB(4, 4, 8, 6),
       decoration: BoxDecoration(
         color: widget.highlighted
             ? Color.alphaBlend(p.accent.withAlpha(40), bg)

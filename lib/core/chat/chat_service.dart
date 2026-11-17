@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:securelyhello/core/chat/attachment_service.dart';
 import 'package:securelyhello/core/chat/wire_protocol.dart';
 import 'package:securelyhello/core/crypto/crypto_core.dart';
 import 'package:securelyhello/core/crypto/device_manager.dart';
@@ -166,6 +167,8 @@ class ChatService {
   final P2PConnectionManager _p2p;
   final DirectoryService _directory;
   final DeviceManager _devices;
+  late final AttachmentService attachments = AttachmentService(
+      directory: _directory, cacheDirectory: _storage.attachmentsDir);
   final _uuid = const Uuid();
 
   CryptoIdentity? _identity;
@@ -356,6 +359,7 @@ class ChatService {
     _myDeviceId = null;
     _sessions = null;
     _activeConversationId = null;
+    attachments.clearMemory();
   }
 
   /// Tells the service which chat is on screen, so incoming messages there
@@ -495,6 +499,19 @@ class ChatService {
       isFromMe: true,
       attachment: attachment,
     );
+  }
+
+  /// Encrypts and uploads a file, then sends it to [contactId] with an
+  /// optional [caption].
+  Future<Message> sendAttachment(
+    String contactId, {
+    required Uint8List bytes,
+    required String name,
+    String? mime,
+    String caption = '',
+  }) async {
+    final meta = await attachments.upload(bytes, name: name, mime: mime);
+    return sendMessage(contactId, caption, attachment: meta);
   }
 
   /// One-line preview for the conversation list.

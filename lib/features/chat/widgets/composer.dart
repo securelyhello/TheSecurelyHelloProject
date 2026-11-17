@@ -17,6 +17,8 @@ class Composer extends StatefulWidget {
     required this.focusNode,
     required this.onSend,
     this.onChanged,
+    this.onAttach,
+    this.uploading = false,
     this.enabled = true,
     this.hint = 'Message',
   });
@@ -25,6 +27,12 @@ class Composer extends StatefulWidget {
   final FocusNode focusNode;
   final VoidCallback onSend;
   final ValueChanged<String>? onChanged;
+
+  /// Pick and send a file. The button is hidden when null.
+  final VoidCallback? onAttach;
+
+  /// An attachment is being encrypted and uploaded.
+  final bool uploading;
   final bool enabled;
   final String hint;
 
@@ -120,6 +128,26 @@ class _ComposerState extends State<Composer> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
+              if (widget.onAttach != null)
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: SizedBox(
+                    width: 46,
+                    height: 46,
+                    child: widget.uploading
+                        ? Padding(
+                            padding: const EdgeInsets.all(13),
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: p.accent),
+                          )
+                        : IconButton(
+                            key: const ValueKey('composer-attach'),
+                            tooltip: 'Attach a file',
+                            icon: Icon(LucideIcons.paperclip, color: p.textMuted),
+                            onPressed: widget.enabled ? widget.onAttach : null,
+                          ),
+                  ),
+                ),
               Expanded(
                 child: TextField(
                   controller: widget.controller,

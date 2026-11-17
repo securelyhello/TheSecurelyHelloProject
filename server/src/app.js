@@ -1,9 +1,10 @@
 import http from 'node:http';
 
 import { registerRoutes } from './api.js';
+import { registerAttachmentRoutes } from './attachments.js';
 import { registerDeviceRoutes } from './devices.js';
 import { HotStore } from './hotstore.js';
-import { Router, bearerToken, clientIp, readJsonBody, sendJson } from './http.js';
+import { Router, bearerToken, clientIp, readJsonBody, readRawBody, sendBytes, sendJson } from './http.js';
 import { logger } from './log.js';
 import { createMailer } from './mail.js';
 import { RateLimits } from './ratelimit.js';
@@ -33,6 +34,9 @@ export function loadConfig(env = process.env) {
     // and are hidden from search. Defaults to required when real e-mail
     // (SMTP) is configured, optional otherwise.
     emailVerification: (env.EMAIL_VERIFICATION || '').toLowerCase(),
+    attachmentMaxBytes: int('ATTACHMENT_MAX_MB', 16) * 1024 * 1024,
+    attachmentTtlDays: int('ATTACHMENT_TTL_DAYS', 30),
+    attachmentQuotaBytes: int('ATTACHMENT_QUOTA_MB', 512) * 1024 * 1024,
   };
 }
 
@@ -71,6 +75,7 @@ export function createApp({
   const router = new Router();
   registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log });
   registerDeviceRoutes(router, { pool, hub, store, services, limits, log, notifier });
+  registerAttachmentRoutes(router, { pool, services, limits, config });
 
   const server = http.createServer(async (req, res) => {
     const started = Date.now();
@@ -93,10 +98,14 @@ export function createApp({
         ctx.user = user;
         ctx.token = token;
       }
-      if (req.method !== 'GET' && req.method !== 'HEAD') ctx.body = await readJsonBody(req);
+      if (route.rawBody) ctx.body = await readRawBody(req, route.rawBody);
+      else if (req.method !== 'GET' && req.method !== 'HEAD') ctx.body = await readJsonBody(req);
 
       const result = await route.handler(ctx);
-      if (result && typeof result === 'object' && 'status' in result && 'body' in result) {
+      if (Buffer.isBuffer(result)) {
+        status = 200;
+        sendBytes(res, 200, result);
+      } else if (result && typeof result === 'object' && 'status' in result && 'body' in result) {
         status = result.status;
         sendJson(res, result.status, result.body);
       } else {
@@ -143,7 +152,8 @@ export function createApp({
   async function sweep() {
     const sessions = await pool.query('DELETE FROM sessions WHERE expires_at <= now()');
     const codes = await pool.query('DELETE FROM email_codes WHERE expires_at <= now()');
-    return { sessions: sessions.rowCount, codes: codes.rowCount };
+    const attachments = await pool.query('DELETE FROM attachments WHERE expires_at <= now()');
+    return { sessions: sessions.rowCount, codes: codes.rowCount, attachments: attachments.rowCount };
   }
   let sweepTimer = null;
 
@@ -160,7 +170,7 @@ export function createApp({
     listen(port = config.port, host = config.host) {
       sweepTimer = setInterval(() => {
         sweep()
-          .then((n) => (n.sessions || n.codes) && log.info('sweep', n))
+          .then((n) => (n.sessions || n.codes || n.attachments) && log.info('sweep', n))
           .catch((err) => log.warn('sweep failed', { error: err.message }));
       }, config.sweepIntervalMs);
       sweepTimer.unref();

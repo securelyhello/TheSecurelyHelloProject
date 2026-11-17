@@ -449,6 +449,55 @@ class DirectoryService {
       'DELETE', '/api/contacts/${Uri.encodeComponent(contactUserId)}');
 
   // ===========================================================================
+  // Attachments (ciphertext only)
+  // ===========================================================================
+
+  /// Uploads an encrypted blob; returns its id.
+  Future<String> uploadAttachment(Uint8List ciphertext) async {
+    final res = await _bytesRequest('POST', '/api/attachments', body: ciphertext);
+    return (jsonDecode(utf8.decode(res)) as Map)['id'] as String;
+  }
+
+  /// Downloads an encrypted blob.
+  Future<Uint8List> downloadAttachment(String id) =>
+      _bytesRequest('GET', '/api/attachments/${Uri.encodeComponent(id)}');
+
+  Future<Uint8List> _bytesRequest(String method, String path, {Uint8List? body}) async {
+    final session = _session;
+    if (session == null) {
+      throw const ApiException(401, 'unauthorized', 'Not signed in');
+    }
+    final request = http.Request(method, Uri.parse('${_base.origin}${_basePath()}$path'))
+      ..headers['Authorization'] = 'Bearer ${session.token}'
+      ..headers['User-Agent'] = _userAgent;
+    if (body != null) {
+      request.headers['Content-Type'] = 'application/octet-stream';
+      request.bodyBytes = body;
+    }
+    http.Response response;
+    try {
+      response = await http.Response.fromStream(
+          await _http.send(request).timeout(const Duration(minutes: 2)));
+    } on TimeoutException {
+      throw const NetworkException('The transfer took too long');
+    } on SocketException {
+      throw const NetworkException("Can't reach the server. Check your connection.");
+    } on http.ClientException {
+      throw const NetworkException("Can't reach the server. Check your connection.");
+    }
+    if (response.statusCode < 400) return response.bodyBytes;
+    Map? decoded;
+    try {
+      decoded = jsonDecode(response.body) as Map?;
+    } catch (_) {}
+    throw ApiException(
+      response.statusCode,
+      decoded?['error']?.toString() ?? 'http_${response.statusCode}',
+      decoded?['message']?.toString() ?? 'Transfer failed (${response.statusCode})',
+    );
+  }
+
+  // ===========================================================================
   // Relay queue (ciphertext only)
   // ===========================================================================
 

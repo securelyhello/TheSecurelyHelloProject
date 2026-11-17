@@ -10,6 +10,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -225,6 +226,38 @@ void main() {
           what: 'Alice receives the reply');
       await until(() async => await statusOf(bob, alice, reply.id) == 'delivered',
           what: 'delivered receipt for the reply');
+
+      // ---- encrypted attachment ---------------------------------------------
+      final fileBytes = Uint8List.fromList(
+          utf8.encode('quarterly-report: the numbers are fine ' * 200));
+      final withFile = await alice.chat.sendAttachment(bob.id,
+          bytes: fileBytes, name: 'report-q3.txt', caption: 'see attached');
+      expect(withFile.attachment!['name'], 'report-q3.txt');
+      expect(withFile.attachment!['mime'], 'text/plain');
+      late Message got;
+      await until(() async {
+        final found = (await bob.messagesWith(alice))
+            .where((m) => m.id == withFile.id && m.hasAttachment);
+        if (found.isEmpty) return false;
+        got = found.first;
+        return true;
+      }, what: 'Bob receives the attachment message');
+      expect(got.content, 'see attached');
+      expect(await bob.chat.attachments.load(got.attachment!), fileBytes);
+      // The server only ever had ciphertext, and not the file name.
+      final blob =
+          await bob.directory.downloadAttachment(got.attachment!['id'] as String);
+      expect(blob.length, fileBytes.length + 40);
+      expect(utf8.decode(blob, allowMalformed: true), isNot(contains('quarterly')));
+      // Tampering is detected (digest), and a wrong key fails.
+      final tampered = Map<String, dynamic>.from(got.attachment!)
+        ..['id'] = got.attachment!['id']
+        ..['key'] = base64Encode(List.filled(32, 7));
+      bob.chat.attachments.clearMemory();
+      await expectLater(bob.chat.attachments.load(tampered), throwsA(anything));
+      final convs = await bob.chat.fetchConversations();
+      expect(convs.firstWhere((c) => c.contactUserId == alice.id).lastMessage,
+          contains('report-q3.txt'));
 
       // ---- offline: relay queue -------------------------------------------
       await bob.chat.stop(); // closes Bob's socket and peer connection

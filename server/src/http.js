@@ -14,7 +14,7 @@ export class Router {
    * @param {Function} handler async (ctx) => body | {status, body} | undefined (204)
    * @param {{auth?: boolean}} opts  auth defaults to true
    */
-  add(method, pattern, handler, { auth = true } = {}) {
+  add(method, pattern, handler, { auth = true, rawBody = 0 } = {}) {
     const keys = [];
     const re = new RegExp(
       '^' +
@@ -24,7 +24,8 @@ export class Router {
         }) +
         '$',
     );
-    this.routes.push({ method, re, keys, handler, auth, pattern });
+    // rawBody > 0: the body is read as bytes (up to that many) instead of JSON.
+    this.routes.push({ method, re, keys, handler, auth, pattern, rawBody });
   }
 
   match(method, pathname) {
@@ -80,6 +81,52 @@ export function readJsonBody(req) {
     });
     req.on('error', reject);
   });
+}
+
+/** Reads an application/octet-stream body of at most [maxBytes]. */
+export function readRawBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const declared = Number(req.headers['content-length'] ?? 0);
+    if (declared > maxBytes) {
+      reject(new HttpError(413, 'payload_too_large', `At most ${maxBytes} bytes`));
+      req.resume();
+      return;
+    }
+    const type = String(req.headers['content-type'] ?? '').toLowerCase();
+    if (!type.startsWith('application/octet-stream')) {
+      reject(new HttpError(415, 'unsupported_media_type', 'Content-Type must be application/octet-stream'));
+      req.resume();
+      return;
+    }
+    const chunks = [];
+    let size = 0;
+    let failed = false;
+    req.on('data', (chunk) => {
+      if (failed) return;
+      size += chunk.length;
+      if (size > maxBytes) {
+        failed = true;
+        reject(new HttpError(413, 'payload_too_large', `At most ${maxBytes} bytes`));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (!failed) resolve(Buffer.concat(chunks));
+    });
+    req.on('error', reject);
+  });
+}
+
+export function sendBytes(res, status, bytes) {
+  res.writeHead(status, {
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+    'Content-Type': 'application/octet-stream',
+    'Content-Length': bytes.length,
+  });
+  res.end(bytes);
 }
 
 export function sendJson(res, status, body) {

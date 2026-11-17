@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:securelyhello/core/chat/attachment_service.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
+import 'package:securelyhello/core/networking/directory_service.dart';
 import 'package:securelyhello/core/crypto/crypto_core.dart';
 
 /// Manages chat conversations and messages for the UI.
@@ -204,6 +206,40 @@ class ChatProvider extends ChangeNotifier {
       _errorMessage = 'Failed to send message: $e';
       notifyListeners();
       return false;
+    }
+  }
+
+  /// Contacts with an upload in progress (the composer shows a spinner).
+  final Set<String> _uploading = {};
+  bool isUploading(String contactId) => _uploading.contains(contactId);
+
+  /// The attachment store (load / save attachments shown in a chat).
+  AttachmentService get attachments => _chatService.attachments;
+
+  /// Encrypts, uploads and sends a file.
+  Future<bool> sendAttachment(
+    String contactId, {
+    required Uint8List bytes,
+    required String name,
+    String caption = '',
+  }) async {
+    _errorMessage = null;
+    _uploading.add(contactId);
+    notifyListeners();
+    try {
+      await _chatService.sendAttachment(contactId,
+          bytes: bytes, name: name, caption: caption.trim());
+      return true;
+    } catch (e) {
+      _errorMessage = e is AttachmentTooLargeException ||
+              e is ApiException ||
+              e is NetworkException
+          ? e.toString()
+          : 'Failed to send the file: $e';
+      return false;
+    } finally {
+      _uploading.remove(contactId);
+      notifyListeners();
     }
   }
 

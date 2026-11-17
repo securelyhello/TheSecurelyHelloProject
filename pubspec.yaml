@@ -36,6 +36,10 @@ dependencies:
   google_fonts: ^8.1.0
   lucide_icons_flutter: 3.1.14
 
+  # Attachments
+  file_picker: ^13.4.0
+  mime: ^2.0.0
+
   # Utilities
   uuid: ^4.5.3
   intl: ^0.20.2

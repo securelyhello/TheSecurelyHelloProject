@@ -11,6 +11,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -36,6 +37,28 @@ const _shotDir = String.fromEnvironment('SHOT_DIR');
 
 /// Where the server writes e-mails (MAIL_TRANSPORT=file, MAIL_FILE_DIR).
 const _mailDir = String.fromEnvironment('MAIL_DIR', defaultValue: '/tmp/sh_mail');
+
+/// A 600×400 gradient "photo", PNG-encoded.
+Future<Uint8List> renderTestPng() async {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  const size = Size(600, 400);
+  canvas.drawRect(
+    Offset.zero & size,
+    Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color(0xFF2E1A47), Color(0xFFE8618C), Color(0xFFFFC371)],
+      ).createShader(Offset.zero & size),
+  );
+  canvas.drawCircle(const Offset(300, 300), 90, Paint()..color = const Color(0xFFFFE29F));
+  canvas.drawRect(const Rect.fromLTWH(0, 300, 600, 100), Paint()..color = const Color(0xFF1B2440));
+  final image = await recorder.endRecording().toImage(600, 400);
+  final data = await image.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  return data!.buffer.asUint8List();
+}
 
 /// The newest 6-digit code e-mailed to [to], or null.
 String? latestCode(String to) {
@@ -253,6 +276,23 @@ void main() {
       await mira.chat.markConversationRead(me.auth.myUserId!);
       await settle(1200);
       await shot('12_chat_sent_and_read');
+
+      // ---- encrypted attachments: a photo and a document -------------------
+      final photo = await renderTestPng();
+      await mira.chat.sendAttachment(me.auth.myUserId!,
+          bytes: photo, name: 'sunset.png', caption: 'From the trip ☀️');
+      await mira.chat.sendAttachment(me.auth.myUserId!,
+          bytes: Uint8List.fromList(List.generate(48000, (i) => i % 251)),
+          name: 'itinerary.pdf');
+      await waitFor(find.byKey(const ValueKey('composer-attach')), 'attach button');
+      final imgEnd = DateTime.now().add(const Duration(seconds: 20));
+      while (find.byType(Image).evaluate().isEmpty ||
+          find.textContaining('itinerary.pdf').evaluate().isEmpty) {
+        if (DateTime.now().isAfter(imgEnd)) fail('attachments never shown');
+        await settle(200);
+      }
+      await settle(1500);
+      await shot('12b_chat_attachments');
 
       mira.chat.sendTyping(me.auth.myUserId!, true);
       await tester.enterText(find.byType(EditableText).last, 'Want to verify our safety number?');

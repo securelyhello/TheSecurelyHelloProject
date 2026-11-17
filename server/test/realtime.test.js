@@ -95,6 +95,7 @@ describe('websocket', () => {
     assert.deepEqual(
       rows.map((r) => r.table_name),
       [
+        'attachments',
         'contact_requests',
         'contacts',
         'devices',

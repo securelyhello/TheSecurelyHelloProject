@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -10,6 +11,7 @@ import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/connection_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
+import 'package:securelyhello/features/chat/widgets/attachment_view.dart';
 import 'package:securelyhello/features/chat/widgets/chat_header.dart';
 import 'package:securelyhello/features/chat/widgets/composer.dart';
 import 'package:securelyhello/features/chat/widgets/message_info_sheet.dart';
@@ -149,6 +151,33 @@ class _ChatScreenState extends State<ChatScreen> {
       showAppSnackBar(
         context,
         friendlyError(_chat.errorMessage, fallback: 'Message not sent'),
+        error: true,
+      );
+    }
+  }
+
+  /// Picks a file and sends it, encrypted, with whatever is typed as the
+  /// caption.
+  Future<void> _attach() async {
+    PlatformFile? file;
+    try {
+      file = await FilePicker.pickFile(dialogTitle: 'Send a file');
+    } catch (e) {
+      if (mounted) showAppSnackBar(context, 'Could not open files: $e', error: true);
+      return;
+    }
+    if (file == null || !mounted) return;
+    final bytes = await file.readAsBytes();
+    final caption = _input.text.trim();
+    _input.clear();
+    _drafts.remove(_id);
+    _jumpToBottom();
+    final ok = await _chat.sendAttachment(_id, bytes: bytes, name: file.name, caption: caption);
+    if (!ok && mounted) {
+      if (caption.isNotEmpty) _input.text = caption;
+      showAppSnackBar(
+        context,
+        friendlyError(_chat.errorMessage, fallback: 'File not sent'),
         error: true,
       );
     }
@@ -375,6 +404,8 @@ class _ChatScreenState extends State<ChatScreen> {
             controller: _input,
             focusNode: _focus,
             onSend: _send,
+            onAttach: _attach,
+            uploading: context.select<ChatProvider, bool>((c) => c.isUploading(_id)),
             onChanged: (text) => _chat.onComposerChanged(_id, text),
           ),
         ],
@@ -458,6 +489,14 @@ class _ChatScreenState extends State<ChatScreen> {
       body = Padding(
         padding: EdgeInsets.only(top: first ? 6 : 2),
         child: MessageBubble(
+          attachment: m.attachment == null
+              ? null
+              : AttachmentView(
+                  key: ValueKey('att-${m.id}'),
+                  meta: m.attachment!,
+                  service: _chat.attachments,
+                  isSent: m.isFromMe,
+                ),
           message: m.content,
           timestamp: m.timestamp,
           isSent: m.isFromMe,

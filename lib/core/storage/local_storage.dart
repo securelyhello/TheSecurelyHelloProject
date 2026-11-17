@@ -313,10 +313,20 @@ class LocalStorage {
     _authId = null;
   }
 
-  /// Closes and permanently deletes [authId]'s database file.
+  /// Closes and permanently deletes [authId]'s database file and its
+  /// attachment cache.
   Future<void> deleteDatabaseForUser(String authId) async {
     if (_authId == authId) await close();
     await _factory.deleteDatabase(await _pathFor(_fileNameFor(authId)));
+    final cache = Directory(p.join(await _baseDir(), 'attachments', authId));
+    if (cache.existsSync()) await cache.delete(recursive: true);
+  }
+
+  /// Where the open account's encrypted attachments are cached, or null.
+  Future<String?> attachmentsDir() async {
+    final id = _authId;
+    if (id == null) return null;
+    return p.join(await _baseDir(), 'attachments', id);
   }
 
   // ---------------------------------------------------------------------------
