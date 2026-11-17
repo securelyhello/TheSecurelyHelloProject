@@ -18,6 +18,16 @@ services:
       TRUST_PROXY: ${TRUST_PROXY:-1}
       MIGRATE_ON_START: ${MIGRATE_ON_START:-1}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # E-mail codes (verification, password reset). Without SMTP_URL, e-mail
+      # verification is optional and password reset is unavailable.
+      SMTP_URL: ${SMTP_URL:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      EMAIL_VERIFICATION: ${EMAIL_VERIFICATION:-}
+      # Push wake-ups (optional): FCM service-account JSON (inline or base64).
+      FCM_SERVICE_ACCOUNT: ${FCM_SERVICE_ACCOUNT:-}
+      ATTACHMENT_MAX_MB: ${ATTACHMENT_MAX_MB:-16}
+      ATTACHMENT_TTL_DAYS: ${ATTACHMENT_TTL_DAYS:-30}
+      ATTACHMENT_QUOTA_MB: ${ATTACHMENT_QUOTA_MB:-512}
     expose:
       - "8787"
     depends_on:

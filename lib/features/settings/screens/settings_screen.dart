@@ -4,6 +4,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/core/notifications/notification_service.dart';
+import 'package:securelyhello/core/notifications/push_service.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
@@ -435,6 +437,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ),
                     ),
+
+                  // ── Notifications ───────────────────────────────────
+                  const SectionHeader(
+                    'Notifications',
+                    padding: EdgeInsets.fromLTRB(28, 20, 28, 8),
+                  ),
+                  Builder(builder: (context) {
+                    final n = context.read<NotificationService>();
+                    return group([
+                      SwitchListTile(
+                        key: const ValueKey('settings-notifications'),
+                        secondary: const Icon(LucideIcons.bell),
+                        title: const Text('Message notifications'),
+                        subtitle: Text(PushService.configured
+                            ? 'Also when the app is closed (push wake-ups carry no content)'
+                            : 'While the app is running in the background'),
+                        value: n.enabled,
+                        onChanged: (v) async {
+                          await n.setEnabled(v);
+                          setState(() {});
+                        },
+                      ),
+                      SwitchListTile(
+                        secondary: const Icon(LucideIcons.eyeOff),
+                        title: const Text('Show message text'),
+                        subtitle: const Text(
+                            'Off: notifications only say “New message”'),
+                        value: n.showPreview,
+                        onChanged: n.enabled
+                            ? (v) async {
+                                await n.setShowPreview(v);
+                                setState(() {});
+                              }
+                            : null,
+                      ),
+                    ]);
+                  }),
 
                   // ── Privacy & security ──────────────────────────────
                   const SectionHeader(

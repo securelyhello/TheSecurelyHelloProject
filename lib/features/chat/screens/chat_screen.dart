@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import 'package:securelyhello/core/chat/chat_service.dart' show Message;
 import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
+import 'package:securelyhello/core/notifications/notification_service.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/connection_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
@@ -86,6 +87,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _chat = context.read<ChatProvider>();
+    context.read<NotificationService>().clearFor(_id);
     for (final c in _chat.conversations) {
       if (c.contactUserId == _id) _initialUnread = c.unreadCount;
     }

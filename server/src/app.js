@@ -7,6 +7,7 @@ import { HotStore } from './hotstore.js';
 import { Router, bearerToken, clientIp, readJsonBody, readRawBody, sendBytes, sendJson } from './http.js';
 import { logger } from './log.js';
 import { createMailer } from './mail.js';
+import { createNotifier, senderFromEnv } from './push.js';
 import { RateLimits } from './ratelimit.js';
 import { RealtimeHub } from './realtime.js';
 import { Services } from './services.js';
@@ -53,7 +54,7 @@ export function createApp({
   storeOptions = {},
   log = logger,
   mailer = createMailer(),
-  notifier = null,
+  pushSender = senderFromEnv(process.env, log),
 }) {
   config = { ...config };
   if (!mailer.enabled) {
@@ -72,8 +73,9 @@ export function createApp({
   const services = new Services({ pool, store });
   const limits = new RateLimits(store, limitOverrides);
   const hub = new RealtimeHub({ services, store, limits, trustProxyHops: config.trustProxyHops, log });
+  const notifier = createNotifier({ pool, store, hub, sender: pushSender, log });
   const router = new Router();
-  registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log });
+  registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier });
   registerDeviceRoutes(router, { pool, hub, store, services, limits, log, notifier });
   registerAttachmentRoutes(router, { pool, services, limits, config });
 
@@ -161,6 +163,7 @@ export function createApp({
     server,
     config,
     mailer,
+    notifier,
     hub,
     pool,
     store,

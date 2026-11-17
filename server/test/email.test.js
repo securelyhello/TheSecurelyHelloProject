@@ -16,7 +16,7 @@ describe('e-mail verification (required)', () => {
     assert.equal(a.user.email_verification_required, true);
     assert.match(srv.mailer.lastCode(a.email), /^\d{6}$/);
     const config = await api(srv.base, 'GET', '/api/config');
-    assert.deepEqual(config.body, { email_verification: 'required', password_reset: true });
+    assert.deepEqual(config.body, { email_verification: 'required', password_reset: true, push: false });
   });
 
   test('unverified accounts cannot send requests and are hidden from search', async () => {
@@ -173,7 +173,7 @@ describe('e-mail disabled', () => {
 
   test('verification falls back to optional and reset is unavailable', async () => {
     const config = await api(off.base, 'GET', '/api/config');
-    assert.deepEqual(config.body, { email_verification: 'optional', password_reset: false });
+    assert.deepEqual(config.body, { email_verification: 'optional', password_reset: false, push: false });
     const res = await api(off.base, 'POST', '/api/auth/password/forgot', { body: { email: 'x@example.test' } });
     assert.equal(res.status, 503);
     assert.equal(res.body.error, 'email_unavailable');

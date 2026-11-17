@@ -365,6 +365,14 @@ class DirectoryService {
   Future<void> removeDevice(String deviceId) =>
       _request('DELETE', '/api/devices/${Uri.encodeComponent(deviceId)}');
 
+  /// Registers this device's FCM token for content-free wake-ups.
+  Future<void> registerPushToken(String token) => _request(
+      'PUT', '/api/devices/current/push',
+      body: {'platform': 'fcm', 'token': token});
+
+  Future<void> clearPushToken() =>
+      _request('DELETE', '/api/devices/current/push');
+
   /// Public device keys of [userId].
   Future<List<Map<String, dynamic>>> getUserDevices(String userId) async =>
       _list(await _request(

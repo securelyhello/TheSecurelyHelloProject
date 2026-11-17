@@ -5,6 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/core/chat/chat_service.dart';
+import 'package:securelyhello/core/notifications/notification_service.dart';
+import 'package:securelyhello/core/notifications/push_service.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
@@ -33,6 +36,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
   String? _selectedChat;
   StreamSubscription<String>? _newRequestSub;
+  StreamSubscription<Message>? _messageSub;
+  late final NotificationService _notifications;
   late final AuthProvider _auth;
   late final ChatProvider _chat;
   late final ContactsProvider _contacts;
@@ -49,6 +54,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _auth = context.read<AuthProvider>();
     _chat = context.read<ChatProvider>();
     _contacts = context.read<ContactsProvider>();
+    _notifications = context.read<NotificationService>();
+    _notifications.onOpenChat = _openFromNotification;
     WidgetsBinding.instance.addObserver(this);
     _auth.addListener(_onAuthChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _startSession());
@@ -70,6 +77,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final myUserId = _auth.myUserId;
     final deviceId = _auth.deviceId;
     if (identity == null || myUserId == null || deviceId == null) return;
+    final push = context.read<PushService?>();
 
     // Subscribe before the socket opens so no presence or request push is
     // missed, then start messaging and load the lists.
@@ -77,7 +85,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _chat.init(identity: identity, myUserId: myUserId, deviceId: deviceId);
     await _contacts.loadContacts();
 
+    // Notifications are composed here, after decryption: names and previews
+    // never pass through the server or a push provider.
+    _messageSub ??= _chat.onMessageReceived.listen((m) {
+      _notifications.showMessage(
+        contactId: m.conversationId,
+        sender: _contacts.getContact(m.conversationId)?.displayLabel ?? 'New message',
+        preview: ChatService.previewText(m.content, m.attachment),
+        activeConversation: _chat.activeConversationId,
+      );
+    });
+    unawaited(_notifications.requestPermission());
+    unawaited(push?.start());
+
     _newRequestSub ??= _contacts.onNewRequest.listen((msg) {
+      _notifications.showContactRequest(msg);
       if (!mounted) return;
       showAppSnackBar(
         context,
@@ -92,6 +114,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _notifications.appInForeground = state == AppLifecycleState.resumed;
     if (!_auth.isAuthenticated) return;
     switch (state) {
       case AppLifecycleState.resumed:
@@ -111,7 +134,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _auth.removeListener(_onAuthChanged);
     _newRequestSub?.cancel();
+    _messageSub?.cancel();
+    if (_notifications.onOpenChat == _openFromNotification) {
+      _notifications.onOpenChat = null;
+    }
     super.dispose();
+  }
+
+  /// A notification was tapped: show that conversation.
+  void _openFromNotification(String contactUserId) {
+    if (!mounted) return;
+    final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.twoPane;
+    if (wide) {
+      _openChat(contactUserId);
+    } else {
+      Navigator.of(context).pushNamed('/chat', arguments: contactUserId);
+    }
   }
 
   void _openChat(String contactUserId) {

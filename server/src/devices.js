@@ -232,7 +232,36 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
   /** Our own devices, with names (for the "Linked devices" screen). */
   router.add('GET', '/api/devices', async ({ user }) => {
     const { rows } = await pool.query('SELECT * FROM devices WHERE user_id = $1 ORDER BY created_at, id', [user.id]);
-    return rows.map((r) => ({ ...deviceJson(r, { withName: true }), current: r.id === user.deviceId }));
+    return rows.map((r) => ({
+      ...deviceJson(r, { withName: true }),
+      current: r.id === user.deviceId,
+      push_enabled: r.push_token != null,
+    }));
+  });
+
+  /**
+   * Registers this device's push token (FCM). The token is moved here if
+   * another device had it (reinstall). Pushes only ever say "something is
+   * waiting"; see push.js.
+   */
+  router.add('PUT', '/api/devices/current/push', async ({ body, user }) => {
+    const deviceId = requireDevice(user);
+    v.requireObject(body);
+    if (body.platform !== 'fcm') throw bad("platform must be 'fcm'");
+    const token = v.string(body.token, 'token', { min: 16, max: 4096 });
+    await withTransaction(pool, async (client) => {
+      await client.query('UPDATE devices SET push_token = NULL, push_platform = NULL WHERE push_token = $1 AND id <> $2', [
+        token,
+        deviceId,
+      ]);
+      await client.query("UPDATE devices SET push_token = $2, push_platform = 'fcm' WHERE id = $1", [deviceId, token]);
+    });
+    return { push_enabled: true, push_available: notifier?.enabled ?? false };
+  });
+
+  router.add('DELETE', '/api/devices/current/push', async ({ user }) => {
+    const deviceId = requireDevice(user);
+    await pool.query('UPDATE devices SET push_token = NULL, push_platform = NULL WHERE id = $1', [deviceId]);
   });
 
   router.add('PATCH', '/api/devices/current', async ({ body, user }) => {

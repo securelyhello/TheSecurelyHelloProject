@@ -36,6 +36,11 @@ dependencies:
   google_fonts: ^8.1.0
   lucide_icons_flutter: 3.1.14
 
+  # Notifications (push is optional: only used when Firebase is configured)
+  flutter_local_notifications: ^23.0.2
+  firebase_core: ^5.2.0
+  firebase_messaging: ^17.1.0
+
   # Attachments
   file_picker: ^13.4.0
   mime: ^2.0.0

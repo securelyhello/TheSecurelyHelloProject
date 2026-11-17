@@ -54,7 +54,13 @@ export const GENEROUS_LIMITS = {
 
 export const TEST_REDIS_URL = process.env.TEST_REDIS_URL ?? 'redis://127.0.0.1:56379/15';
 
-export async function startServer({ limitOverrides = {}, storeOptions = {}, env = {}, mailer = captureMailer() } = {}) {
+export async function startServer({
+  limitOverrides = {},
+  storeOptions = {},
+  env = {},
+  mailer = captureMailer(),
+  pushSender = null,
+} = {}) {
   await recreateDatabase(TEST_DATABASE_URL);
   const pool = createPool(TEST_DATABASE_URL, { max: 5 });
   await migrate(pool, { log: () => {} });
@@ -69,6 +75,7 @@ export async function startServer({ limitOverrides = {}, storeOptions = {}, env 
     storeOptions,
     log: silentLogger,
     mailer,
+    pushSender,
   });
   const addr = await app.listen(0, '127.0.0.1');
   const base = `http://127.0.0.1:${addr.port}`;

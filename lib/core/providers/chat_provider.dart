@@ -303,6 +303,9 @@ class ChatProvider extends ChangeNotifier {
   Future<String?> safetyNumberFor(String contactId) =>
       _chatService.safetyNumberFor(contactId);
 
+  /// Each newly received message (for notifications).
+  Stream<Message> get onMessageReceived => _chatService.onMessageReceived;
+
   /// The signed-in user's id, once messaging has started.
   String? get myUserId => _chatService.myUserId;
 

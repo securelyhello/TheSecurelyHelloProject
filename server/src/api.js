@@ -28,7 +28,7 @@ const CODE_RE = /^\d{6}$/;
  * @param {import('./services.js').Services} deps.services
  * @param {import('./ratelimit.js').RateLimits} deps.limits
  */
-export function registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log }) {
+export function registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier }) {
   const verificationRequired = config.emailVerification === 'required';
   // ---------------------------------------------------------------------------
   // Serialization
@@ -266,6 +266,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     async () => ({
       email_verification: config.emailVerification,
       password_reset: mailer.enabled,
+      push: notifier.enabled,
     }),
     { auth: false },
   );
@@ -577,6 +578,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       hub.sendTo(receiverId, { type: 'contact_request_update', request });
     } else {
       hub.sendTo(receiverId, { type: 'contact_request', request });
+      notifier.wakeUser(receiverId, 'request').catch((err) => log.warn('push failed', { error: err.message }));
     }
     return { status: outcome.accepted ? 200 : 201, body: request };
   });

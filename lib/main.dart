@@ -16,6 +16,8 @@ import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/connection_provider.dart';
+import 'package:securelyhello/core/notifications/notification_service.dart';
+import 'package:securelyhello/core/notifications/push_service.dart';
 import 'package:securelyhello/features/auth/screens/splash_screen.dart';
 import 'package:securelyhello/features/auth/screens/login_screen.dart';
 import 'package:securelyhello/features/auth/screens/signup_screen.dart';
@@ -90,6 +92,10 @@ Future<void> main() async {
     directoryService: directoryService,
     localStorage: localStorage,
   );
+  final notifications = NotificationService();
+  await notifications.init();
+  final push = PushService(
+      directory: directoryService, onWake: chatService.drainRelayQueue);
   final connectionProvider = ConnectionProvider(
     connectionManager: connectionManager,
     chatService: chatService,
@@ -97,6 +103,7 @@ Future<void> main() async {
 
   // Tear down per-user state before the session and database go away.
   authProvider
+    ..addSignOutHook(push.stop)
     ..addSignOutHook(chatProvider.reset)
     ..addSignOutHook(contactsProvider.reset)
     ..addSignOutHook(() async => connectionProvider.reset());
@@ -107,6 +114,8 @@ Future<void> main() async {
     chatProvider: chatProvider,
     contactsProvider: contactsProvider,
     connectionProvider: connectionProvider,
+    notifications: notifications,
+    push: push,
   ));
 }
 
@@ -140,6 +149,8 @@ class SecurelyHelloApp extends StatelessWidget {
   final ChatProvider chatProvider;
   final ContactsProvider contactsProvider;
   final ConnectionProvider connectionProvider;
+  final NotificationService? notifications;
+  final PushService? push;
 
   const SecurelyHelloApp({
     super.key,
@@ -147,6 +158,8 @@ class SecurelyHelloApp extends StatelessWidget {
     required this.chatProvider,
     required this.contactsProvider,
     required this.connectionProvider,
+    this.notifications,
+    this.push,
   });
 
   @override
@@ -157,6 +170,9 @@ class SecurelyHelloApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: contactsProvider),
         ChangeNotifierProvider.value(value: chatProvider),
         ChangeNotifierProvider.value(value: connectionProvider),
+        Provider<NotificationService>.value(
+            value: notifications ?? NotificationService()),
+        Provider<PushService?>.value(value: push),
       ],
       child: MaterialApp(
         title: 'Securely Hello',
