@@ -26,8 +26,11 @@ export function createCodes({ pool, mailer }) {
     await mailer.send(codeEmail(purpose, email, code, minutes));
   }
 
-  /** Spends one attempt on the live code; consumes it if [code] matches. */
-  async function consumeCode(userId, purpose, code) {
+  /**
+   * Spends one attempt on the live code; consumes it if [code] matches,
+   * unless [keep] (the caller still needs a second factor before acting).
+   */
+  async function consumeCode(userId, purpose, code, { keep = false } = {}) {
     if (typeof code !== 'string' || !CODE_RE.test(code)) return false;
     const { rows } = await pool.query(
       `UPDATE email_codes SET attempts = attempts + 1
@@ -39,6 +42,14 @@ export function createCodes({ pool, mailer }) {
     const expected = rows[0].code_hash;
     const given = codeHash(userId, purpose, code);
     if (expected.length !== given.length || !timingSafeEqual(expected, given)) return false;
+    if (keep) {
+      // Give back the attempt: a right code shouldn't count against the user.
+      await pool.query('UPDATE email_codes SET attempts = attempts - 1 WHERE user_id = $1 AND purpose = $2', [
+        userId,
+        purpose,
+      ]);
+      return true;
+    }
     const del = await pool.query('DELETE FROM email_codes WHERE user_id = $1 AND purpose = $2 AND code_hash = $3', [
       userId,
       purpose,

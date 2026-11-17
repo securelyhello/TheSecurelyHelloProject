@@ -221,10 +221,13 @@ class DirectoryService {
     return _adoptSession(res);
   }
 
-  Future<Map<String, dynamic>> signIn(String email, String password) async {
+  /// [otp]: an authenticator or recovery code, when two-step
+  /// verification is on (the server answers `otp_required` otherwise).
+  Future<Map<String, dynamic>> signIn(String email, String password, {String? otp}) async {
     final res = await _request('POST', '/api/auth/signin',
         auth: false,
-        body: {'email': email, 'password': password}) as Map<String, dynamic>;
+        body: {'email': email, 'password': password, if (otp != null) 'otp': otp})
+        as Map<String, dynamic>;
     return _adoptSession(res);
   }
 
@@ -297,11 +300,16 @@ class DirectoryService {
     required String email,
     required String code,
     required String newPassword,
+    String? otp,
   }) async {
     final res = await _request('POST', '/api/auth/password/reset',
         auth: false,
-        body: {'email': email, 'code': code, 'new_password': newPassword})
-        as Map<String, dynamic>;
+        body: {
+          'email': email,
+          'code': code,
+          'new_password': newPassword,
+          if (otp != null) 'otp': otp,
+        }) as Map<String, dynamic>;
     return _adoptSession(res);
   }
 
@@ -360,8 +368,33 @@ class DirectoryService {
       _request('POST', '/api/devices/current/recover');
 
   /// Confirms recovery: this device is approved, all others are removed.
-  Future<void> confirmDeviceRecovery(String code) => _request(
-      'POST', '/api/devices/current/recover/confirm', body: {'code': code});
+  Future<void> confirmDeviceRecovery(String code, {String? otp}) => _request(
+      'POST', '/api/devices/current/recover/confirm',
+      body: {'code': code, if (otp != null) 'otp': otp});
+
+  // Two-step verification
+
+  Future<Map<String, dynamic>> twoFactorStatus() async =>
+      Map<String, dynamic>.from(await _request('GET', '/api/me/2fa') as Map);
+
+  /// Returns `secret` (base32) and `uri` (otpauth://) for the authenticator.
+  Future<Map<String, dynamic>> twoFactorSetup(String password) async => Map<String, dynamic>.from(
+      await _request('POST', '/api/me/2fa/setup', body: {'password': password}) as Map);
+
+  /// Confirms setup with a code; returns the recovery codes (shown once).
+  Future<List<String>> twoFactorEnable(String code) async {
+    final res = await _request('POST', '/api/me/2fa/enable', body: {'code': code}) as Map;
+    return (res['recovery_codes'] as List).cast<String>();
+  }
+
+  Future<void> twoFactorDisable(String password, String code) =>
+      _request('POST', '/api/me/2fa/disable', body: {'password': password, 'code': code});
+
+  Future<List<String>> twoFactorNewRecoveryCodes(String password) async {
+    final res =
+        await _request('POST', '/api/me/2fa/recovery-codes', body: {'password': password}) as Map;
+    return (res['recovery_codes'] as List).cast<String>();
+  }
 
   /// Uploads more one-time prekeys; returns how many the server now holds.
   Future<int> uploadPreKeys(List<Map<String, dynamic>> keys) async {

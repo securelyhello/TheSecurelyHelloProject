@@ -15,6 +15,7 @@ import 'package:securelyhello/features/home/chat_navigation.dart';
 import 'package:securelyhello/features/security/lock_screen.dart';
 import 'package:securelyhello/features/settings/screens/blocked_users_screen.dart';
 import 'package:securelyhello/features/settings/screens/legal_screen.dart';
+import 'package:securelyhello/features/settings/screens/two_factor_screen.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/shared/widgets/app_dialogs.dart';
 import 'package:securelyhello/shared/widgets/avatar_widget.dart';
@@ -655,6 +656,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 Navigator.of(context).pushNamed('/verify-email');
                               }
                             },
+                    ),
+                    ListTile(
+                      key: const ValueKey('settings-2fa'),
+                      leading: const Icon(LucideIcons.smartphone),
+                      title: const Text('Two-step verification'),
+                      subtitle: const Text('Ask for an authenticator code at sign-in'),
+                      trailing: Icon(LucideIcons.chevronRight, size: 18, color: p.textMuted),
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                          builder: (_) => const TwoFactorScreen())),
                     ),
                     ListTile(
                       leading: const Icon(LucideIcons.lockKeyhole),

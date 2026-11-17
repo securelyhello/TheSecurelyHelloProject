@@ -6,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import 'package:securelyhello/core/providers/auth_provider.dart';
+import 'package:securelyhello/features/auth/widgets/otp_field.dart';
 import 'package:securelyhello/features/auth/screens/verify_email_screen.dart' show AuthBanner;
 import 'package:securelyhello/shared/widgets/app_text_field.dart';
 
@@ -22,6 +23,7 @@ class _DevicePendingScreenState extends State<DevicePendingScreen> {
   bool _recovering = false;
   bool _codeSent = false;
   final _code = TextEditingController();
+  final _otp = TextEditingController();
   late final AuthProvider _auth;
 
   @override
@@ -36,6 +38,7 @@ class _DevicePendingScreenState extends State<DevicePendingScreen> {
   void dispose() {
     _auth.removeListener(_onAuth);
     _code.dispose();
+    _otp.dispose();
     super.dispose();
   }
 
@@ -57,7 +60,7 @@ class _DevicePendingScreenState extends State<DevicePendingScreen> {
   Future<void> _confirm() async {
     final code = _code.text.trim();
     if (code.length != 6) return;
-    await _auth.confirmDeviceRecovery(code);
+    await _auth.confirmDeviceRecovery(code, otp: _otp.text);
   }
 
   @override
@@ -152,6 +155,7 @@ class _DevicePendingScreenState extends State<DevicePendingScreen> {
                       keyboardType: TextInputType.number,
                       onSubmitted: (_) => _confirm(),
                     ),
+                    if (auth.otpRequired) OtpField(controller: _otp, onSubmitted: (_) => _confirm()),
                     const SizedBox(height: 16),
                     ElevatedButton(
                       onPressed: auth.isLoading ? null : _confirm,

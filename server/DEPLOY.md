@@ -33,6 +33,7 @@ Run **one** `app` instance: WebSocket routing is in-process.
    | `MAIL_FROM` | with SMTP | sender address, e.g. `Securely Hello <no-reply@example.com>` |
    | `EMAIL_VERIFICATION` | no | `required` (default with SMTP) or `optional` |
    | `ADMIN_TOKEN` | no | at least 32 random characters; enables `/api/admin/*` (reports, suspensions) |
+   | `TOTP_ENCRYPTION_KEY` | recommended | long random string; encrypts two-step verification secrets at rest. Keep it with your backups: changing or losing it locks out users who use two-step verification |
    | `FCM_SERVICE_ACCOUNT` | no | Firebase service-account JSON (inline or base64) for push wake-ups |
    | `ATTACHMENT_MAX_MB` / `ATTACHMENT_TTL_DAYS` / `ATTACHMENT_QUOTA_MB` | no | `16` / `30` / `512` |
 

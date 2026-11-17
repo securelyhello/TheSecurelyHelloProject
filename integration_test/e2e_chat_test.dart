@@ -12,6 +12,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' as hash;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -94,6 +95,29 @@ class Stack {
     dir.deleteSync(recursive: true);
   }
 }
+
+/// RFC 6238 code for [base32Secret] at [step] (independent of the server's
+/// implementation, so the two are checked against each other).
+String totp(String base32Secret, int step) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  var bits = 0, value = 0;
+  final key = <int>[];
+  for (final ch in base32Secret.toUpperCase().split('')) {
+    value = (value << 5) | alphabet.indexOf(ch);
+    bits += 5;
+    if (bits >= 8) {
+      key.add((value >> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+  final counter = ByteData(8)..setInt64(0, step);
+  final mac = hash.Hmac(hash.sha1, key).convert(counter.buffer.asUint8List()).bytes;
+  final off = mac.last & 0xf;
+  final n = ((mac[off] & 0x7f) << 24) | (mac[off + 1] << 16) | (mac[off + 2] << 8) | mac[off + 3];
+  return (n % 1000000).toString().padLeft(6, '0');
+}
+
+int get nowStep => DateTime.now().millisecondsSinceEpoch ~/ 30000;
 
 /// Polls [check] until it returns true.
 Future<void> until(FutureOr<bool> Function() check,
@@ -543,4 +567,34 @@ void main() {
       expect((await alice.directory.searchUsers(bob.username)).length, 1);
     });
   }, timeout: const Timeout(Duration(minutes: 4)));
+
+  testWidgets('two-step verification at sign-in', (tester) async {
+    await tester.runAsync(() async {
+      final carol = Stack('carol');
+      await carol.signUp();
+      final setup = await carol.auth.twoFactorSetup(Stack.password);
+      final secret = setup['secret'] as String;
+      final recovery = await carol.auth.twoFactorEnable(totp(secret, nowStep));
+      expect(recovery, hasLength(10));
+      expect((await carol.auth.twoFactorStatus())['enabled'], isTrue);
+
+      await carol.chat.stop();
+      await carol.auth.signOut();
+      expect(await carol.auth.signIn(email: carol.email, password: Stack.password), isFalse);
+      expect(carol.auth.otpRequired, isTrue, reason: 'the login screen shows the code field');
+      expect(
+          await carol.auth.signIn(email: carol.email, password: Stack.password, otp: '000000'),
+          isFalse);
+      expect(
+          await carol.auth.signIn(
+              email: carol.email, password: Stack.password, otp: totp(secret, nowStep + 1)),
+          isTrue,
+          reason: carol.auth.errorMessage);
+      expect(carol.auth.otpRequired, isFalse);
+
+      await carol.auth.twoFactorDisable(Stack.password, recovery.first);
+      expect((await carol.auth.twoFactorStatus())['enabled'], isFalse);
+      await carol.dispose();
+    });
+  });
 }

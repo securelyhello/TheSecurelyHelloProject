@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:securelyhello/features/auth/widgets/otp_field.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/shared/widgets/app_text_field.dart';
 
@@ -14,6 +15,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
+  final _otpController = TextEditingController();
   final _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _obscurePassword = true;
@@ -31,6 +33,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _otpController.dispose();
     super.dispose();
   }
 
@@ -40,6 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final success = await context.read<AuthProvider>().signIn(
       email: _emailController.text.trim(),
       password: _passwordController.text,
+      otp: _otpController.text,
     );
     
     if (success && mounted) {
@@ -117,6 +121,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   validator: (v) => v!.isEmpty ? 'Password is required' : null,
                 ),
+                if (authProvider.otpRequired)
+                  OtpField(controller: _otpController, onSubmitted: (_) => _login()),
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(

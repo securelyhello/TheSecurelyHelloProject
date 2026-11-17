@@ -26,7 +26,7 @@ const USER_COLUMNS =
  * @param {import('./services.js').Services} deps.services
  * @param {import('./ratelimit.js').RateLimits} deps.limits
  */
-export function registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier }) {
+export function registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier, twoFactor }) {
   const verificationRequired = config.emailVerification === 'required';
   // ---------------------------------------------------------------------------
   // Serialization
@@ -180,6 +180,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
         throw new HttpError(401, 'invalid_credentials', 'Wrong email or password');
       }
       if (row.suspended_at) throw new HttpError(403, 'suspended', 'This account is suspended');
+      await twoFactor.require(row.id, body.otp);
       const token = await createSession(pool, row.id);
       return { token, user: await me(row) };
     },
@@ -296,7 +297,12 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       const found = await pool.query('SELECT id, suspended_at FROM users WHERE lower(email) = lower($1)', [email]);
       const userId = found.rows[0]?.id;
       if (found.rows[0]?.suspended_at) throw new HttpError(403, 'suspended', 'This account is suspended');
-      if (!userId || !(await consumeCode(userId, 'reset', body.code))) {
+      if (!userId || !(await consumeCode(userId, 'reset', body.code, { keep: true }))) {
+        throw new HttpError(400, 'invalid_code', 'That code is wrong or has expired');
+      }
+      // The inbox alone isn't enough when two-step verification is on.
+      await twoFactor.require(userId, body.otp);
+      if (!(await consumeCode(userId, 'reset', body.code))) {
         throw new HttpError(400, 'invalid_code', 'That code is wrong or has expired');
       }
       const hash = await hashPassword(next);

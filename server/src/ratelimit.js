@@ -29,6 +29,8 @@ export const DEFAULT_LIMITS = {
   wsFrames: { capacity: 600, perMs: MIN },
   // verification / reset e-mails, per account or address
   emailSend: { capacity: 5, perMs: 60 * MIN },
+  // two-step codes, per account
+  otp: { capacity: 10, perMs: 15 * MIN },
   // WebSocket connection attempts, per IP
   wsConnect: { capacity: 30, perMs: MIN },
 };

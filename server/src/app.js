@@ -6,6 +6,7 @@ import { createCodes } from './codes.js';
 import { createBlobStore } from './blobstore.js';
 import { registerDeviceRoutes } from './devices.js';
 import { registerSafetyRoutes } from './safety.js';
+import { createTwoFactor, registerTwoFactorRoutes } from './twofactor.js';
 import { HotStore } from './hotstore.js';
 import { Router, bearerToken, clientIp, readJsonBody, readRawBody, sendBytes, sendJson } from './http.js';
 import { logger } from './log.js';
@@ -40,6 +41,9 @@ export function loadConfig(env = process.env) {
     emailVerification: (env.EMAIL_VERIFICATION || '').toLowerCase(),
     // Operator token for /api/admin/* (reports, suspensions); at least 32 chars.
     adminToken: env.ADMIN_TOKEN || '',
+    // Encrypts two-step (TOTP) secrets at rest. Any long random string;
+    // changing it makes existing secrets unreadable.
+    totpKey: env.TOTP_ENCRYPTION_KEY || '',
     attachmentMaxBytes: int('ATTACHMENT_MAX_MB', 16) * 1024 * 1024,
     attachmentTtlDays: int('ATTACHMENT_TTL_DAYS', 30),
     attachmentQuotaBytes: int('ATTACHMENT_QUOTA_MB', 512) * 1024 * 1024,
@@ -81,7 +85,10 @@ export function createApp({
   const hub = new RealtimeHub({ services, store, limits, trustProxyHops: config.trustProxyHops, log });
   const notifier = createNotifier({ pool, store, hub, sender: pushSender, log });
   const router = new Router();
-  registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier });
+  const twoFactor = createTwoFactor({ pool, config, limits });
+  if (!config.totpKey) log.warn('TOTP_ENCRYPTION_KEY is not set: two-step secrets are stored unencrypted');
+  registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier, twoFactor });
+  registerTwoFactorRoutes(router, { pool, twoFactor, limits });
   registerDeviceRoutes(router, {
     pool,
     hub,
@@ -92,6 +99,7 @@ export function createApp({
     notifier,
     mailer,
     codes: createCodes({ pool, mailer }),
+    twoFactor,
   });
   registerAttachmentRoutes(router, { pool, services, limits, config, blobs });
   registerSafetyRoutes(router, { pool, hub, services, limits, config });

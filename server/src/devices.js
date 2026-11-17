@@ -90,7 +90,7 @@ export function approvalMessage(userId, deviceId, signingKey, identityKey) {
   return Buffer.from(`securelyhello-approve-v1|${userId}|${deviceId}|${signingKey}|${identityKey}`, 'utf8');
 }
 
-export function registerDeviceRoutes(router, { pool, hub, store, services, limits, log, notifier, codes, mailer }) {
+export function registerDeviceRoutes(router, { pool, hub, store, services, limits, log, notifier, codes, mailer, twoFactor }) {
   const tooMany = () => new HttpError(429, 'rate_limited', 'Too many requests, slow down');
   async function limit(name, key) {
     if (!(await limits.take(name, key))) throw tooMany();
@@ -303,6 +303,10 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
   router.add('POST', '/api/devices/current/recover/confirm', async ({ body, user }) => {
     const deviceId = requireDevice(user);
     v.requireObject(body);
+    if (!(await codes.consumeCode(user.id, 'device', body.code, { keep: true }))) {
+      throw new HttpError(400, 'invalid_code', 'That code is wrong or has expired');
+    }
+    await twoFactor.require(user.id, body.otp);
     if (!(await codes.consumeCode(user.id, 'device', body.code))) {
       throw new HttpError(400, 'invalid_code', 'That code is wrong or has expired');
     }

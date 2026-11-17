@@ -105,6 +105,7 @@ describe('websocket', () => {
         'reports',
         'schema_migrations',
         'sessions',
+        'totp_recovery_codes',
         'users',
       ],
     );

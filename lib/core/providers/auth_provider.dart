@@ -192,20 +192,35 @@ class AuthProvider extends ChangeNotifier {
   }
 
   /// Sign in with email and password.
+  /// The last sign-in, password reset or recovery needs an authenticator
+  /// code: show the code field and submit again with it.
+  bool get otpRequired => _otpRequired;
+  bool _otpRequired = false;
+
+  /// Notes an `otp_required` / `invalid_otp` answer.
+  void _noteOtp(Object e) {
+    if (e is ApiException && (e.code == 'otp_required' || e.code == 'invalid_otp')) {
+      _otpRequired = true;
+    }
+  }
+
   Future<bool> signIn({
     required String email,
     required String password,
+    String? otp,
   }) async {
     _setLoading(true);
     _clearError();
 
     try {
-      final profile = await _directoryService.signIn(email, password);
+      final profile = await _directoryService.signIn(email, password, otp: _otpOrNull(otp));
+      _otpRequired = false;
       final ok = await _bootstrap(profile['user_id'] as String,
           email: profile['email'] as String?, knownProfile: profile);
       _setLoading(false);
       return ok;
     } catch (e) {
+      _noteOtp(e);
       _setError(_describe(e, 'Log in failed'));
       _setLoading(false);
       return false;
@@ -306,17 +321,20 @@ class AuthProvider extends ChangeNotifier {
     required String email,
     required String code,
     required String newPassword,
+    String? otp,
   }) async {
     _clearError();
     _setLoading(true);
     try {
       final profile = await _directoryService.resetPassword(
-          email: email.trim(), code: code.trim(), newPassword: newPassword);
+          email: email.trim(), code: code.trim(), newPassword: newPassword, otp: _otpOrNull(otp));
+      _otpRequired = false;
       final ok = await _bootstrap(profile['user_id'] as String,
           email: profile['email'] as String?, knownProfile: profile);
       _setLoading(false);
       return ok;
     } catch (e) {
+      _noteOtp(e);
       _errorMessage = _describe(e, 'Password reset failed');
       if (_status == AuthStatus.error) _status = AuthStatus.unauthenticated;
       _setLoading(false);
@@ -444,20 +462,44 @@ class AuthProvider extends ChangeNotifier {
 
   /// Confirms recovery with the e-mailed [code]: this device is approved and
   /// every other device of the account is removed.
-  Future<bool> confirmDeviceRecovery(String code) async {
+  Future<bool> confirmDeviceRecovery(String code, {String? otp}) async {
     _errorMessage = null;
     _setLoading(true);
     try {
-      await _directoryService.confirmDeviceRecovery(code.trim());
+      await _directoryService.confirmDeviceRecovery(code.trim(), otp: _otpOrNull(otp));
+      _otpRequired = false;
       await _onApproved();
       _setLoading(false);
       return true;
     } catch (e) {
+      _noteOtp(e);
       _errorMessage = _describe(e, 'Recovery failed');
       _setLoading(false);
       return false;
     }
   }
+
+  static String? _otpOrNull(String? otp) {
+    final t = otp?.trim() ?? '';
+    return t.isEmpty ? null : t;
+  }
+
+  /// Leaves the code step (e.g. the user went back to edit the e-mail).
+  void cancelOtp() {
+    _otpRequired = false;
+    notifyListeners();
+  }
+
+  // Two-step verification settings
+
+  Future<Map<String, dynamic>> twoFactorStatus() => _directoryService.twoFactorStatus();
+  Future<Map<String, dynamic>> twoFactorSetup(String password) =>
+      _directoryService.twoFactorSetup(password);
+  Future<List<String>> twoFactorEnable(String code) => _directoryService.twoFactorEnable(code.trim());
+  Future<void> twoFactorDisable(String password, String code) =>
+      _directoryService.twoFactorDisable(password, code.trim());
+  Future<List<String>> twoFactorNewRecoveryCodes(String password) =>
+      _directoryService.twoFactorNewRecoveryCodes(password);
 
   /// Changes the password. Other devices are signed out by the server.
   Future<bool> changePassword({

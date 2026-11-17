@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/features/auth/widgets/otp_field.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/features/auth/screens/verify_email_screen.dart';
 import 'package:securelyhello/shared/widgets/app_text_field.dart';
@@ -27,6 +28,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _codeController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
+  final _otpController = TextEditingController();
   final _emailForm = GlobalKey<FormState>();
   final _resetForm = GlobalKey<FormState>();
   bool _codeSent = false;
@@ -50,6 +52,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     _codeController.dispose();
     _passwordController.dispose();
     _confirmController.dispose();
+    _otpController.dispose();
     super.dispose();
   }
 
@@ -68,6 +71,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       email: _emailController.text,
       code: _codeController.text,
       newPassword: _passwordController.text,
+      otp: _otpController.text,
     );
     if (ok && mounted) {
       Navigator.of(context)
@@ -221,6 +225,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   : null,
               onSubmitted: (_) => _reset(),
             ),
+            if (auth.otpRequired) OtpField(controller: _otpController, onSubmitted: (_) => _reset()),
             if (auth.errorMessage != null) ...[
               const SizedBox(height: 16),
               AuthBanner(text: auth.errorMessage!, error: true),
