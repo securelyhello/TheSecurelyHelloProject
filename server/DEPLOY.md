@@ -86,7 +86,7 @@ MinIO next to the app on the same VPS, if you prefer S3:
 
 ```yaml
   minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: minio/minio:RELEASE.<pin a current tag>
     command: server /data
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID}
