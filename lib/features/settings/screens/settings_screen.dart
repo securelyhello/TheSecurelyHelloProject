@@ -494,6 +494,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       value: chat.sendReadReceipts,
                       onChanged: chat.setSendReadReceipts,
                     ),
+                    SwitchListTile(
+                      key: const ValueKey('settings-discoverable'),
+                      secondary: const Icon(LucideIcons.search),
+                      title: const Text('Find me by username'),
+                      subtitle: const Text(
+                          'Off: people must type your exact username to find you'),
+                      value: auth.discoverable,
+                      onChanged: (v) async {
+                        if (!await auth.setDiscoverable(v) && context.mounted) {
+                          showAppSnackBar(context, friendlyError(auth.errorMessage), error: true);
+                        }
+                      },
+                    ),
                     ListTile(
                       leading: const Icon(LucideIcons.shieldCheck),
                       title: const Text('Verify a safety number'),
@@ -543,7 +556,74 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     'App lock',
                     padding: EdgeInsets.fromLTRB(28, 20, 28, 8),
                   ),
-                  const _AppLockSettings(),
+                  Builder(builder: (context) {
+                    final lock = context.watch<AppLockService>();
+                    return group([
+                      SwitchListTile(
+                        key: const ValueKey('settings-app-lock'),
+                        secondary: const Icon(LucideIcons.lock),
+                        title: const Text('Lock with a PIN'),
+                        subtitle: const Text('Ask for a PIN when you open the app'),
+                        value: lock.enabled,
+                        onChanged: (v) async {
+                          if (!v) return lock.disable();
+                          final pin = await askNewPin(context);
+                          if (pin != null) await lock.setPin(pin);
+                        },
+                      ),
+                      if (lock.enabled) ...[
+                        ListTile(
+                          leading: const Icon(LucideIcons.timer),
+                          title: const Text('Lock'),
+                          trailing: DropdownButton<int>(
+                            value: lock.timeoutSeconds,
+                            underline: const SizedBox(),
+                            items: [
+                              for (final s in AppLockService.timeoutChoices)
+                                DropdownMenuItem(
+                                    value: s, child: Text(AppLockService.timeoutLabel(s))),
+                            ],
+                            onChanged: (v) => v == null ? null : lock.setTimeout(v),
+                          ),
+                        ),
+                        if (lock.biometricsSupported)
+                          SwitchListTile(
+                            secondary: const Icon(LucideIcons.fingerprint),
+                            title: const Text('Unlock with biometrics'),
+                            value: lock.useBiometrics,
+                            onChanged: lock.setUseBiometrics,
+                          ),
+                        SwitchListTile(
+                          secondary: const Icon(LucideIcons.bomb),
+                          title: const Text('Erase after 10 wrong PINs'),
+                          subtitle: const Text('Signs out and deletes chats on this device'),
+                          value: lock.wipeOnFailures,
+                          onChanged: lock.setWipeOnFailures,
+                        ),
+                        ListTile(
+                          leading: const Icon(LucideIcons.lockKeyhole),
+                          title: const Text('Lock now'),
+                          onTap: lock.lockNow,
+                        ),
+                      ],
+                      SwitchListTile(
+                        key: const ValueKey('settings-screen-security'),
+                        secondary: const Icon(LucideIcons.monitorX),
+                        title: const Text('Screen security'),
+                        subtitle: const Text(
+                            'Block screenshots and hide the app in the app switcher'),
+                        value: lock.screenSecurity,
+                        onChanged: lock.setScreenSecurity,
+                      ),
+                      SwitchListTile(
+                        secondary: const Icon(LucideIcons.keyboard),
+                        title: const Text('Incognito keyboard'),
+                        subtitle: const Text('Ask the keyboard not to learn what you type'),
+                        value: lock.incognitoKeyboard,
+                        onChanged: lock.setIncognitoKeyboard,
+                      ),
+                    ]);
+                  }),
 
                   // ── Account ─────────────────────────────────────────
                   const SectionHeader(
@@ -856,92 +936,6 @@ class _ContactPickerState extends State<_ContactPicker> {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _AppLockSettings extends StatelessWidget {
-  const _AppLockSettings();
-
-  @override
-  Widget build(BuildContext context) {
-    final lock = context.watch<AppLockService>();
-    final p = context.palette;
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: p.surface,
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: p.divider),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(children: [
-        SwitchListTile(
-          key: const ValueKey('settings-app-lock'),
-          secondary: const Icon(LucideIcons.lock),
-          title: const Text('Lock with a PIN'),
-          subtitle: const Text('Ask for a PIN when you open the app'),
-          value: lock.enabled,
-          onChanged: (v) async {
-            if (!v) return lock.disable();
-            final pin = await askNewPin(context);
-            if (pin != null) await lock.setPin(pin);
-          },
-        ),
-        if (lock.enabled) ...[
-          ListTile(
-            leading: const Icon(LucideIcons.timer),
-            title: const Text('Lock'),
-            trailing: DropdownButton<int>(
-              value: lock.timeoutSeconds,
-              underline: const SizedBox(),
-              items: [
-                for (final s in AppLockService.timeoutChoices)
-                  DropdownMenuItem(value: s, child: Text(AppLockService.timeoutLabel(s))),
-              ],
-              onChanged: (v) => v == null ? null : lock.setTimeout(v),
-            ),
-          ),
-          FutureBuilder<bool>(
-            future: lock.biometricsAvailable(),
-            builder: (context, snap) => snap.data != true
-                ? const SizedBox()
-                : SwitchListTile(
-                    secondary: const Icon(LucideIcons.fingerprint),
-                    title: const Text('Unlock with biometrics'),
-                    value: lock.useBiometrics,
-                    onChanged: lock.setUseBiometrics,
-                  ),
-          ),
-          SwitchListTile(
-            secondary: const Icon(LucideIcons.bomb),
-            title: const Text('Erase after 10 wrong PINs'),
-            subtitle: const Text('Signs out and deletes chats on this device'),
-            value: lock.wipeOnFailures,
-            onChanged: lock.setWipeOnFailures,
-          ),
-          ListTile(
-            leading: const Icon(LucideIcons.lockKeyhole),
-            title: const Text('Lock now'),
-            onTap: lock.lockNow,
-          ),
-        ],
-        SwitchListTile(
-          key: const ValueKey('settings-screen-security'),
-          secondary: const Icon(LucideIcons.monitorX),
-          title: const Text('Screen security'),
-          subtitle: const Text('Block screenshots and hide the app in the app switcher'),
-          value: lock.screenSecurity,
-          onChanged: lock.setScreenSecurity,
-        ),
-        SwitchListTile(
-          secondary: const Icon(LucideIcons.keyboard),
-          title: const Text('Incognito keyboard'),
-          subtitle: const Text("Ask the keyboard not to learn what you type"),
-          value: lock.incognitoKeyboard,
-          onChanged: lock.setIncognitoKeyboard,
-        ),
-      ]),
     );
   }
 }

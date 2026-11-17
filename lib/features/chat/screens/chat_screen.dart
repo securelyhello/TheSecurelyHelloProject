@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import 'package:securelyhello/core/chat/chat_service.dart' show ChatService, Message;
+import 'package:securelyhello/core/chat/chat_service.dart' show ChatService, Message, Verification;
 import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
 import 'package:securelyhello/core/notifications/notification_service.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
@@ -591,23 +591,39 @@ class _ChatScreenState extends State<ChatScreen> {
               ],
             ),
           ),
-          Composer(
-            controller: _input,
-            focusNode: _focus,
-            onSend: _send,
-            onAttach: _editing == null ? _attach : null,
-            header: _editing != null
-                ? _quote({'id': _editing!.id, 'from': _chat.myUserId, 'preview': 'Editing: ${_editing!.content}'},
-                    contact, onClose: () {
-                    setState(() => _editing = null);
-                    _input.clear();
-                  })
-                : _replyTo != null
-                    ? _quote(_replyRef(_replyTo!), contact, onClose: () => setState(() => _replyTo = null))
-                    : null,
-            uploading: context.select<ChatProvider, bool>((c) => c.isUploading(_id)),
-            onChanged: (text) => _chat.onComposerChanged(_id, text),
-          ),
+          if (chat.verificationCached(_id) == Verification.changed)
+            _KeysChangedBar(
+              name: name,
+              onReview: () => _openInfo(contact),
+              onAccept: () async {
+                final ok = await showConfirmDialog(
+                  context,
+                  title: 'Trust the new keys?',
+                  message: "Messages will be encrypted to $name's new keys without "
+                      'comparing safety numbers. They will show as not verified.',
+                  confirmLabel: 'Trust',
+                );
+                if (ok) await _chat.clearVerified(_id);
+              },
+            )
+          else
+            Composer(
+              controller: _input,
+              focusNode: _focus,
+              onSend: _send,
+              onAttach: _editing == null ? _attach : null,
+              header: _editing != null
+                  ? _quote({'id': _editing!.id, 'from': _chat.myUserId, 'preview': 'Editing: ${_editing!.content}'},
+                      contact, onClose: () {
+                      setState(() => _editing = null);
+                      _input.clear();
+                    })
+                  : _replyTo != null
+                      ? _quote(_replyRef(_replyTo!), contact, onClose: () => setState(() => _replyTo = null))
+                      : null,
+              uploading: context.select<ChatProvider, bool>((c) => c.isUploading(_id)),
+              onChanged: (text) => _chat.onComposerChanged(_id, text),
+            ),
         ],
       ),
     );
@@ -868,6 +884,68 @@ class _EmptyConversation extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Replaces the composer when a verified contact's keys changed.
+class _KeysChangedBar extends StatelessWidget {
+  const _KeysChangedBar({required this.name, required this.onReview, required this.onAccept});
+  final String name;
+  final VoidCallback onReview;
+  final VoidCallback onAccept;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return SafeArea(
+      top: false,
+      child: Container(
+        key: const ValueKey('keys-changed-bar'),
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+        decoration: BoxDecoration(
+          color: p.surface,
+          border: Border(top: BorderSide(color: p.danger.withValues(alpha: 0.6))),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(LucideIcons.shieldAlert, size: 18, color: p.danger),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    "$name's safety number changed",
+                    style: Theme.of(
+                      context,
+                    ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              "You verified $name before. Sending is paused until you check the new number. "
+              'This is usually a new phone, but it could be someone intercepting.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.4),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(onPressed: onAccept, child: const Text('Trust new keys')),
+                const SizedBox(width: 4),
+                FilledButton(
+                  key: const ValueKey('keys-changed-review'),
+                  onPressed: onReview,
+                  child: const Text('Verify'),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );

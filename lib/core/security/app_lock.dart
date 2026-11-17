@@ -81,10 +81,14 @@ class AppLockService extends ChangeNotifier {
   DateTime? _lockedUntil;
   DateTime? _backgroundSince;
   bool _obscured = false;
+  bool _biometricsSupported = false;
 
   bool get enabled => _enabled;
   bool get locked => _enabled && _locked;
   bool get useBiometrics => _biometrics;
+
+  /// The device has enrolled biometrics (checked at start-up).
+  bool get biometricsSupported => _biometricsSupported;
   bool get wipeOnFailures => _wipeOnFailures;
   bool get screenSecurity => _screenSecurity;
   bool get incognitoKeyboard => _incognitoKeyboard;
@@ -120,6 +124,7 @@ class AppLockService extends ChangeNotifier {
     _timeout = int.tryParse(await _store.readSetting('lock_timeout') ?? '') ?? 60;
     _failures = int.tryParse(await _store.readSetting('lock_failures') ?? '') ?? 0;
     _locked = _enabled;
+    _biometricsSupported = await biometricsAvailable();
     await _applyScreenFlag();
     notifyListeners();
   }

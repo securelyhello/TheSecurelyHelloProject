@@ -12,7 +12,8 @@ import { HttpError, bad } from './validate.js';
 const notFound = (what = 'Not found') => new HttpError(404, 'not_found', what);
 const tooMany = () => new HttpError(429, 'rate_limited', 'Too many requests, slow down');
 
-const USER_COLUMNS = 'u.id, u.email, u.username, u.display_name, u.created_at, u.email_verified_at';
+const USER_COLUMNS =
+  'u.id, u.email, u.username, u.display_name, u.created_at, u.email_verified_at, u.discoverable';
 
 
 
@@ -54,6 +55,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       email: row.email,
       email_verified: row.email_verified_at != null,
       email_verification_required: verificationRequired,
+      discoverable: row.discoverable,
       created_at: row.created_at,
     };
   }
@@ -353,6 +355,11 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       args.push(v.username(body.username));
       sets.push(`username = $${args.length}`);
     }
+    if (body.discoverable !== undefined) {
+      if (typeof body.discoverable !== 'boolean') throw bad('discoverable must be true or false');
+      args.push(body.discoverable);
+      sets.push(`discoverable = $${args.length}`);
+    }
     if (sets.length === 0) throw bad('Nothing to update');
     try {
       const { rows } = await pool.query(
@@ -394,6 +401,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     const { rows } = await pool.query(
       `SELECT ${USER_COLUMNS} FROM users u
         WHERE u.username LIKE '%' || $1 || '%' ESCAPE '\\' AND u.id <> $2
+          AND (u.discoverable OR u.username = $3)
           AND ($4::boolean = false OR u.email_verified_at IS NOT NULL)
           AND u.suspended_at IS NULL
           AND NOT EXISTS (SELECT 1 FROM blocks b

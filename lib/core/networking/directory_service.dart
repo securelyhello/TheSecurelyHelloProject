@@ -405,10 +405,11 @@ class DirectoryService {
           'POST', '/api/users/${Uri.encodeComponent(userId)}/prekey-bundles',
           body: {'device_ids': deviceIds}));
 
-  Future<void> updateProfile({String? displayName, String? username}) async {
+  Future<void> updateProfile({String? displayName, String? username, bool? discoverable}) async {
     final body = <String, dynamic>{
       if (displayName != null) 'display_name': displayName,
       if (username != null) 'username': username,
+      if (discoverable != null) 'discoverable': discoverable,
     };
     if (body.isEmpty) return;
     await _request('PATCH', '/api/me', body: body);

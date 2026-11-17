@@ -493,6 +493,39 @@ class ChatService {
     }
   }
 
+  /// A digest of [devices]' keys: what verifying a contact pins.
+  static String keySetDigest(List<DeviceKeys> devices) {
+    final keys = [for (final d in devices) '${d.signingKey}|${d.identityKey}']..sort();
+    return CryptoCore.toBase64(Kdf.sha256(Uint8List.fromList(utf8.encode(keys.join(',')))));
+  }
+
+  /// Whether [contactId] is verified, and whether their keys changed since.
+  Future<Verification> verificationOf(String contactId) async {
+    final pinned = await _storage.kvGet('verified:$contactId');
+    if (pinned == null) return Verification.unverified;
+    final current = await devicesOf(contactId);
+    if (current.isEmpty) return Verification.verified;
+    return keySetDigest(current) == pinned ? Verification.verified : Verification.changed;
+  }
+
+  /// Pins [contactId]'s current keys after the user compared safety numbers
+  /// (or scanned the QR code).
+  Future<void> markVerified(String contactId) async {
+    final current = await devicesOf(contactId, refresh: true);
+    if (current.isEmpty) throw StateError('No keys for $contactId');
+    await _storage.kvSet('verified:$contactId', keySetDigest(current));
+    _changed(contactId);
+    unawaited(resendUnsent());
+  }
+
+  /// Drops verification: after a key change the user chose to trust the new
+  /// keys without comparing again, or they want to unverify.
+  Future<void> clearVerified(String contactId) async {
+    await _storage.kvDelete('verified:$contactId');
+    _changed(contactId);
+    unawaited(resendUnsent());
+  }
+
   // ===========================================================================
   // Sending
   // ===========================================================================
@@ -936,6 +969,10 @@ class ChatService {
         // Nobody to sync to is fine; a contact without devices can't be reached.
         return userId == _myUserId;
       }
+      if (userId != _myUserId && !await _keysTrusted(userId, devices)) {
+        debugPrint('Not sending to $userId: keys changed since verification');
+        return false;
+      }
       final sealed =
           await sessions.seal(userId, devices, payload, envelopeId: envId);
       final viaRelay = <String, String>{};
@@ -957,6 +994,13 @@ class ChatService {
       }
     }
     return false;
+  }
+
+  /// False when [userId] was verified and [devices] are not the keys that
+  /// were verified: nothing is encrypted to keys the user hasn't accepted.
+  Future<bool> _keysTrusted(String userId, List<DeviceKeys> devices) async {
+    final pinned = await _storage.kvGet('verified:$userId');
+    return pinned == null || pinned == keySetDigest(devices);
   }
 
   // ===========================================================================
@@ -1585,9 +1629,13 @@ class ChatService {
         : change.removed.isNotEmpty && change.added.isEmpty && change.changed.isEmpty
             ? '$name removed a device.'
             : "$name's devices changed.";
+    final paused = await verificationOf(contactId) == Verification.changed;
     await _storage.insertSystemMessage(
       contactId,
-      '$what Your safety number with them changed; verify it in contact info.',
+      paused
+          ? '$what You had verified them, so sending is paused until you verify '
+              'the new safety number or accept it.'
+          : '$what Your safety number with them changed; verify it in contact info.',
       id: _uuid.v4(),
     );
     _changed(contactId);
@@ -1628,4 +1676,12 @@ class ChatService {
     await _typingController.close();
     await _devicesChangedController.close();
   }
+}
+
+enum Verification {
+  unverified,
+  verified,
+
+  /// Verified before, but their keys have changed since. Sending is paused.
+  changed,
 }

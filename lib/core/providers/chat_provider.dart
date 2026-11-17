@@ -145,12 +145,20 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
+  final Map<String, Verification> _verification = {};
+
+  /// Verification state of a loaded conversation's contact (refreshed with
+  /// its messages).
+  Verification verificationCached(String contactId) =>
+      _verification[contactId] ?? Verification.unverified;
+
   /// Load (or reload) the newest messages of a conversation.
   Future<void> loadMessages(String conversationId) async {
     try {
       final limit = _messageLimits[conversationId] ?? 50;
       _messageCache[conversationId] =
           await _chatService.fetchMessages(conversationId, limit: limit);
+      _verification[conversationId] = await _chatService.verificationOf(conversationId);
       notifyListeners();
     } catch (e) {
       _errorMessage = 'Failed to load messages: $e';
@@ -323,6 +331,19 @@ class ChatProvider extends ChangeNotifier {
   /// Safety number shared with [contactId].
   Future<String?> safetyNumberFor(String contactId) =>
       _chatService.safetyNumberFor(contactId);
+
+  Future<Verification> verificationOf(String contactId) =>
+      _chatService.verificationOf(contactId);
+
+  Future<void> markVerified(String contactId) async {
+    await _chatService.markVerified(contactId);
+    notifyListeners();
+  }
+
+  Future<void> clearVerified(String contactId) async {
+    await _chatService.clearVerified(contactId);
+    notifyListeners();
+  }
 
   /// The latest [limit] messages with [contactId], newest first.
   Future<List<Message>> recentMessages(String contactId, {int limit = 20}) =>

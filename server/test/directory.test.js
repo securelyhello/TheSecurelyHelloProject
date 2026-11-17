@@ -23,6 +23,20 @@ describe('directory', () => {
     assert.equal((await api(srv.base, 'PUT', '/api/me/keys', { token: a.token, body: {} })).status, 404);
   });
 
+  test('turning discovery off hides you from partial search but not exact username', async () => {
+    const a = await signup(srv.base, 'seeker');
+    const b = await signup(srv.base, 'hiddenperson');
+    const off = await api(srv.base, 'PATCH', '/api/me', { token: b.token, body: { discoverable: false } });
+    assert.equal(off.body.discoverable, false);
+    assert.equal((await api(srv.base, 'PATCH', '/api/me', { token: b.token, body: { discoverable: 'no' } })).status, 400);
+
+    const partial = await api(srv.base, 'GET', '/api/users/search?q=hiddenpers', { token: a.token });
+    assert.equal(partial.body.some((u) => u.user_id === b.id), false);
+    const exact = await api(srv.base, 'GET', `/api/users/search?q=${b.username}`, { token: a.token });
+    assert.ok(exact.body.some((u) => u.user_id === b.id));
+    assert.equal(exact.body.find((u) => u.user_id === b.id).discoverable, undefined, 'setting not exposed');
+  });
+
   test('search excludes self, escapes wildcards, hides presence from strangers', async () => {
     const a = await signup(srv.base, 'searcher');
     const b = await signup(srv.base, 'findme');

@@ -522,6 +522,25 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  /// Whether people can find us by typing part of our username.
+  bool get discoverable => _profile?['discoverable'] != false;
+
+  Future<bool> setDiscoverable(bool value) async {
+    final userId = _user?.id;
+    if (userId == null) return false;
+    try {
+      await _directoryService.updateProfile(discoverable: value);
+      _profile = {...?_profile, 'discoverable': value};
+      await _cacheProfile(userId, _profile!);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = _describe(e, 'Could not change this setting');
+      notifyListeners();
+      return false;
+    }
+  }
+
   /// Tells contacts whether the app is in the foreground. Being connected is
   /// what makes us "online"; this only toggles "away".
   Future<void> setPresence(bool online) async {
@@ -661,6 +680,7 @@ class AuthProvider extends ChangeNotifier {
       'display_name': profile['display_name'],
       'email_verified': profile['email_verified'],
       'email_verification_required': profile['email_verification_required'],
+      'discoverable': profile['discoverable'],
     }));
   }
 

@@ -4,9 +4,12 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/core/chat/chat_service.dart' show Verification;
+import 'package:securelyhello/core/crypto/verify_code.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/features/contacts/widgets/report_dialog.dart';
+import 'package:securelyhello/features/contacts/widgets/verify_widgets.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/shared/utils/chat_time_format.dart';
 import 'package:securelyhello/shared/widgets/app_dialogs.dart';
@@ -215,7 +218,8 @@ class _ContactInfoSheetState extends State<_ContactInfoSheet> {
               ],
             ),
             const SizedBox(height: 22),
-            _SafetyNumberCard(future: _safetyNumber, name: c.displayLabel),
+            _SafetyNumberCard(
+                future: _safetyNumber, name: c.displayLabel, contactId: c.userId),
             const SizedBox(height: 16),
             Material(
               color: p.surface,
@@ -323,10 +327,23 @@ class _QuickAction extends StatelessWidget {
 }
 
 class _SafetyNumberCard extends StatelessWidget {
-  const _SafetyNumberCard({required this.future, required this.name});
+  const _SafetyNumberCard({required this.future, required this.name, required this.contactId});
 
   final Future<String?> future;
   final String name;
+  final String contactId;
+
+  Future<void> _scan(BuildContext context, String number) async {
+    final chat = context.read<ChatProvider>();
+    final code = await scanVerifyQr(context);
+    if (code == null || !context.mounted) return;
+    final result = VerifyCode.check(code,
+        me: chat.myUserId ?? '', contact: contactId, safetyNumber: number);
+    if (result == VerifyResult.match) await chat.markVerified(contactId);
+    if (!context.mounted) return;
+    showAppSnackBar(context, verifyResultText(result, name),
+        error: result != VerifyResult.match);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -407,17 +424,40 @@ class _SafetyNumberCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 6),
-                  Align(
-                    alignment: Alignment.center,
-                    child: TextButton.icon(
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: number));
-                        showAppSnackBar(context, 'Safety number copied');
-                      },
-                      icon: const Icon(LucideIcons.copy, size: 16),
-                      label: const Text('Copy'),
-                    ),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    children: [
+                      TextButton.icon(
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: number));
+                          showAppSnackBar(context, 'Safety number copied');
+                        },
+                        icon: const Icon(LucideIcons.copy, size: 16),
+                        label: const Text('Copy'),
+                      ),
+                      TextButton.icon(
+                        key: const ValueKey('verify-show-qr'),
+                        onPressed: () => showVerifyQr(
+                          context,
+                          name: name,
+                          data: VerifyCode.encode(
+                            from: context.read<ChatProvider>().myUserId ?? '',
+                            to: contactId,
+                            safetyNumber: number,
+                          ),
+                        ),
+                        icon: const Icon(LucideIcons.qrCode, size: 16),
+                        label: const Text('Show code'),
+                      ),
+                      if (canScanQr)
+                        TextButton.icon(
+                          onPressed: () => _scan(context, number),
+                          icon: const Icon(LucideIcons.scanLine, size: 16),
+                          label: const Text('Scan'),
+                        ),
+                    ],
                   ),
+                  _VerificationRow(contactId: contactId, name: name),
                 ],
               );
             },
@@ -467,6 +507,67 @@ class _DeviceCoverage extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
           ),
+        );
+      },
+    );
+  }
+}
+
+/// Verified state and the button to change it.
+class _VerificationRow extends StatelessWidget {
+  const _VerificationRow({required this.contactId, required this.name});
+  final String contactId;
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final chat = context.watch<ChatProvider>();
+    final p = context.palette;
+    return FutureBuilder<Verification>(
+      future: chat.verificationOf(contactId),
+      builder: (context, snap) {
+        final v = snap.data;
+        if (v == null) return const SizedBox(height: 8);
+        final (icon, color, text) = switch (v) {
+          Verification.verified => (LucideIcons.badgeCheck, p.accent, 'You verified $name'),
+          Verification.changed => (
+              LucideIcons.shieldAlert,
+              p.danger,
+              "$name's keys changed after you verified them. Sending is paused."
+            ),
+          Verification.unverified => (LucideIcons.shield, p.textMuted, 'Not verified'),
+        };
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(text,
+                  key: const ValueKey('verify-state'),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: color)),
+            ),
+            if (v == Verification.verified)
+              TextButton(
+                onPressed: () => chat.clearVerified(contactId),
+                child: const Text('Unverify'),
+              )
+            else
+              TextButton(
+                key: const ValueKey('verify-mark'),
+                onPressed: () async {
+                  final ok = await showConfirmDialog(
+                    context,
+                    title: 'Mark $name as verified?',
+                    message: 'Only do this if the digits above match what $name sees, '
+                        'compared in person or on a call you trust.',
+                    confirmLabel: 'They match',
+                  );
+                  if (ok) await chat.markVerified(contactId);
+                },
+                child: Text(v == Verification.changed ? 'Verify again' : 'Mark verified'),
+              ),
+          ]),
         );
       },
     );

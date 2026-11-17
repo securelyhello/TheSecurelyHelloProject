@@ -389,6 +389,11 @@ void main() {
       expect(raw.every((r) => (r['content'] as String).startsWith('enc1:')),
           isTrue);
 
+      // ---- Bob verifies Alice ------------------------------------------------
+      expect(await bob.chat.verificationOf(alice.id), Verification.unverified);
+      await bob.chat.markVerified(alice.id);
+      expect(await bob.chat.verificationOf(alice.id), Verification.verified);
+
       // ---- a second device for Alice ----------------------------------------
       final laptop = Stack('alice_laptop');
       final alerts = alice.auth.deviceEvents.where((e) => e['type'] == 'device_pending').first;
@@ -415,6 +420,23 @@ void main() {
           () async => (await bob.messagesWith(alice))
               .any((m) => m.isSystem && m.content.contains('new device')),
           what: 'Bob is told her devices changed');
+
+      // Her keys changed after Bob verified her: nothing goes out until he
+      // checks again.
+      expect(await bob.chat.verificationOf(alice.id), Verification.changed);
+      await until(
+          () async => (await bob.messagesWith(alice))
+              .any((m) => m.isSystem && m.content.contains('sending is paused')),
+          what: 'Bob is told sending is paused');
+      final held = await bob.chat.sendMessage(alice.id, 'held until verified');
+      expect(held.status, 'failed', reason: 'not encrypted to unverified keys');
+      await Future<void>.delayed(const Duration(seconds: 1));
+      expect((await alice.messagesWith(bob)).any((m) => m.id == held.id), isFalse);
+      await bob.chat.markVerified(alice.id);
+      expect(await bob.chat.verificationOf(alice.id), Verification.verified);
+      await until(
+          () async => (await laptop.messagesWith(bob)).any((m) => m.id == held.id),
+          what: 'the held message goes out after verifying again');
 
       // Bob writes once: both of Alice's devices receive it.
       final toBoth = await bob.chat.sendMessage(alice.id, 'to all your devices');
