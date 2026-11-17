@@ -43,7 +43,8 @@ class _LoginScreenState extends State<LoginScreen> {
     );
     
     if (success && mounted) {
-      Navigator.of(context).pushReplacementNamed('/home');
+      Navigator.of(context)
+          .pushReplacementNamed(context.read<AuthProvider>().homeRoute);
     }
   }
 
@@ -116,7 +117,17 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   validator: (v) => v!.isEmpty ? 'Password is required' : null,
                 ),
-                const SizedBox(height: 32),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    key: const ValueKey('forgot-password'),
+                    onPressed: () => Navigator.of(context).pushNamed(
+                        '/forgot-password',
+                        arguments: _emailController.text.trim()),
+                    child: const Text('Forgot password?'),
+                  ),
+                ),
+                const SizedBox(height: 16),
                 if (authProvider.errorMessage != null)
                   Container(
                     padding: const EdgeInsets.all(12),

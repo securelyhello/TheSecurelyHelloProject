@@ -76,7 +76,8 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   void _navigate(AuthStatus status) {
     if (!mounted) return;
     if (status == AuthStatus.authenticated) {
-      Navigator.of(context).pushReplacementNamed('/home');
+      Navigator.of(context)
+          .pushReplacementNamed(context.read<AuthProvider>().homeRoute);
     } else {
       Navigator.of(context).pushReplacementNamed('/login');
     }

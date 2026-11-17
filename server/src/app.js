@@ -4,6 +4,7 @@ import { registerRoutes } from './api.js';
 import { HotStore } from './hotstore.js';
 import { Router, bearerToken, clientIp, readJsonBody, sendJson } from './http.js';
 import { logger } from './log.js';
+import { createMailer } from './mail.js';
 import { RateLimits } from './ratelimit.js';
 import { RealtimeHub } from './realtime.js';
 import { Services } from './services.js';
@@ -27,6 +28,10 @@ export function loadConfig(env = process.env) {
     redisPrefix: env.REDIS_PREFIX || 'sh:',
     sweepIntervalMs: int('SWEEP_INTERVAL_MS', 60 * 60_000),
     logRequests: env.LOG_REQUESTS !== '0',
+    // 'required': unverified accounts can't send or accept contact requests
+    // and are hidden from search. Defaults to required when real e-mail
+    // (SMTP) is configured, optional otherwise.
+    emailVerification: (env.EMAIL_VERIFICATION || '').toLowerCase(),
   };
 }
 
@@ -35,7 +40,24 @@ export function loadConfig(env = process.env) {
  * @param {{pool: import('pg').Pool, redis: import('ioredis').Redis, config?: object,
  *          limitOverrides?: object, storeOptions?: object, log?: object}} opts
  */
-export function createApp({ pool, redis, config = loadConfig(), limitOverrides = {}, storeOptions = {}, log = logger }) {
+export function createApp({
+  pool,
+  redis,
+  config = loadConfig(),
+  limitOverrides = {},
+  storeOptions = {},
+  log = logger,
+  mailer = createMailer(),
+}) {
+  config = { ...config };
+  if (!mailer.enabled) {
+    if (config.emailVerification === 'required') {
+      log.warn('EMAIL_VERIFICATION=required ignored: e-mail is disabled (set SMTP_URL)');
+    }
+    config.emailVerification = 'optional';
+  } else if (config.emailVerification !== 'required' && config.emailVerification !== 'optional') {
+    config.emailVerification = mailer.transport === 'smtp' ? 'required' : 'optional';
+  }
   const store = new HotStore(redis, {
     prefix: config.redisPrefix,
     relayTtlSeconds: config.relayTtlHours * 3600,
@@ -45,7 +67,7 @@ export function createApp({ pool, redis, config = loadConfig(), limitOverrides =
   const limits = new RateLimits(store, limitOverrides);
   const hub = new RealtimeHub({ services, store, limits, trustProxyHops: config.trustProxyHops, log });
   const router = new Router();
-  registerRoutes(router, { pool, hub, store, services, limits, config });
+  registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log });
 
   const server = http.createServer(async (req, res) => {
     const started = Date.now();
@@ -117,12 +139,15 @@ export function createApp({ pool, redis, config = loadConfig(), limitOverrides =
   /** Postgres housekeeping. Redis data expires on its own. */
   async function sweep() {
     const sessions = await pool.query('DELETE FROM sessions WHERE expires_at <= now()');
-    return { sessions: sessions.rowCount };
+    const codes = await pool.query('DELETE FROM email_codes WHERE expires_at <= now()');
+    return { sessions: sessions.rowCount, codes: codes.rowCount };
   }
   let sweepTimer = null;
 
   return {
     server,
+    config,
+    mailer,
     hub,
     pool,
     store,
@@ -132,7 +157,7 @@ export function createApp({ pool, redis, config = loadConfig(), limitOverrides =
     listen(port = config.port, host = config.host) {
       sweepTimer = setInterval(() => {
         sweep()
-          .then((n) => n.sessions && log.info('sweep', n))
+          .then((n) => (n.sessions || n.codes) && log.info('sweep', n))
           .catch((err) => log.warn('sweep failed', { error: err.message }));
       }, config.sweepIntervalMs);
       sweepTimer.unref();

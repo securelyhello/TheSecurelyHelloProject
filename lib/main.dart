@@ -19,6 +19,8 @@ import 'package:securelyhello/core/providers/connection_provider.dart';
 import 'package:securelyhello/features/auth/screens/splash_screen.dart';
 import 'package:securelyhello/features/auth/screens/login_screen.dart';
 import 'package:securelyhello/features/auth/screens/signup_screen.dart';
+import 'package:securelyhello/features/auth/screens/verify_email_screen.dart';
+import 'package:securelyhello/features/auth/screens/forgot_password_screen.dart';
 import 'package:securelyhello/features/home/home_screen.dart';
 import 'package:securelyhello/features/contacts/screens/add_contact_screen.dart';
 import 'package:securelyhello/features/contacts/screens/contact_requests_screen.dart';
@@ -165,12 +167,20 @@ class SecurelyHelloApp extends StatelessWidget {
           '/splash': (context) => const SplashScreen(),
           '/login': (context) => const LoginScreen(),
           '/signup': (context) => const SignupScreen(),
+          '/verify-email': (context) => const VerifyEmailScreen(),
           '/home': (context) => const HomeScreen(),
           '/add-contact': (context) => const AddContactScreen(),
           '/contact-requests': (context) => const ContactRequestsScreen(),
         },
         onGenerateRoute: (settings) {
           // Handle routes with arguments
+          if (settings.name == '/forgot-password') {
+            return MaterialPageRoute(
+              builder: (context) => ForgotPasswordScreen(
+                  initialEmail: settings.arguments as String?),
+              settings: settings,
+            );
+          }
           if (settings.name == '/chat') {
             final contactUserId = settings.arguments as String;
             return MaterialPageRoute(

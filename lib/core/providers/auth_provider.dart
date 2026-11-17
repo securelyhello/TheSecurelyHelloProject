@@ -73,6 +73,35 @@ class AuthProvider extends ChangeNotifier {
   String get displayName =>
       _profile?['display_name'] as String? ?? username;
 
+  /// Whether the account's e-mail address is confirmed.
+  bool get emailVerified => _profile?['email_verified'] == true;
+
+  /// The server won't let unverified accounts reach anyone.
+  bool get emailVerificationRequired =>
+      _profile?['email_verification_required'] == true;
+
+  /// The app must show the verification screen before anything else.
+  bool get mustVerifyEmail =>
+      isAuthenticated && emailVerificationRequired && !emailVerified;
+
+  /// Where to go after signing in: the verification screen or home.
+  String get homeRoute => mustVerifyEmail ? '/verify-email' : '/home';
+
+  Map<String, dynamic>? _serverConfig;
+
+  /// Public server settings (cached after the first successful call).
+  Future<Map<String, dynamic>?> serverConfig() async {
+    if (_serverConfig != null) return _serverConfig;
+    try {
+      _serverConfig = await _directoryService.getServerConfig();
+    } catch (_) {}
+    return _serverConfig;
+  }
+
+  /// Whether this server can e-mail codes (needed for password reset).
+  Future<bool> emailAvailable() async =>
+      (await serverConfig())?['password_reset'] == true;
+
   /// Drops a stale error (e.g. when moving between login and sign up).
   void clearError() {
     if (_errorMessage == null) return;
@@ -174,6 +203,81 @@ class AuthProvider extends ChangeNotifier {
     await _clearSession();
     _signingOut = false;
     _setLoading(false);
+  }
+
+  // ---------------------------------------------------------------------------
+  // E-mail verification and password reset
+  // ---------------------------------------------------------------------------
+
+  /// E-mails a new verification code.
+  Future<bool> resendVerificationEmail() async {
+    _errorMessage = null;
+    try {
+      await _directoryService.sendVerificationEmail();
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = _describe(e, 'Could not send the code');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Confirms the e-mail address with the 6-digit [code].
+  Future<bool> verifyEmail(String code) async {
+    _errorMessage = null;
+    _setLoading(true);
+    try {
+      final profile = await _directoryService.verifyEmail(code.trim());
+      _profile = {...?_profile, ...profile};
+      final id = _user?.id;
+      if (id != null) await _cacheProfile(id, _profile!);
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      _errorMessage = _describe(e, 'Verification failed');
+      _setLoading(false);
+      return false;
+    }
+  }
+
+  /// Asks the server to e-mail a password-reset code to [email].
+  Future<bool> requestPasswordReset(String email) async {
+    _clearError();
+    _setLoading(true);
+    try {
+      await _directoryService.requestPasswordReset(email.trim());
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      _errorMessage = _describe(e, 'Could not send the code');
+      _setLoading(false);
+      return false;
+    }
+  }
+
+  /// Sets a new password with the e-mailed [code] and signs in. Keys on this
+  /// device are kept; other devices are signed out.
+  Future<bool> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    _clearError();
+    _setLoading(true);
+    try {
+      final profile = await _directoryService.resetPassword(
+          email: email.trim(), code: code.trim(), newPassword: newPassword);
+      final ok = await _bootstrap(profile['user_id'] as String,
+          email: profile['email'] as String?, knownProfile: profile);
+      _setLoading(false);
+      return ok;
+    } catch (e) {
+      _errorMessage = _describe(e, 'Password reset failed');
+      if (_status == AuthStatus.error) _status = AuthStatus.unauthenticated;
+      _setLoading(false);
+      return false;
+    }
   }
 
   /// Changes the password. Other devices are signed out by the server.
@@ -371,6 +475,8 @@ class AuthProvider extends ChangeNotifier {
       'display_name': profile['display_name'],
       'signing_public_key': profile['signing_public_key'],
       'encryption_public_key': profile['encryption_public_key'],
+      'email_verified': profile['email_verified'],
+      'email_verification_required': profile['email_verification_required'],
     }));
   }
 

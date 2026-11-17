@@ -2,7 +2,10 @@
 // non-browser clients through on that prefix). All JSON. Every route needs a
 // Bearer session token unless registered with {auth:false}. The acting user
 // is always taken from the session, never from the request body.
+import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
+
 import { withTransaction } from './db.js';
+import { codeEmail } from './mail.js';
 import { burnPasswordCheck, hashPassword, hashToken, newSessionToken, verifyPassword } from './security.js';
 import * as v from './validate.js';
 import { HttpError, bad } from './validate.js';
@@ -11,7 +14,11 @@ const notFound = (what = 'Not found') => new HttpError(404, 'not_found', what);
 const tooMany = () => new HttpError(429, 'rate_limited', 'Too many requests, slow down');
 
 const USER_COLUMNS =
-  'u.id, u.email, u.username, u.display_name, u.signing_public_key, u.encryption_public_key, u.created_at';
+  'u.id, u.email, u.username, u.display_name, u.signing_public_key, u.encryption_public_key, u.created_at, u.email_verified_at';
+
+const CODE_TTL_MINUTES = { verify: 30, reset: 15 };
+const CODE_MAX_ATTEMPTS = 5;
+const CODE_RE = /^\d{6}$/;
 
 /**
  * @param {import('./http.js').Router} router
@@ -22,7 +29,8 @@ const USER_COLUMNS =
  * @param {import('./services.js').Services} deps.services
  * @param {import('./ratelimit.js').RateLimits} deps.limits
  */
-export function registerRoutes(router, { pool, hub, store, services, limits, config }) {
+export function registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log }) {
+  const verificationRequired = config.emailVerification === 'required';
   // ---------------------------------------------------------------------------
   // Serialization
   // ---------------------------------------------------------------------------
@@ -47,7 +55,69 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
 
   async function me(row) {
     const pres = await services.presence([row.id]);
-    return { ...profile(row, pres.get(row.id)), email: row.email, created_at: row.created_at };
+    return {
+      ...profile(row, pres.get(row.id)),
+      email: row.email,
+      email_verified: row.email_verified_at != null,
+      email_verification_required: verificationRequired,
+      created_at: row.created_at,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // E-mail codes (verification, password reset)
+  // ---------------------------------------------------------------------------
+
+  const codeHash = (userId, purpose, code) =>
+    createHash('sha256').update(`securelyhello-code|${purpose}|${userId}|${code}`).digest();
+
+  /** Creates (or replaces) a code for [purpose] and e-mails it. */
+  async function issueCode(userId, email, purpose) {
+    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const minutes = CODE_TTL_MINUTES[purpose];
+    await pool.query(
+      `INSERT INTO email_codes (user_id, purpose, code_hash, expires_at)
+       VALUES ($1, $2, $3, now() + make_interval(mins => $4))
+       ON CONFLICT (user_id, purpose) DO UPDATE
+         SET code_hash = EXCLUDED.code_hash, attempts = 0, created_at = now(), expires_at = EXCLUDED.expires_at`,
+      [userId, purpose, codeHash(userId, purpose, code), minutes],
+    );
+    await mailer.send(codeEmail(purpose, email, code, minutes));
+  }
+
+  /**
+   * Spends one attempt on the live code and consumes it if [code] matches.
+   * Every guess counts, right or wrong, so a code allows CODE_MAX_ATTEMPTS
+   * guesses in total.
+   */
+  async function consumeCode(userId, purpose, code) {
+    if (typeof code !== 'string' || !CODE_RE.test(code)) return false;
+    const { rows } = await pool.query(
+      `UPDATE email_codes SET attempts = attempts + 1
+        WHERE user_id = $1 AND purpose = $2 AND expires_at > now() AND attempts < $3
+        RETURNING code_hash`,
+      [userId, purpose, CODE_MAX_ATTEMPTS],
+    );
+    if (!rows[0]) return false;
+    const expected = rows[0].code_hash;
+    const given = codeHash(userId, purpose, code);
+    if (expected.length !== given.length || !timingSafeEqual(expected, given)) return false;
+    // Single use: only one concurrent request can delete it.
+    const del = await pool.query('DELETE FROM email_codes WHERE user_id = $1 AND purpose = $2 AND code_hash = $3', [
+      userId,
+      purpose,
+      given,
+    ]);
+    return del.rowCount === 1;
+  }
+
+  /** With EMAIL_VERIFICATION=required, unverified accounts can't reach anyone. */
+  async function requireVerified(userId) {
+    if (!verificationRequired) return;
+    const { rows } = await pool.query('SELECT email_verified_at FROM users WHERE id = $1', [userId]);
+    if (!rows[0]?.email_verified_at) {
+      throw new HttpError(403, 'email_unverified', 'Verify your e-mail address first');
+    }
   }
 
   async function createSession(client, userId) {
@@ -113,6 +183,11 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
           );
           return { row: rows[0], token: await createSession(client, rows[0].id) };
         });
+        if (mailer.enabled) {
+          await issueCode(row.id, row.email, 'verify').catch((err) =>
+            log.warn('verification e-mail failed', { user: row.id, error: err.message }),
+          );
+        }
         return { status: 201, body: { token, user: await me(row) } };
       } catch (err) {
         if (err.code === '23505') {
@@ -187,6 +262,108 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     });
     await services.revokeCachedSessions(revoked);
   });
+
+  // ---- e-mail verification ----
+
+  router.add(
+    'GET',
+    '/api/config',
+    async () => ({
+      email_verification: config.emailVerification,
+      password_reset: mailer.enabled,
+    }),
+    { auth: false },
+  );
+
+  router.add('POST', '/api/auth/email/send-verification', async ({ user }) => {
+    await limit('emailSend', `verify:${user.id}`);
+    const { rows } = await pool.query('SELECT email, email_verified_at FROM users WHERE id = $1', [user.id]);
+    if (!rows[0]) throw notFound();
+    if (rows[0].email_verified_at) throw new HttpError(409, 'already_verified', 'Your e-mail is already verified');
+    if (!mailer.enabled) throw new HttpError(503, 'email_unavailable', 'E-mail is not configured on this server');
+    await issueCode(user.id, rows[0].email, 'verify');
+    return { status: 202, body: { sent: true } };
+  });
+
+  router.add('POST', '/api/auth/email/verify', async ({ body, user }) => {
+    v.requireObject(body);
+    if (!(await consumeCode(user.id, 'verify', body.code))) {
+      throw new HttpError(400, 'invalid_code', 'That code is wrong or has expired');
+    }
+    const { rows } = await pool.query(
+      `UPDATE users u SET email_verified_at = COALESCE(email_verified_at, now()), updated_at = now()
+        WHERE u.id = $1 RETURNING ${USER_COLUMNS}`,
+      [user.id],
+    );
+    return me(rows[0]);
+  });
+
+  // ---- password reset ----
+
+  /**
+   * Always answers 202, whether or not the address has an account, so the
+   * endpoint can't be used to find out who is registered.
+   */
+  router.add(
+    'POST',
+    '/api/auth/password/forgot',
+    async ({ body, ip }) => {
+      await limit('authIp', ip);
+      v.requireObject(body);
+      const email = v.email(body.email);
+      if (!mailer.enabled) throw new HttpError(503, 'email_unavailable', 'Password reset is not available on this server');
+      await limit('emailSend', `reset:${email.toLowerCase()}`);
+      const { rows } = await pool.query('SELECT id, email FROM users WHERE lower(email) = lower($1)', [email]);
+      if (rows[0]) {
+        await issueCode(rows[0].id, rows[0].email, 'reset').catch((err) =>
+          log.warn('reset e-mail failed', { user: rows[0].id, error: err.message }),
+        );
+      }
+      return { status: 202, body: { sent: true } };
+    },
+    { auth: false },
+  );
+
+  /**
+   * Sets a new password with a code from the e-mail, signs out every other
+   * session, and signs this client in. Proving access to the inbox also
+   * verifies the address.
+   */
+  router.add(
+    'POST',
+    '/api/auth/password/reset',
+    async ({ body, ip }) => {
+      await limit('authIp', ip);
+      v.requireObject(body);
+      const email = v.email(body.email);
+      const next = v.password(body.new_password, 'new_password');
+      await limit('authAccount', email.toLowerCase());
+      const found = await pool.query('SELECT id FROM users WHERE lower(email) = lower($1)', [email]);
+      const userId = found.rows[0]?.id;
+      if (!userId || !(await consumeCode(userId, 'reset', body.code))) {
+        throw new HttpError(400, 'invalid_code', 'That code is wrong or has expired');
+      }
+      const hash = await hashPassword(next);
+      const { row, token, revoked } = await withTransaction(pool, async (client) => {
+        const { rows } = await client.query(
+          `UPDATE users u SET password_hash = $2, email_verified_at = COALESCE(email_verified_at, now()),
+                  updated_at = now()
+            WHERE u.id = $1 RETURNING ${USER_COLUMNS}`,
+          [userId, hash],
+        );
+        const res = await client.query('DELETE FROM sessions WHERE user_id = $1 RETURNING token_hash', [userId]);
+        return {
+          row: rows[0],
+          revoked: res.rows.map((r) => r.token_hash),
+          token: await createSession(client, userId),
+        };
+      });
+      await services.revokeCachedSessions(revoked);
+      hub.disconnectUser(userId, 4001, 'password reset');
+      return { token, user: await me(row) };
+    },
+    { auth: false },
+  );
 
   router.add(
     'GET',
@@ -276,9 +453,10 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     const { rows } = await pool.query(
       `SELECT ${USER_COLUMNS} FROM users u
         WHERE u.username LIKE '%' || $1 || '%' ESCAPE '\\' AND u.id <> $2
+          AND ($4::boolean = false OR u.email_verified_at IS NOT NULL)
         ORDER BY (u.username = $3) DESC, (u.username LIKE $1 || '%' ESCAPE '\\') DESC, u.username
         LIMIT 20`,
-      [v.escapeLike(q), user.id, q],
+      [v.escapeLike(q), user.id, q, verificationRequired],
     );
     return profiles(rows, new Set(await services.contactIds(user.id)));
   });
@@ -364,6 +542,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
 
   router.add('POST', '/api/contact-requests', async ({ body, user }) => {
     await limit('contactRequest', user.id);
+    await requireVerified(user.id);
     v.requireObject(body);
     let receiverId;
     if (body.receiver_id !== undefined) {
@@ -426,6 +605,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
 
   router.add('POST', '/api/contact-requests/:id/accept', async ({ params, user }) => {
     const id = v.uuid(params.id);
+    await requireVerified(user.id);
     const senderId = await withTransaction(pool, async (client) => {
       const { rows } = await client.query(
         `UPDATE contact_requests SET status = 'accepted', updated_at = now()

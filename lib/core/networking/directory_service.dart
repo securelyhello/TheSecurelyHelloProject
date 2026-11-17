@@ -246,6 +246,41 @@ class DirectoryService {
     });
   }
 
+  /// Public server settings: `{email_verification: 'required'|'optional',
+  /// password_reset: bool}`.
+  Future<Map<String, dynamic>> getServerConfig() async =>
+      Map<String, dynamic>.from(
+          await _request('GET', '/api/config', auth: false) as Map);
+
+  /// E-mails a fresh verification code to the signed-in account.
+  Future<void> sendVerificationEmail() =>
+      _request('POST', '/api/auth/email/send-verification');
+
+  /// Confirms the e-mail address; returns the updated profile.
+  Future<Map<String, dynamic>> verifyEmail(String code) async =>
+      Map<String, dynamic>.from(await _request('POST', '/api/auth/email/verify',
+          body: {'code': code}) as Map);
+
+  /// E-mails a password-reset code (the server answers the same whether or
+  /// not the address has an account).
+  Future<void> requestPasswordReset(String email) => _request(
+      'POST', '/api/auth/password/forgot',
+      auth: false, body: {'email': email});
+
+  /// Sets a new password with the e-mailed code and signs in. Every other
+  /// session of the account is signed out.
+  Future<Map<String, dynamic>> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    final res = await _request('POST', '/api/auth/password/reset',
+        auth: false,
+        body: {'email': email, 'code': code, 'new_password': newPassword})
+        as Map<String, dynamic>;
+    return _adoptSession(res);
+  }
+
   /// Deletes the account and everything the server holds about it.
   Future<void> deleteAccount() async {
     await stopRealtime();

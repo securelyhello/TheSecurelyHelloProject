@@ -77,7 +77,7 @@ describe('websocket', () => {
     );
     assert.deepEqual(
       rows.map((r) => r.table_name),
-      ['contact_requests', 'contacts', 'schema_migrations', 'sessions', 'users'],
+      ['contact_requests', 'contacts', 'email_codes', 'schema_migrations', 'sessions', 'users'],
     );
     await aWs.close();
     await bWs.close();

@@ -65,15 +65,20 @@ class _SignupScreenState extends State<SignupScreen> {
     if (!_formKey.currentState!.validate()) return;
     if (_isUsernameAvailable == false) return;
     
-    final success = await context.read<AuthProvider>().signUp(
+    final auth = context.read<AuthProvider>();
+    final success = await auth.signUp(
       email: _emailController.text.trim(),
       password: _passwordController.text,
       username: _usernameController.text.trim(),
       displayName: _nameController.text.trim(),
     );
     
-    if (success && mounted) {
-      Navigator.of(context).pushReplacementNamed('/home');
+    if (!success || !mounted) return;
+    // Offer verification right away when the server can e-mail a code.
+    final offer = !auth.emailVerified && await auth.emailAvailable();
+    if (mounted) {
+      Navigator.of(context)
+          .pushReplacementNamed(offer ? '/verify-email' : '/home');
     }
   }
 

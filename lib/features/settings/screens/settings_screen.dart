@@ -477,6 +477,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   group([
                     ListTile(
+                      key: const ValueKey('settings-email'),
+                      leading: Icon(
+                        auth.emailVerified
+                            ? LucideIcons.mailCheck
+                            : LucideIcons.mailWarning,
+                        color: auth.emailVerified ? null : p.warning,
+                      ),
+                      title: const Text('E-mail address'),
+                      subtitle: Text(auth.emailVerified
+                          ? 'Verified'
+                          : 'Not verified. Tap to verify'),
+                      trailing: auth.emailVerified
+                          ? null
+                          : Icon(LucideIcons.chevronRight,
+                              size: 18, color: p.textMuted),
+                      onTap: auth.emailVerified
+                          ? null
+                          : () async {
+                              await auth.resendVerificationEmail();
+                              if (context.mounted) {
+                                Navigator.of(context).pushNamed('/verify-email');
+                              }
+                            },
+                    ),
+                    ListTile(
                       leading: const Icon(LucideIcons.lockKeyhole),
                       title: const Text('Change password'),
                       onTap: () => _changePassword(auth),

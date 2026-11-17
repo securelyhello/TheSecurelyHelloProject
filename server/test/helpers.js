@@ -12,6 +12,7 @@ import { createApp, loadConfig } from '../src/app.js';
 import { createPool } from '../src/db.js';
 import { createRedis } from '../src/hotstore.js';
 import { silentLogger } from '../src/log.js';
+import { captureMailer } from '../src/mail.js';
 import { migrate } from '../src/migrate.js';
 
 export const TEST_DATABASE_URL =
@@ -45,11 +46,12 @@ export const GENEROUS_LIMITS = {
   contactRequest: generous,
   wsFrames: generous,
   wsConnect: generous,
+  emailSend: generous,
 };
 
 export const TEST_REDIS_URL = process.env.TEST_REDIS_URL ?? 'redis://127.0.0.1:56379/15';
 
-export async function startServer({ limitOverrides = {}, storeOptions = {}, env = {} } = {}) {
+export async function startServer({ limitOverrides = {}, storeOptions = {}, env = {}, mailer = captureMailer() } = {}) {
   await recreateDatabase(TEST_DATABASE_URL);
   const pool = createPool(TEST_DATABASE_URL, { max: 5 });
   await migrate(pool, { log: () => {} });
@@ -63,6 +65,7 @@ export async function startServer({ limitOverrides = {}, storeOptions = {}, env 
     limitOverrides: { ...GENEROUS_LIMITS, ...limitOverrides },
     storeOptions,
     log: silentLogger,
+    mailer,
   });
   const addr = await app.listen(0, '127.0.0.1');
   const base = `http://127.0.0.1:${addr.port}`;
@@ -70,6 +73,7 @@ export async function startServer({ limitOverrides = {}, storeOptions = {}, env 
     app,
     pool,
     redis,
+    mailer,
     store: app.store,
     base,
     wsUrl: `ws://127.0.0.1:${addr.port}/api/ws`,

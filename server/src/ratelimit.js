@@ -21,6 +21,8 @@ export const DEFAULT_LIMITS = {
   contactRequest: { capacity: 30, perMs: 60 * MIN },
   // WebSocket frames (signaling, acks, presence), per user
   wsFrames: { capacity: 600, perMs: MIN },
+  // verification / reset e-mails, per account or address
+  emailSend: { capacity: 5, perMs: 60 * MIN },
   // WebSocket connection attempts, per IP
   wsConnect: { capacity: 30, perMs: MIN },
 };
