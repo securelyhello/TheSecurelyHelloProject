@@ -136,6 +136,7 @@ class DirectoryService {
   final _contactEvents = StreamController<ContactEvent>.broadcast();
   final _relayPushes = StreamController<Map<String, dynamic>>.broadcast();
   final _prekeysLow = StreamController<int>.broadcast();
+  final _deviceEvents = StreamController<Map<String, dynamic>>.broadcast();
   final _realtimeState = StreamController<bool>.broadcast();
   final _sessionExpired = StreamController<void>.broadcast();
 
@@ -173,6 +174,11 @@ class DirectoryService {
   /// Relay envelopes pushed live:
   /// `{id, sender_id, sender_device, envelope, created_at}`.
   Stream<Map<String, dynamic>> get relayPushes => _relayPushes.stream;
+
+  /// `{type: 'device_pending', device_id, name}` (someone signed in on a new
+  /// device: approve or remove it) or `{type: 'device_approved'}` (this
+  /// device was approved).
+  Stream<Map<String, dynamic>> get deviceEvents => _deviceEvents.stream;
 
   /// The server handed out one-time prekeys and this device is running low.
   Stream<int> get prekeysLow => _prekeysLow.stream;
@@ -342,6 +348,20 @@ class DirectoryService {
   Future<Map<String, dynamic>> getCurrentDevice() async =>
       Map<String, dynamic>.from(
           await _request('GET', '/api/devices/current') as Map);
+
+  /// Approves a pending device of ours; [signature] is our device's
+  /// Ed25519 signature over its keys (see `DeviceApproval`).
+  Future<void> approveDevice(String deviceId, String signature) => _request(
+      'POST', '/api/devices/${Uri.encodeComponent(deviceId)}/approve',
+      body: {'signature': signature});
+
+  /// Account recovery for a pending device: e-mails a code.
+  Future<void> requestDeviceRecovery() =>
+      _request('POST', '/api/devices/current/recover');
+
+  /// Confirms recovery: this device is approved, all others are removed.
+  Future<void> confirmDeviceRecovery(String code) => _request(
+      'POST', '/api/devices/current/recover/confirm', body: {'code': code});
 
   /// Uploads more one-time prekeys; returns how many the server now holds.
   Future<int> uploadPreKeys(List<Map<String, dynamic>> keys) async {
@@ -787,6 +807,10 @@ class DirectoryService {
           request: Map<String, dynamic>.from(frame['request'] as Map),
         ));
         break;
+      case 'device_pending':
+      case 'device_approved':
+        _deviceEvents.add(Map<String, dynamic>.from(frame));
+        break;
       case 'prekeys_low':
         _prekeysLow.add(frame['remaining'] as int? ?? 0);
         break;
@@ -894,6 +918,7 @@ class DirectoryService {
     await _contactEvents.close();
     await _relayPushes.close();
     await _prekeysLow.close();
+    await _deviceEvents.close();
     await _realtimeState.close();
     await _sessionExpired.close();
   }

@@ -85,7 +85,12 @@ const deviceJson = (row, { withName }) => ({
 /**
  * @param {import('./http.js').Router} router
  */
-export function registerDeviceRoutes(router, { pool, hub, store, services, limits, log, notifier }) {
+/** What an approving device signs: the new device's identity, for one account. */
+export function approvalMessage(userId, deviceId, signingKey, identityKey) {
+  return Buffer.from(`securelyhello-approve-v1|${userId}|${deviceId}|${signingKey}|${identityKey}`, 'utf8');
+}
+
+export function registerDeviceRoutes(router, { pool, hub, store, services, limits, log, notifier, codes, mailer }) {
   const tooMany = () => new HttpError(429, 'rate_limited', 'Too many requests, slow down');
   async function limit(name, key) {
     if (!(await limits.take(name, key))) throw tooMany();
@@ -95,6 +100,15 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
   function requireDevice(user) {
     if (!user.deviceId) throw new HttpError(409, 'no_device', 'Register this device first');
     return user.deviceId;
+  }
+
+  /** ...and that device must be approved to send or receive messages. */
+  async function requireApprovedDevice(user) {
+    const id = requireDevice(user);
+    if (!(await services.isDeviceApproved(id))) {
+      throw new HttpError(403, 'device_pending', 'Approve this device from one of your other devices first');
+    }
+    return id;
   }
 
   async function prekeysRemaining(deviceId, client = pool) {
@@ -158,6 +172,13 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
       }
       let created = false;
       let keysChanged = false;
+      // The first approved device of an account is trusted on its own; any
+      // later one waits for approval.
+      const { rows: approvedRows } = await client.query(
+        'SELECT count(*)::int AS n FROM devices WHERE user_id = $1 AND approved_at IS NOT NULL AND id <> $2',
+        [user.id, deviceId ?? '00000000-0000-0000-0000-000000000000'],
+      );
+      const autoApprove = approvedRows[0].n === 0;
       if (existing) {
         keysChanged =
           existing.signing_public_key !== signingKey || existing.identity_public_key !== identityKey;
@@ -169,6 +190,14 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
             WHERE id = $1`,
           [deviceId, name, signingKey, identityKey, spk.id, spk.key, spk.signature],
         );
+        // New keys on a known device id (reinstall) need approving again.
+        if (keysChanged) {
+          await client.query(
+            `UPDATE devices SET approved_at = CASE WHEN $2 THEN now() END, approved_by = NULL,
+                    approval_signature = NULL WHERE id = $1`,
+            [deviceId, autoApprove],
+          );
+        }
       } else {
         const { rows: count } = await client.query('SELECT count(*)::int AS n FROM devices WHERE user_id = $1', [
           user.id,
@@ -178,31 +207,126 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
         }
         const { rows } = await client.query(
           `INSERT INTO devices (user_id, name, signing_public_key, identity_public_key,
-                                signed_prekey_id, signed_prekey, signed_prekey_signature)
-           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-          [user.id, name, signingKey, identityKey, spk.id, spk.key, spk.signature],
+                                signed_prekey_id, signed_prekey, signed_prekey_signature, approved_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $8 THEN now() END) RETURNING id`,
+          [user.id, name, signingKey, identityKey, spk.id, spk.key, spk.signature, autoApprove],
         );
         deviceId = rows[0].id;
         created = true;
       }
       await insertPreKeys(client, deviceId, otpks);
       await client.query('UPDATE sessions SET device_id = $2 WHERE token_hash = $1', [hashToken(token), deviceId]);
-      return { deviceId, created, keysChanged, remaining: await prekeysRemaining(deviceId, client) };
+      const { rows: st } = await client.query('SELECT approved_at, name FROM devices WHERE id = $1', [deviceId]);
+      return {
+        deviceId,
+        created,
+        keysChanged,
+        approved: st[0].approved_at != null,
+        name: st[0].name,
+        remaining: await prekeysRemaining(deviceId, client),
+      };
     });
 
     // The cached session still says "no device".
     await services.revokeCachedSessions([hashToken(token)]);
-    if (result.created || result.keysChanged) await announceDevices(user.id);
-    hub.bindDevice(user.id, token, result.deviceId);
+    if (result.approved && (result.created || result.keysChanged)) await announceDevices(user.id);
+    hub.bindDevice(user.id, token, result.deviceId, result.approved);
+    if (!result.approved && (result.created || result.keysChanged)) {
+      // Sign-in alert: every approved device is asked to approve or remove it.
+      hub.sendTo(user.id, { type: 'device_pending', device_id: result.deviceId, name: result.name });
+      notifier?.wakeUser(user.id, 'device').catch((err) => log.warn('push failed', { error: err.message }));
+    }
     return {
       status: result.created ? 201 : 200,
-      body: { device_id: result.deviceId, prekeys_remaining: result.remaining },
+      body: { device_id: result.deviceId, approved: result.approved, prekeys_remaining: result.remaining },
     };
   });
 
   router.add('GET', '/api/devices/current', async ({ user }) => {
     const deviceId = requireDevice(user);
-    return { device_id: deviceId, prekeys_remaining: await prekeysRemaining(deviceId) };
+    return {
+      device_id: deviceId,
+      approved: await services.isDeviceApproved(deviceId),
+      prekeys_remaining: await prekeysRemaining(deviceId),
+    };
+  });
+
+  /**
+   * An approved device approves a pending one of the same account. The body
+   * carries an Ed25519 signature, by the approving device's own key, over
+   * approvalMessage(): a session token alone can't approve anything.
+   */
+  router.add('POST', '/api/devices/:id/approve', async ({ params, body, user }) => {
+    const approver = await requireApprovedDevice(user);
+    const target = v.uuid(params.id);
+    v.requireObject(body);
+    if (typeof body.signature !== 'string' || !SIG_RE.test(body.signature)) throw bad('signature is required');
+    const { rows } = await pool.query(
+      `SELECT d.*, a.signing_public_key AS approver_key FROM devices d, devices a
+        WHERE d.id = $1 AND d.user_id = $2 AND a.id = $3`,
+      [target, user.id, approver],
+    );
+    const d = rows[0];
+    if (!d) throw new HttpError(404, 'not_found', 'No such device');
+    if (d.approved_at) return { device_id: target, approved: true };
+    const message = approvalMessage(user.id, target, d.signing_public_key, d.identity_public_key);
+    if (!ed25519Verify(d.approver_key, message, body.signature)) {
+      throw bad('signature does not verify', 'bad_signature');
+    }
+    await pool.query(
+      'UPDATE devices SET approved_at = now(), approved_by = $2, approval_signature = $3 WHERE id = $1',
+      [target, approver, body.signature],
+    );
+    hub.setDeviceApproved(user.id, target);
+    hub.sendToDevice(user.id, target, { type: 'device_approved' });
+    await announceDevices(user.id);
+    return { device_id: target, approved: true };
+  });
+
+  /**
+   * Lost every other device? A pending device can recover the account with
+   * an e-mailed code. Doing so removes all other devices (their sessions end),
+   * so contacts see the safety number change, as with any account recovery.
+   */
+  router.add('POST', '/api/devices/current/recover', async ({ user }) => {
+    const deviceId = requireDevice(user);
+    if (await services.isDeviceApproved(deviceId)) return { status: 200, body: { approved: true } };
+    if (!mailer?.enabled) throw new HttpError(503, 'email_unavailable', 'E-mail is not configured on this server');
+    if (!(await limits.take('emailSend', `device:${user.id}`))) {
+      throw new HttpError(429, 'rate_limited', 'Too many requests, slow down');
+    }
+    const { rows } = await pool.query('SELECT email FROM users WHERE id = $1', [user.id]);
+    await codes.issueCode(user.id, rows[0].email, 'device');
+    return { status: 202, body: { sent: true } };
+  });
+
+  router.add('POST', '/api/devices/current/recover/confirm', async ({ body, user }) => {
+    const deviceId = requireDevice(user);
+    v.requireObject(body);
+    if (!(await codes.consumeCode(user.id, 'device', body.code))) {
+      throw new HttpError(400, 'invalid_code', 'That code is wrong or has expired');
+    }
+    const removed = await withTransaction(pool, async (client) => {
+      const others = await client.query('SELECT id FROM devices WHERE user_id = $1 AND id <> $2', [user.id, deviceId]);
+      const sessions = await client.query(
+        'SELECT token_hash FROM sessions WHERE user_id = $1 AND device_id IS NOT NULL AND device_id <> $2',
+        [user.id, deviceId],
+      );
+      await client.query('DELETE FROM devices WHERE user_id = $1 AND id <> $2', [user.id, deviceId]);
+      await client.query(
+        'UPDATE devices SET approved_at = now(), approved_by = NULL, approval_signature = NULL WHERE id = $1',
+        [deviceId],
+      );
+      return { devices: others.rows.map((r) => r.id), sessions: sessions.rows.map((r) => r.token_hash) };
+    });
+    await services.revokeCachedSessions(removed.sessions);
+    for (const d of removed.devices) {
+      await store.relayPurgeDevice(d);
+      hub.disconnectDevice(user.id, d, 4004, 'device removed');
+    }
+    hub.setDeviceApproved(user.id, deviceId);
+    await announceDevices(user.id);
+    return { approved: true, removed_devices: removed.devices.length };
   });
 
   router.add('POST', '/api/devices/current/prekeys', async ({ body, user }) => {
@@ -235,6 +359,7 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
     return rows.map((r) => ({
       ...deviceJson(r, { withName: true }),
       current: r.id === user.deviceId,
+      approved: r.approved_at != null,
       push_enabled: r.push_token != null,
     }));
   });
@@ -293,7 +418,10 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
   /** Public device keys of any user (names only for yourself). */
   router.add('GET', '/api/users/:id/devices', async ({ params, user }) => {
     const target = v.uuid(params.id);
-    const { rows } = await pool.query('SELECT * FROM devices WHERE user_id = $1 ORDER BY created_at, id', [target]);
+    const { rows } = await pool.query(
+      'SELECT * FROM devices WHERE user_id = $1 AND approved_at IS NOT NULL ORDER BY created_at, id',
+      [target],
+    );
     return rows.map((r) => deviceJson(r, { withName: target === user.id }));
   });
 
@@ -302,6 +430,7 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
    * yourself). Each one-time prekey is handed out once.
    */
   router.add('POST', '/api/users/:id/prekey-bundles', async ({ params, body, user }) => {
+    await requireApprovedDevice(user);
     const target = v.uuid(params.id);
     v.requireObject(body);
     const ids = body.device_ids;
@@ -315,7 +444,7 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
     const bundles = await withTransaction(pool, async (client) => {
       const out = [];
       for (const deviceId of ids.map((x) => x.toLowerCase())) {
-        const { rows } = await client.query('SELECT * FROM devices WHERE id = $1 AND user_id = $2', [
+        const { rows } = await client.query('SELECT * FROM devices WHERE id = $1 AND user_id = $2 AND approved_at IS NOT NULL', [
           deviceId,
           target,
         ]);
@@ -399,7 +528,7 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
    * skipped. `messages` may cover a subset (the rest went over WebRTC).
    */
   router.add('POST', '/api/relay', async ({ body, user }) => {
-    const senderDevice = requireDevice(user);
+    const senderDevice = await requireApprovedDevice(user);
     await limit('relay', user.id);
     v.requireObject(body);
     const recipientId = v.uuid(body.recipient_id, 'recipient_id');
@@ -458,7 +587,7 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
   });
 
   router.add('GET', '/api/relay', async ({ query, user }) => {
-    const deviceId = requireDevice(user);
+    const deviceId = await requireApprovedDevice(user);
     const n = Math.min(Math.max(Number.parseInt(query.get('limit') ?? '100', 10) || 100, 1), 200);
     return store.relayFetch(deviceId, n);
   });

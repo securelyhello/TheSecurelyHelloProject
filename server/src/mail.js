@@ -101,6 +101,12 @@ const PURPOSE_TEXT = {
     subject: 'Reset your Securely Hello password',
     intro: 'Use this code to choose a new password:',
   },
+  device: {
+    subject: 'Approve a new device for Securely Hello',
+    intro:
+      'Someone (hopefully you) wants to recover your account on a new device. Using this code signs out and ' +
+      'removes all your other devices. Code:',
+  },
 };
 
 export function codeEmail(purpose, to, code, minutes) {

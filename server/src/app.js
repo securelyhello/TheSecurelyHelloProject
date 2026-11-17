@@ -2,6 +2,7 @@ import http from 'node:http';
 
 import { registerRoutes } from './api.js';
 import { registerAttachmentRoutes } from './attachments.js';
+import { createCodes } from './codes.js';
 import { createBlobStore } from './blobstore.js';
 import { registerDeviceRoutes } from './devices.js';
 import { registerSafetyRoutes } from './safety.js';
@@ -81,7 +82,17 @@ export function createApp({
   const notifier = createNotifier({ pool, store, hub, sender: pushSender, log });
   const router = new Router();
   registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier });
-  registerDeviceRoutes(router, { pool, hub, store, services, limits, log, notifier });
+  registerDeviceRoutes(router, {
+    pool,
+    hub,
+    store,
+    services,
+    limits,
+    log,
+    notifier,
+    mailer,
+    codes: createCodes({ pool, mailer }),
+  });
   registerAttachmentRoutes(router, { pool, services, limits, config, blobs });
   registerSafetyRoutes(router, { pool, hub, services, limits, config });
 

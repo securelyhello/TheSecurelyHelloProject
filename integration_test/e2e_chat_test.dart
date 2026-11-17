@@ -75,7 +75,6 @@ class Stack {
     final ok = await auth.signIn(email: email, password: password);
     expect(ok, isTrue, reason: auth.errorMessage);
     contacts.init();
-    await startChat();
   }
 
   Future<void> startChat() => chat.start(
@@ -392,9 +391,23 @@ void main() {
 
       // ---- a second device for Alice ----------------------------------------
       final laptop = Stack('alice_laptop');
+      final alerts = alice.auth.deviceEvents.where((e) => e['type'] == 'device_pending').first;
       await laptop.signInAs(alice);
       expect(laptop.id, alice.id);
       expect(laptop.auth.deviceId, isNot(alice.auth.deviceId));
+      // A second sign-in waits for approval: no keys are handed out for it.
+      expect(laptop.auth.deviceApproved, isFalse);
+      expect(laptop.auth.homeRoute, '/device-pending');
+      expect(await bob.chat.devicesOf(alice.id, refresh: true), hasLength(1));
+      final alert = await alerts.timeout(const Duration(seconds: 10));
+      expect(alert['device_id'], laptop.auth.deviceId, reason: 'sign-in alert on the phone');
+      // The phone approves it with its own key.
+      final pending = (await alice.auth.listDevices())
+          .firstWhere((d) => d['device_id'] == laptop.auth.deviceId);
+      expect(pending['approved'], isFalse);
+      expect(await alice.auth.approveDevice(pending), isTrue, reason: alice.auth.errorMessage);
+      await until(() => laptop.auth.refreshDeviceApproval(), what: 'the laptop sees it is approved');
+      await laptop.startChat();
       await until(
           () async => (await bob.chat.devicesOf(alice.id, refresh: true)).length == 2,
           what: "Bob sees Alice's second device");

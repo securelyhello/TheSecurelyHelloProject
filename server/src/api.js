@@ -2,10 +2,8 @@
 // non-browser clients through on that prefix). All JSON. Every route needs a
 // Bearer session token unless registered with {auth:false}. The acting user
 // is always taken from the session, never from the request body.
-import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
-
 import { withTransaction } from './db.js';
-import { codeEmail } from './mail.js';
+import { createCodes } from './codes.js';
 import { hasBlocked } from './safety.js';
 import { burnPasswordCheck, hashPassword, hashToken, newSessionToken, verifyPassword } from './security.js';
 import * as v from './validate.js';
@@ -16,9 +14,7 @@ const tooMany = () => new HttpError(429, 'rate_limited', 'Too many requests, slo
 
 const USER_COLUMNS = 'u.id, u.email, u.username, u.display_name, u.created_at, u.email_verified_at';
 
-const CODE_TTL_MINUTES = { verify: 30, reset: 15 };
-const CODE_MAX_ATTEMPTS = 5;
-const CODE_RE = /^\d{6}$/;
+
 
 /**
  * @param {import('./http.js').Router} router
@@ -66,48 +62,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
   // E-mail codes (verification, password reset)
   // ---------------------------------------------------------------------------
 
-  const codeHash = (userId, purpose, code) =>
-    createHash('sha256').update(`securelyhello-code|${purpose}|${userId}|${code}`).digest();
-
-  /** Creates (or replaces) a code for [purpose] and e-mails it. */
-  async function issueCode(userId, email, purpose) {
-    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
-    const minutes = CODE_TTL_MINUTES[purpose];
-    await pool.query(
-      `INSERT INTO email_codes (user_id, purpose, code_hash, expires_at)
-       VALUES ($1, $2, $3, now() + make_interval(mins => $4))
-       ON CONFLICT (user_id, purpose) DO UPDATE
-         SET code_hash = EXCLUDED.code_hash, attempts = 0, created_at = now(), expires_at = EXCLUDED.expires_at`,
-      [userId, purpose, codeHash(userId, purpose, code), minutes],
-    );
-    await mailer.send(codeEmail(purpose, email, code, minutes));
-  }
-
-  /**
-   * Spends one attempt on the live code and consumes it if [code] matches.
-   * Every guess counts, right or wrong, so a code allows CODE_MAX_ATTEMPTS
-   * guesses in total.
-   */
-  async function consumeCode(userId, purpose, code) {
-    if (typeof code !== 'string' || !CODE_RE.test(code)) return false;
-    const { rows } = await pool.query(
-      `UPDATE email_codes SET attempts = attempts + 1
-        WHERE user_id = $1 AND purpose = $2 AND expires_at > now() AND attempts < $3
-        RETURNING code_hash`,
-      [userId, purpose, CODE_MAX_ATTEMPTS],
-    );
-    if (!rows[0]) return false;
-    const expected = rows[0].code_hash;
-    const given = codeHash(userId, purpose, code);
-    if (expected.length !== given.length || !timingSafeEqual(expected, given)) return false;
-    // Single use: only one concurrent request can delete it.
-    const del = await pool.query('DELETE FROM email_codes WHERE user_id = $1 AND purpose = $2 AND code_hash = $3', [
-      userId,
-      purpose,
-      given,
-    ]);
-    return del.rowCount === 1;
-  }
+  const { issueCode, consumeCode } = createCodes({ pool, mailer });
 
   /** With EMAIL_VERIFICATION=required, unverified accounts can't reach anyone. */
   async function requireVerified(userId) {

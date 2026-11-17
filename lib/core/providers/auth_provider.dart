@@ -71,6 +71,16 @@ class AuthProvider extends ChangeNotifier {
 
   /// This device's id within the account (set once registered).
   String? get deviceId => _deviceId;
+
+  bool _deviceApproved = true;
+
+  /// False while this device waits to be approved by another one.
+  bool get deviceApproved => _deviceApproved;
+
+  /// Short fingerprint of this device's key (shown on both devices).
+  String get deviceFingerprint => _identity == null
+      ? ''
+      : DeviceManager.fingerprint(_identity!.publicSigningKeyBase64);
   String? get errorMessage => _errorMessage;
   bool get isLoading => _isLoading;
   bool get isAuthenticated => _status == AuthStatus.authenticated;
@@ -94,8 +104,13 @@ class AuthProvider extends ChangeNotifier {
   bool get mustVerifyEmail =>
       isAuthenticated && emailVerificationRequired && !emailVerified;
 
-  /// Where to go after signing in: the verification screen or home.
-  String get homeRoute => mustVerifyEmail ? '/verify-email' : '/home';
+  /// Where to go after signing in: e-mail verification, device approval,
+  /// or home.
+  String get homeRoute => mustVerifyEmail
+      ? '/verify-email'
+      : !_deviceApproved
+          ? '/device-pending'
+          : '/home';
 
   Map<String, dynamic>? _serverConfig;
 
@@ -321,6 +336,107 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // New-device approval
+  // ---------------------------------------------------------------------------
+
+  /// Sign-in alerts and approvals pushed by the server.
+  Stream<Map<String, dynamic>> get deviceEvents => _directoryService.deviceEvents;
+
+  Timer? _approvalPoll;
+  StreamSubscription<Map<String, dynamic>>? _approvalSub;
+
+  /// While this device is pending: listen for approval (socket push, with a
+  /// slow poll as a fallback). Stops by itself once approved.
+  Future<void> watchApproval() async {
+    if (_deviceApproved) return;
+    _approvalSub ??= _directoryService.deviceEvents.listen((e) {
+      if (e['type'] == 'device_approved') unawaited(_onApproved());
+    });
+    try {
+      await _directoryService.startRealtime();
+    } catch (_) {}
+    _approvalPoll ??= Timer.periodic(const Duration(seconds: 5), (_) => refreshDeviceApproval());
+  }
+
+  void _stopWatchingApproval() {
+    _approvalPoll?.cancel();
+    _approvalPoll = null;
+    _approvalSub?.cancel();
+    _approvalSub = null;
+  }
+
+  /// Asks the server whether this pending device has been approved.
+  Future<bool> refreshDeviceApproval() async {
+    if (_deviceApproved) return true;
+    try {
+      final cur = await _directoryService.getCurrentDevice();
+      if (cur['approved'] == true) await _onApproved();
+    } catch (_) {}
+    return _deviceApproved;
+  }
+
+  Future<void> _onApproved() async {
+    _stopWatchingApproval();
+    _deviceApproved = true;
+    await _deviceManager.markApproved();
+    notifyListeners();
+  }
+
+  /// From an approved device: approves our pending device [device]
+  /// (a row from [listDevices]) by signing its keys.
+  Future<bool> approveDevice(Map<String, dynamic> device) async {
+    final me = _identity;
+    final userId = _user?.id;
+    if (me == null || userId == null) return false;
+    _errorMessage = null;
+    try {
+      final sig = DeviceManager.signApproval(
+        me,
+        userId,
+        device['device_id'] as String,
+        device['signing_public_key'] as String,
+        device['identity_public_key'] as String,
+      );
+      await _directoryService.approveDevice(device['device_id'] as String, sig);
+      return true;
+    } catch (e) {
+      _errorMessage = _describe(e, 'Could not approve the device');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Lost every other device: e-mail a recovery code to this pending one.
+  Future<bool> requestDeviceRecovery() async {
+    _errorMessage = null;
+    try {
+      await _directoryService.requestDeviceRecovery();
+      return true;
+    } catch (e) {
+      _errorMessage = _describe(e, 'Could not send the code');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Confirms recovery with the e-mailed [code]: this device is approved and
+  /// every other device of the account is removed.
+  Future<bool> confirmDeviceRecovery(String code) async {
+    _errorMessage = null;
+    _setLoading(true);
+    try {
+      await _directoryService.confirmDeviceRecovery(code.trim());
+      await _onApproved();
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      _errorMessage = _describe(e, 'Recovery failed');
+      _setLoading(false);
+      return false;
+    }
+  }
+
   /// Changes the password. Other devices are signed out by the server.
   Future<bool> changePassword({
     required String currentPassword,
@@ -441,6 +557,7 @@ class AuthProvider extends ChangeNotifier {
     // 4. Register this device (or re-bind it after signing in again).
     try {
       _deviceId = await _deviceManager.register(identity);
+      _deviceApproved = _deviceManager.lastApproved;
     } on ApiException catch (e) {
       if (e.isUnauthorized) {
         await _directoryService.forgetSession();
@@ -448,6 +565,7 @@ class AuthProvider extends ChangeNotifier {
         return false;
       }
       _deviceId = await _deviceManager.storedDeviceId();
+      _deviceApproved = await _deviceManager.storedApproved();
       if (_deviceId == null) {
         _setError(_describe(e, 'Could not register this device'));
         return false;
@@ -455,6 +573,7 @@ class AuthProvider extends ChangeNotifier {
     } catch (e) {
       // Offline start: keep using the device we registered before.
       _deviceId = await _deviceManager.storedDeviceId();
+      _deviceApproved = await _deviceManager.storedApproved();
       if (_deviceId == null) {
         _setError("Can't reach the server. Check your connection and try again.");
         return false;
@@ -497,6 +616,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> _clearSession() async {
+    _stopWatchingApproval();
     await _localStorage.close();
     _user = null;
     _identity = null;
@@ -550,6 +670,7 @@ class AuthProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _stopWatchingApproval();
     _expiredSubscription?.cancel();
     super.dispose();
   }

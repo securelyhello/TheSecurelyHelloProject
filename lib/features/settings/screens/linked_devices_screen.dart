@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/core/crypto/device_manager.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/shared/widgets/app_dialogs.dart';
@@ -84,10 +85,8 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
   /// Last 8 characters of the signing key, grouped: something people can
   /// compare between two of their own screens.
   static String _fingerprint(Map<String, dynamic> d) {
-    final k = d['signing_public_key'] as String? ?? '';
-    final tail = k.replaceAll('=', '');
-    final s = tail.length > 8 ? tail.substring(tail.length - 8) : tail;
-    return s.length == 8 ? '${s.substring(0, 4)} ${s.substring(4)}' : s;
+    final k = d['signing_public_key'] as String?;
+    return k == null ? '' : DeviceManager.fingerprint(k);
   }
 
   static String _when(String? iso) {
@@ -185,9 +184,11 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
                       subtitle: Padding(
                         padding: const EdgeInsets.only(top: 4),
                         child: Text.rich(TextSpan(children: [
-                          TextSpan(text: d['current'] == true
-                              ? 'active now'
-                              : _when(d['last_seen_at'] as String?)),
+                          TextSpan(text: d['approved'] == false
+                              ? 'waiting for approval'
+                              : d['current'] == true
+                                  ? 'active now'
+                                  : _when(d['last_seen_at'] as String?)),
                           const TextSpan(text: '  ·  key '),
                           TextSpan(
                             text: _fingerprint(d),
@@ -195,7 +196,25 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
                           ),
                         ])),
                       ),
-                      trailing: d['current'] == true
+                      trailing: d['approved'] == false
+                          ? Row(mainAxisSize: MainAxisSize.min, children: [
+                              TextButton(
+                                key: ValueKey('approve-${d['device_id']}'),
+                                onPressed: () async {
+                                  final ok = await context.read<AuthProvider>().approveDevice(d);
+                                  if (!context.mounted) return;
+                                  showAppSnackBar(context, ok ? 'Approved' : 'Could not approve it', error: !ok);
+                                  _reload();
+                                },
+                                child: const Text('Approve'),
+                              ),
+                              IconButton(
+                                tooltip: 'Remove',
+                                icon: Icon(LucideIcons.trash2, size: 18, color: p.danger),
+                                onPressed: () => _remove(d),
+                              ),
+                            ])
+                          : d['current'] == true
                           ? IconButton(
                               tooltip: 'Rename',
                               icon: const Icon(LucideIcons.pencil, size: 18),

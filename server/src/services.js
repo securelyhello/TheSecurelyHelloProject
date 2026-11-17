@@ -72,12 +72,18 @@ export class Services {
   async deviceIds(userId) {
     const cached = await this.store.getCachedDevices(userId);
     if (cached) return cached;
-    const { rows } = await this.pool.query('SELECT id FROM devices WHERE user_id = $1 ORDER BY created_at, id', [
-      userId,
-    ]);
+    const { rows } = await this.pool.query(
+      'SELECT id FROM devices WHERE user_id = $1 AND approved_at IS NOT NULL ORDER BY created_at, id',
+      [userId],
+    );
     const ids = rows.map((r) => r.id);
     await this.store.cacheDevices(userId, ids);
     return ids;
+  }
+
+  async isDeviceApproved(deviceId) {
+    const { rows } = await this.pool.query('SELECT approved_at FROM devices WHERE id = $1', [deviceId]);
+    return rows[0]?.approved_at != null;
   }
 
   async devicesChanged(...userIds) {

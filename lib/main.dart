@@ -23,6 +23,7 @@ import 'package:securelyhello/features/auth/screens/login_screen.dart';
 import 'package:securelyhello/features/auth/screens/signup_screen.dart';
 import 'package:securelyhello/features/auth/screens/verify_email_screen.dart';
 import 'package:securelyhello/features/auth/screens/forgot_password_screen.dart';
+import 'package:securelyhello/features/auth/screens/device_pending_screen.dart';
 import 'package:securelyhello/features/home/home_screen.dart';
 import 'package:securelyhello/features/contacts/screens/add_contact_screen.dart';
 import 'package:securelyhello/features/contacts/screens/contact_requests_screen.dart';
@@ -184,6 +185,7 @@ class SecurelyHelloApp extends StatelessWidget {
           '/login': (context) => const LoginScreen(),
           '/signup': (context) => const SignupScreen(),
           '/verify-email': (context) => const VerifyEmailScreen(),
+          '/device-pending': (context) => const DevicePendingScreen(),
           '/home': (context) => const HomeScreen(),
           '/add-contact': (context) => const AddContactScreen(),
           '/contact-requests': (context) => const ContactRequestsScreen(),

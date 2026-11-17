@@ -89,6 +89,7 @@ export class RealtimeHub {
     const userId = user.id;
     ws.userId = userId;
     ws.deviceId = user.deviceId ?? null;
+    ws.deviceApproved = false; // looked up below, before 'hello'
     ws.tokenHash = tokenHash;
     ws.away = false;
     ws.alive = true;
@@ -120,6 +121,7 @@ export class RealtimeHub {
     ws.on('error', () => {});
 
     try {
+      if (ws.deviceId) ws.deviceApproved = await this.services.isDeviceApproved(ws.deviceId);
       if (!wasOnline && this.isOnline(userId)) await this.store.markOnline([userId]);
       const contacts = await this.services.contactIds(userId);
       const presence = await this.services.presence(contacts);
@@ -204,6 +206,7 @@ export class RealtimeHub {
     const fail = (message) => this.#send(ws, { type: 'error', code: 'invalid_signal', message });
     const { to, to_device: toDevice, session_id: sessionId, kind } = msg;
     if (!ws.deviceId) return fail('register this device first');
+    if (!ws.deviceApproved) return fail('this device is waiting for approval');
     if (!isUuid(to) || !isUuid(toDevice) || !isUuid(sessionId)) {
       return fail('to, to_device and session_id must be UUIDs');
     }
@@ -332,10 +335,20 @@ export class RealtimeHub {
   }
 
   /** A session registered its device after opening its socket. */
-  bindDevice(userId, token, deviceId) {
+  bindDevice(userId, token, deviceId, approved = false) {
     const hash = hashToken(token).toString('hex');
     for (const ws of this.sockets.get(userId) ?? []) {
-      if (ws.tokenHash === hash) ws.deviceId = deviceId;
+      if (ws.tokenHash === hash) {
+        ws.deviceId = deviceId;
+        ws.deviceApproved = approved;
+      }
+    }
+  }
+
+  /** A pending device was approved (or recovered). */
+  setDeviceApproved(userId, deviceId) {
+    for (const ws of this.sockets.get(userId) ?? []) {
+      if (ws.deviceId === deviceId) ws.deviceApproved = true;
     }
   }
 

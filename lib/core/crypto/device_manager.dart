@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -52,8 +53,36 @@ class DeviceManager {
     }
   }
 
+  /// Whether this device was approved, as last known (offline start).
+  Future<bool> storedApproved() async => await _storage.kvGet('device_approved') != '0';
+
+  Future<void> markApproved() => _storage.kvSet('device_approved', '1');
+
   /// The device id stored for this account, if registered before.
   Future<String?> storedDeviceId() => _storage.kvGet('device_id');
+
+  /// Whether this device was approved when last registered.
+  bool lastApproved = false;
+
+  /// What an approving device signs (matches server/src/devices.js).
+  static String approvalMessage(
+          String userId, String deviceId, String signingKey, String identityKey) =>
+      'securelyhello-approve-v1|$userId|$deviceId|$signingKey|$identityKey';
+
+  /// Our device's signature approving another device of the account.
+  static String signApproval(CryptoIdentity me, String userId, String deviceId,
+      String signingKey, String identityKey) {
+    final signed = me.signingKey.sign(Uint8List.fromList(
+        utf8.encode(approvalMessage(userId, deviceId, signingKey, identityKey))));
+    return base64Encode(Uint8List.fromList(signed.signature));
+  }
+
+  /// Short fingerprint of a device key for people to compare.
+  static String fingerprint(String signingKey) {
+    final h = Kdf.sha256(base64Decode(signingKey));
+    final hex = h.take(8).map((b) => b.toRadixString(16).padLeft(2, '0')).join().toUpperCase();
+    return [for (var i = 0; i < 16; i += 4) hex.substring(i, i + 4)].join(' ');
+  }
 
   /// Registers (or re-binds) this device; returns its id.
   Future<String> register(CryptoIdentity identity, {String? name}) async {
@@ -84,6 +113,8 @@ class DeviceManager {
       );
     }
     await _storage.kvSet('device_id', id);
+    lastApproved = res['approved'] != false;
+    await _storage.kvSet('device_approved', lastApproved ? '1' : '0');
     await topUp(remaining: res['prekeys_remaining'] as int?);
     await maybeRotate(identity);
     return id;

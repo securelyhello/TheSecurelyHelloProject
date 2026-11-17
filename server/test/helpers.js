@@ -12,7 +12,7 @@ import { createApp, loadConfig } from '../src/app.js';
 import { createPool } from '../src/db.js';
 import { createRedis } from '../src/hotstore.js';
 import { silentLogger } from '../src/log.js';
-import { signedPreKeyMessage } from '../src/devices.js';
+import { approvalMessage, signedPreKeyMessage } from '../src/devices.js';
 import { captureMailer } from '../src/mail.js';
 import { migrate } from '../src/migrate.js';
 
@@ -179,12 +179,33 @@ export async function signup(base, name = `user${++counter}`, { device = true } 
   return user;
 }
 
-/** Signs [user] in again as another device: {token, deviceId}. */
+/** Signs [user] in again as another device: {token, deviceId}. The new
+ * device is approved by [user]'s device (its key signs the approval) unless
+ * opts.approve === false. */
 export async function addDevice(base, user, opts = {}) {
   const res = await api(base, 'POST', '/api/auth/signin', { body: { email: user.email, password: user.password } });
   if (res.status !== 200) throw new Error(`signin failed: ${res.status}`);
   const d = await registerDevice(base, res.body.token, opts);
-  return { ...user, token: res.body.token, deviceId: d.deviceId, deviceKeys: d.keys };
+  const added = { ...user, token: res.body.token, deviceId: d.deviceId, deviceKeys: d.keys };
+  if (opts.approve !== false) {
+    const ok = await approveDevice(base, user, added);
+    if (ok.status !== 200) throw new Error(`approve failed: ${ok.status} ${JSON.stringify(ok.body)}`);
+  }
+  return added;
+}
+
+/** [approver]'s device signs [pending]'s keys and approves it. */
+export function approveDevice(base, approver, pending, { signer = approver.deviceKeys.privateKey } = {}) {
+  const msg = approvalMessage(
+    pending.id,
+    pending.deviceId,
+    pending.deviceKeys.body.signing_public_key,
+    pending.deviceKeys.body.identity_public_key,
+  );
+  return api(base, 'POST', `/api/devices/${pending.deviceId}/approve`, {
+    token: approver.token,
+    body: { signature: sign(null, msg, signer).toString('base64') },
+  });
 }
 
 export async function makeContacts(base, a, b) {

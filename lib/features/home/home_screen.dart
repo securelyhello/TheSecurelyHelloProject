@@ -6,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import 'package:securelyhello/core/chat/chat_service.dart';
+import 'package:securelyhello/core/crypto/device_manager.dart';
 import 'package:securelyhello/core/notifications/notification_service.dart';
 import 'package:securelyhello/core/notifications/push_service.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
@@ -37,6 +38,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _selectedChat;
   StreamSubscription<String>? _newRequestSub;
   StreamSubscription<Message>? _messageSub;
+  StreamSubscription<Map<String, dynamic>>? _deviceSub;
   late final NotificationService _notifications;
   late final AuthProvider _auth;
   late final ChatProvider _chat;
@@ -98,6 +100,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     unawaited(_notifications.requestPermission());
     unawaited(push?.start());
 
+    _deviceSub ??= _auth.deviceEvents.listen((e) {
+      if (e['type'] == 'device_pending') unawaited(_askApproval(e['device_id'] as String?));
+    });
+
     _newRequestSub ??= _contacts.onNewRequest.listen((msg) {
       _notifications.showContactRequest(msg);
       if (!mounted) return;
@@ -135,10 +141,60 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _auth.removeListener(_onAuthChanged);
     _newRequestSub?.cancel();
     _messageSub?.cancel();
+    _deviceSub?.cancel();
     if (_notifications.onOpenChat == _openFromNotification) {
       _notifications.onOpenChat = null;
     }
     super.dispose();
+  }
+
+  /// Someone signed in on a new device: approve it here or remove it.
+  Future<void> _askApproval(String? deviceId) async {
+    if (!mounted || deviceId == null) return;
+    final devices = await _auth.listDevices();
+    final d = devices.where((x) => x['device_id'] == deviceId).firstOrNull;
+    if (d == null || d['approved'] == true || !mounted) return;
+    final name = (d['name'] as String? ?? '').isEmpty ? 'A new device' : d['name'] as String;
+    final fp = DeviceManager.fingerprint(d['signing_public_key'] as String);
+    final choice = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        key: const ValueKey('approve-dialog'),
+        title: Text('Approve $name?'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Someone signed in to your account on a new device. Approve it only if it '
+              'is yours and shows this code:'),
+          const SizedBox(height: 14),
+          Center(
+            child: SelectableText(fp,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 20, letterSpacing: 1.5)),
+          ),
+          const SizedBox(height: 14),
+          const Text("If you don't recognise it, remove it and change your password."),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, 'later'), child: const Text('Later')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'remove'),
+            child: Text('Remove', style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+          ),
+          FilledButton(
+            key: const ValueKey('approve-device'),
+            onPressed: () => Navigator.pop(ctx, 'approve'),
+            child: const Text('Approve'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'approve') {
+      final ok = await _auth.approveDevice(d);
+      if (mounted) showAppSnackBar(context, ok ? '$name approved' : 'Could not approve it', error: !ok);
+    } else if (choice == 'remove') {
+      final ok = await _auth.removeDevice(deviceId);
+      if (mounted) showAppSnackBar(context, ok ? '$name removed' : 'Could not remove it', error: !ok);
+    }
   }
 
   /// A notification was tapped: show that conversation.
