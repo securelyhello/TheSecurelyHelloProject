@@ -31,7 +31,25 @@ class MessageBubble extends StatefulWidget {
     this.onLongPress,
     this.onSecondaryTapDown,
     this.attachment,
+    this.replyQuote,
+    this.edited = false,
+    this.deleted = false,
+    this.reactions = const [],
+    this.onReactionsTap,
   });
+
+  /// A quoted message this one replies to, shown at the top of the bubble.
+  final Widget? replyQuote;
+
+  /// Shows "edited" next to the time.
+  final bool edited;
+
+  /// Deleted for everyone: [message] is ignored and a tombstone is shown.
+  final bool deleted;
+
+  /// Emoji reactions (one entry per person), shown under the bubble.
+  final List<String> reactions;
+  final VoidCallback? onReactionsTap;
 
   final String message;
 
@@ -178,8 +196,10 @@ class _MessageBubbleState extends State<MessageBubble> {
     final metaRow = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (widget.edited && !widget.deleted)
+          Text('edited  ', style: metaStyle.copyWith(fontStyle: FontStyle.italic)),
         Text(timeText, style: metaStyle),
-        if (isSent) ...[
+        if (isSent && !widget.deleted) ...[
           const SizedBox(width: 3),
           MessageStatusIcon(
             status: widget.status,
@@ -194,7 +214,9 @@ class _MessageBubbleState extends State<MessageBubble> {
 
     // Reserve room for the meta row on the last line of text.
     final timePainter = TextPainter(
-      text: TextSpan(text: timeText, style: metaStyle),
+      text: TextSpan(
+          text: (widget.edited && !widget.deleted ? 'edited  ' : '') + timeText,
+          style: metaStyle),
       textDirection: TextDirection.ltr,
       textScaler: MediaQuery.textScalerOf(context),
     )..layout();
@@ -209,7 +231,13 @@ class _MessageBubbleState extends State<MessageBubble> {
             TextSpan(
               style: textStyle,
               children: [
-                ..._textSpans(textStyle, p.link),
+                if (widget.deleted)
+                  TextSpan(
+                    text: isSent ? 'You deleted this message' : 'This message was deleted',
+                    style: textStyle.copyWith(fontStyle: FontStyle.italic, color: meta),
+                  )
+                else
+                  ..._textSpans(textStyle, p.link),
                 WidgetSpan(child: SizedBox(width: metaWidth, height: 12)),
               ],
             ),
@@ -218,8 +246,9 @@ class _MessageBubbleState extends State<MessageBubble> {
         Positioned(right: 0, bottom: 0, child: metaRow),
       ],
     );
-    final att = widget.attachment;
-    final Widget body = att == null
+    final att = widget.deleted ? null : widget.attachment;
+    final quote = widget.deleted ? null : widget.replyQuote;
+    final Widget withAttachment = att == null
         ? textBody
         : Column(
             // Caption reads left to right; a lone time stamp sits right.
@@ -233,6 +262,16 @@ class _MessageBubbleState extends State<MessageBubble> {
                 child: att,
               ),
               if (widget.message.isEmpty) metaRow else textBody,
+            ],
+          );
+    final Widget body = quote == null
+        ? withAttachment
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(padding: const EdgeInsets.only(bottom: 4), child: quote),
+              withAttachment,
             ],
           );
 
@@ -300,6 +339,24 @@ class _MessageBubbleState extends State<MessageBubble> {
                   onSecondaryTapDown: widget.onSecondaryTapDown,
                   child: withTail,
                 ),
+                if (widget.reactions.isNotEmpty && !widget.deleted)
+                  Transform.translate(
+                    offset: const Offset(0, -4),
+                    child: GestureDetector(
+                      onTap: widget.onReactionsTap,
+                      child: Container(
+                        key: const ValueKey('reactions'),
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: p.surface,
+                          borderRadius: BorderRadius.circular(99),
+                          border: Border.all(color: p.divider),
+                        ),
+                        child: Text(_reactionSummary(widget.reactions),
+                            style: const TextStyle(fontSize: 13)),
+                      ),
+                    ),
+                  ),
                 if (failed)
                   Padding(
                     padding: const EdgeInsets.only(top: 3, right: 4),
@@ -339,6 +396,15 @@ class _MessageBubbleState extends State<MessageBubble> {
 }
 
 /// Small curved tail drawn outside the bubble's bottom corner.
+/// "👍 2 ❤️" — each emoji once, with a count when more than one person used it.
+String _reactionSummary(List<String> reactions) {
+  final counts = <String, int>{};
+  for (final r in reactions) {
+    counts[r] = (counts[r] ?? 0) + 1;
+  }
+  return counts.entries.map((e) => e.value > 1 ? '${e.key} ${e.value}' : e.key).join(' ');
+}
+
 class _TailPainter extends CustomPainter {
   _TailPainter({required this.color, required this.isSent});
 

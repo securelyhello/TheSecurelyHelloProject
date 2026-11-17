@@ -33,7 +33,16 @@ enum PayloadKind {
   typing('typing'),
 
   /// To our own other devices: a message we sent, or messages we read.
-  sync('sync');
+  sync('sync'),
+
+  /// A reaction to one message (empty emoji removes it).
+  react('react'),
+
+  /// New text for one of the sender's own messages.
+  edit('edit'),
+
+  /// The sender deleted one of their messages for everyone.
+  delete('del');
 
   const PayloadKind(this.wire);
   final String wire;
@@ -143,6 +152,15 @@ class WirePayload {
   /// [PayloadKind.sync]: incoming message ids we read on another device.
   final List<String> readIds;
 
+  /// A message this one replies to: `{id, from, preview}`.
+  final Map<String, dynamic>? reply;
+
+  /// [react] / [edit] / [delete]: the message acted on.
+  final String? target;
+
+  /// [react]: the emoji, or '' to remove.
+  final String? emoji;
+
   const WirePayload._({
     required this.kind,
     required this.from,
@@ -156,6 +174,9 @@ class WirePayload {
     this.isTyping = false,
     this.conversation,
     this.readIds = const [],
+    this.reply,
+    this.target,
+    this.emoji,
   });
 
   factory WirePayload.message({
@@ -165,6 +186,7 @@ class WirePayload {
     required int timestampMs,
     required String body,
     Map<String, dynamic>? attachment,
+    Map<String, dynamic>? reply,
   }) =>
       WirePayload._(
         kind: PayloadKind.message,
@@ -174,6 +196,31 @@ class WirePayload {
         timestampMs: timestampMs,
         body: body,
         attachment: attachment,
+        reply: reply,
+      );
+
+  /// A reaction, edit or deletion of message [target]. Sent to the contact
+  /// (`to` = contact, no [conversation]) and to our own other devices
+  /// (`to` = us, [conversation] = the contact).
+  factory WirePayload.action({
+    required PayloadKind kind,
+    required String from,
+    required String to,
+    required int timestampMs,
+    required String target,
+    String? conversation,
+    String? emoji,
+    String? body,
+  }) =>
+      WirePayload._(
+        kind: kind,
+        from: from,
+        to: to,
+        timestampMs: timestampMs,
+        target: target,
+        conversation: conversation,
+        emoji: emoji,
+        body: body,
       );
 
   factory WirePayload.receipt({
@@ -214,6 +261,7 @@ class WirePayload {
     required int timestampMs,
     required String body,
     Map<String, dynamic>? attachment,
+    Map<String, dynamic>? reply,
   }) =>
       WirePayload._(
         kind: PayloadKind.sync,
@@ -224,6 +272,7 @@ class WirePayload {
         timestampMs: timestampMs,
         body: body,
         attachment: attachment,
+        reply: reply,
       );
 
   /// We read [ids] from [conversation] on this device.
@@ -255,6 +304,9 @@ class WirePayload {
         if (kind == PayloadKind.typing) 'on': isTyping,
         if (conversation != null) 'conv': conversation,
         if (readIds.isNotEmpty) 'read': readIds,
+        if (reply != null) 'reply': reply,
+        if (target != null) 'target': target,
+        if (emoji != null) 'emoji': emoji,
       };
 
   Uint8List encode() => Uint8List.fromList(utf8.encode(jsonEncode(toJson())));
@@ -265,6 +317,7 @@ class WirePayload {
   static WirePayload fromJson(Map<String, dynamic> json) {
     final kind = PayloadKind.fromWire(json['k'] as String);
     final att = json['att'];
+    final reply = json['reply'];
     final payload = WirePayload._(
       kind: kind,
       from: json['from'] as String,
@@ -280,6 +333,9 @@ class WirePayload {
       isTyping: json['on'] as bool? ?? false,
       conversation: json['conv'] as String?,
       readIds: (json['read'] as List<dynamic>?)?.cast<String>() ?? const [],
+      reply: reply is Map ? Map<String, dynamic>.from(reply) : null,
+      target: json['target'] as String?,
+      emoji: json['emoji'] as String?,
     );
     switch (kind) {
       case PayloadKind.message:
@@ -297,6 +353,19 @@ class WirePayload {
             (payload.messageId == null && payload.readIds.isEmpty)) {
           throw const FormatException('Malformed sync payload');
         }
+        break;
+      case PayloadKind.react:
+        if (payload.target == null || payload.emoji == null || payload.emoji!.length > 16) {
+          throw const FormatException('Malformed reaction');
+        }
+        break;
+      case PayloadKind.edit:
+        if (payload.target == null || payload.body == null) {
+          throw const FormatException('Malformed edit');
+        }
+        break;
+      case PayloadKind.delete:
+        if (payload.target == null) throw const FormatException('Malformed delete');
         break;
       case PayloadKind.typing:
         break;

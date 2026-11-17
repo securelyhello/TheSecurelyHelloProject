@@ -277,6 +277,27 @@ void main() {
       await settle(1200);
       await shot('12_chat_sent_and_read');
 
+      // ---- reply, reactions, edit, delete ------------------------------------
+      final myMsgs = await me.chat.fetchMessages(miraId);
+      final link = myMsgs.firstWhere((m) => m.content.contains('introduces us'));
+      final nothing = myMsgs.firstWhere((m) => m.content.startsWith('Nothing readable'));
+      await mira.chat.react(me.auth.myUserId!, link.id, '👍');
+      await mira.chat.sendMessage(me.auth.myUserId!, 'So even the server operator can’t read this?',
+          replyTo: {'id': nothing.id, 'from': me.auth.myUserId!, 'preview': nothing.content});
+      await me.chat.react(miraId, nothing.id, '🙏');
+      await me.chat.editMessage(miraId, link.id,
+          'Yes! Messages go straight between our devices. The server only introduces us.');
+      final oops = await me.chat.sendMessage(miraId, 'wrong chat, sorry');
+      await me.chat.deleteForEveryone(miraId, oops.id);
+      final rEnd = DateTime.now().add(const Duration(seconds: 15));
+      while (find.byKey(const ValueKey('reactions')).evaluate().length < 2 ||
+          find.textContaining('server operator').evaluate().isEmpty) {
+        if (DateTime.now().isAfter(rEnd)) fail('reactions / reply never shown');
+        await settle(200);
+      }
+      await settle(1200);
+      await shot('12c_reply_react_edit_delete');
+
       // ---- encrypted attachments: a photo and a document -------------------
       final photo = await renderTestPng();
       await mira.chat.sendAttachment(me.auth.myUserId!,

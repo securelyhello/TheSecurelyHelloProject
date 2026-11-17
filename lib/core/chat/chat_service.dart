@@ -43,6 +43,18 @@ class Message {
   /// Attachment metadata (see `AttachmentService`), if any.
   final Map<String, dynamic>? attachment;
 
+  /// The message this one replies to: `{id, from, preview}`.
+  final Map<String, dynamic>? replyTo;
+
+  /// When the sender last edited it.
+  final DateTime? editedAt;
+
+  /// Deleted for everyone (a tombstone).
+  final bool deleted;
+
+  /// Reactions: user id → emoji.
+  final Map<String, String> reactions;
+
   const Message({
     required this.id,
     required this.conversationId,
@@ -53,19 +65,43 @@ class Message {
     required this.isFromMe,
     this.kind = 'text',
     this.attachment,
+    this.replyTo,
+    this.editedAt,
+    this.deleted = false,
+    this.reactions = const {},
   });
 
   bool get isSystem => kind == 'system';
+
+  Message withReactions(Map<String, String> r) => Message(
+        id: id,
+        conversationId: conversationId,
+        senderId: senderId,
+        content: content,
+        timestamp: timestamp,
+        status: status,
+        isFromMe: isFromMe,
+        kind: kind,
+        attachment: attachment,
+        replyTo: replyTo,
+        editedAt: editedAt,
+        deleted: deleted,
+        reactions: r,
+      );
   bool get hasAttachment => attachment != null;
 
   factory Message.fromMap(Map<String, dynamic> map) {
-    final att = map['attachment'] as String?;
-    Map<String, dynamic>? attachment;
-    if (att != null) {
+    Map<String, dynamic>? json(String? raw) {
+      if (raw == null) return null;
       try {
-        attachment = Map<String, dynamic>.from(jsonDecode(att) as Map);
-      } catch (_) {}
+        return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      } catch (_) {
+        return null;
+      }
     }
+
+    final attachment = json(map['attachment'] as String?);
+    final edited = map['edited_at'] as int?;
     return Message(
       id: map['id'] as String,
       conversationId: map['conversation_id'] as String,
@@ -76,6 +112,9 @@ class Message {
       isFromMe: (map['is_from_me'] as int) == 1,
       kind: map['kind'] as String? ?? 'text',
       attachment: attachment,
+      replyTo: json(map['reply_to'] as String?),
+      editedAt: edited == null ? null : DateTime.fromMillisecondsSinceEpoch(edited),
+      deleted: (map['deleted'] as int? ?? 0) == 1,
     );
   }
 }
@@ -384,7 +423,12 @@ class ChatService {
   }) async {
     final rows =
         await _storage.getMessages(contactId, limit: limit, offset: offset);
-    return rows.map(Message.fromMap).toList();
+    final messages = rows.map(Message.fromMap).toList();
+    final reactions = await _storage.reactionsFor([for (final m in messages) m.id]);
+    return [
+      for (final m in messages)
+        reactions[m.id] == null ? m : m.withReactions(reactions[m.id]!)
+    ];
   }
 
   Future<Message?> getMessage(String id) async {
@@ -448,11 +492,13 @@ class ChatService {
     String contactId,
     String plaintext, {
     Map<String, dynamic>? attachment,
+    Map<String, dynamic>? replyTo,
   }) async {
     final me = _requireUserId();
     final id = _uuid.v4();
     final now = DateTime.now();
     final attachmentJson = attachment == null ? null : jsonEncode(attachment);
+    final reply = replyTo == null ? null : _replyRef(replyTo);
 
     await _storage.insertMessage(
       id: id,
@@ -463,6 +509,7 @@ class ChatService {
       status: 'sending',
       isFromMe: true,
       attachment: attachmentJson,
+      replyTo: reply == null ? null : jsonEncode(reply),
     );
     await _storage.updateConversation(
       id: contactId,
@@ -473,7 +520,7 @@ class ChatService {
     _changed(contactId);
 
     final status = await _transmitMessage(contactId, id, plaintext,
-        now.millisecondsSinceEpoch, attachment);
+        now.millisecondsSinceEpoch, attachment, reply);
     _changed(contactId);
 
     unawaited(_syncToOwnDevices(WirePayload.sentSync(
@@ -483,6 +530,7 @@ class ChatService {
       timestampMs: now.millisecondsSinceEpoch,
       body: plaintext,
       attachment: attachment == null ? null : _wireAttachment(attachment),
+      reply: reply,
     )));
 
     if (!_p2p.hasConnectionWithPrefix('$contactId:')) {
@@ -498,8 +546,141 @@ class ChatService {
       status: status,
       isFromMe: true,
       attachment: attachment,
+      replyTo: reply,
     );
   }
+
+  /// A reply reference: id, author and a short preview.
+  static Map<String, dynamic> _replyRef(Map<String, dynamic> r) {
+    final preview = (r['preview'] as String? ?? '');
+    return {
+      'id': r['id'],
+      'from': r['from'],
+      'preview': preview.length > 120 ? '${preview.substring(0, 120)}…' : preview,
+    };
+  }
+
+  // ===========================================================================
+  // Reactions, edits, deletion
+  // ===========================================================================
+
+  /// Own messages can be edited or deleted for everyone this long after
+  /// sending (enforced by every receiving device).
+  static const editWindow = Duration(hours: 24);
+
+  static bool canEdit(Message m) =>
+      m.isFromMe &&
+      !m.deleted &&
+      !m.isSystem &&
+      DateTime.now().difference(m.timestamp) < editWindow;
+
+  /// Sets our reaction to [messageId] ('' removes it).
+  Future<void> react(String contactId, String messageId, String emoji) async {
+    final me = _requireUserId();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _storage.setReaction(messageId, me, emoji, now);
+    _changed(contactId);
+    await _sendAction(contactId, PayloadKind.react, messageId, emoji: emoji);
+  }
+
+  /// Replaces the text of our message [messageId].
+  Future<bool> editMessage(String contactId, String messageId, String text) async {
+    final row = await _storage.getMessage(messageId);
+    if (row == null || text.trim().isEmpty) return false;
+    final m = Message.fromMap(row);
+    if (m.conversationId != contactId || !canEdit(m)) return false;
+    await _storage.editMessage(messageId, text, DateTime.now().millisecondsSinceEpoch);
+    await _refreshPreview(contactId);
+    _changed(contactId);
+    await _sendAction(contactId, PayloadKind.edit, messageId, body: text);
+    return true;
+  }
+
+  /// Deletes our message [messageId] on every device of both people.
+  Future<bool> deleteForEveryone(String contactId, String messageId) async {
+    final row = await _storage.getMessage(messageId);
+    if (row == null) return false;
+    final m = Message.fromMap(row);
+    if (m.conversationId != contactId || !canEdit(m)) return false;
+    await _storage.tombstoneMessage(messageId);
+    await _refreshPreview(contactId);
+    _changed(contactId);
+    await _sendAction(contactId, PayloadKind.delete, messageId);
+    return true;
+  }
+
+  /// Removes a message from this device only.
+  Future<void> deleteForMe(String contactId, String messageId) async {
+    await _storage.deleteMessage(messageId);
+    await _refreshPreview(contactId);
+    _changed(contactId);
+  }
+
+  /// Sends an action without the local checks, as a modified client could.
+  /// For tests of the receiving side's checks only.
+  @visibleForTesting
+  Future<void> debugSendRawAction(String contactId, String kind, String target,
+          {String? emoji, String? body}) =>
+      _sendAction(contactId, PayloadKind.fromWire(kind), target, emoji: emoji, body: body);
+
+  Future<void> _sendAction(String contactId, PayloadKind kind, String target,
+      {String? emoji, String? body}) async {
+    final me = _requireUserId();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    try {
+      await _deliver(
+          contactId,
+          WirePayload.action(
+              kind: kind, from: me, to: contactId, timestampMs: now, target: target, emoji: emoji, body: body));
+    } catch (e) {
+      debugPrint('${kind.wire} to $contactId failed: $e');
+    }
+    unawaited(_syncToOwnDevices(WirePayload.action(
+        kind: kind,
+        from: me,
+        to: me,
+        timestampMs: now,
+        target: target,
+        conversation: contactId,
+        emoji: emoji,
+        body: body)));
+  }
+
+  /// Applies a reaction / edit / deletion received from [actor] (a contact,
+  /// or us on another device) in [conversation].
+  Future<void> _applyAction(String conversation, String actor, WirePayload p) async {
+    final row = await _storage.getMessage(p.target!);
+    if (row == null || row['conversation_id'] != conversation) return;
+    final m = Message.fromMap(row);
+    if (m.isSystem || m.deleted) return;
+    switch (p.kind) {
+      case PayloadKind.react:
+        await _storage.setReaction(m.id, actor, p.emoji!, p.timestampMs);
+        break;
+      case PayloadKind.edit:
+      case PayloadKind.delete:
+        // Only the author, and only within the window (+ a little skew).
+        final authored = actor == _myUserId ? m.isFromMe : m.senderId == actor && !m.isFromMe;
+        final age = DateTime.fromMillisecondsSinceEpoch(p.timestampMs).difference(m.timestamp);
+        if (!authored || age > editWindow + const Duration(minutes: 5)) return;
+        if (p.kind == PayloadKind.edit) {
+          await _storage.editMessage(m.id, p.body!, p.timestampMs);
+        } else {
+          await _storage.tombstoneMessage(m.id);
+        }
+        await _refreshPreview(conversation);
+        break;
+      default:
+        return;
+    }
+    _changed(conversation);
+  }
+
+  Future<void> _refreshPreview(String conversation) =>
+      _storage.refreshConversationPreview(conversation, (row) {
+        final m = Message.fromMap(row);
+        return m.deleted ? 'This message was deleted' : previewText(m.content, m.attachment);
+      });
 
   /// Encrypts and uploads a file, then sends it to [contactId] with an
   /// optional [caption].
@@ -536,7 +717,7 @@ class ChatService {
       for (final row in rows) {
         final m = Message.fromMap(row);
         await _transmitMessage(m.conversationId, m.id, m.content,
-            m.timestamp.millisecondsSinceEpoch, m.attachment);
+            m.timestamp.millisecondsSinceEpoch, m.attachment, m.replyTo);
         _changed(m.conversationId);
       }
     } catch (e) {
@@ -596,7 +777,8 @@ class ChatService {
   }
 
   Future<String> _transmitMessage(String contactId, String id, String text,
-      int timestampMs, Map<String, dynamic>? attachment) async {
+      int timestampMs, Map<String, dynamic>? attachment,
+      [Map<String, dynamic>? reply]) async {
     final me = _requireUserId();
     var delivered = false;
     try {
@@ -609,6 +791,7 @@ class ChatService {
           timestampMs: timestampMs,
           body: text,
           attachment: attachment == null ? null : _wireAttachment(attachment),
+          reply: reply,
         ),
         envelopeId: id,
       );
@@ -776,7 +959,14 @@ class ChatService {
     }
 
     if (envelope.senderId == me) {
-      if (payload.kind == PayloadKind.sync) await _applySync(payload);
+      if (payload.kind == PayloadKind.sync) {
+        await _applySync(payload);
+      } else if (payload.conversation != null &&
+          (payload.kind == PayloadKind.react ||
+              payload.kind == PayloadKind.edit ||
+              payload.kind == PayloadKind.delete)) {
+        await _applyAction(payload.conversation!, me, payload);
+      }
     } else {
       final contactId = envelope.senderId;
       switch (payload.kind) {
@@ -790,6 +980,11 @@ class ChatService {
           if (!_typingController.isClosed) {
             _typingController.add(TypingEvent(contactId, payload.isTyping));
           }
+          break;
+        case PayloadKind.react:
+        case PayloadKind.edit:
+        case PayloadKind.delete:
+          await _applyAction(contactId, contactId, payload);
           break;
         case PayloadKind.sync:
           break; // only our own devices send these
@@ -816,6 +1011,7 @@ class ChatService {
         isFromMe: false,
         attachment:
             payload.attachment == null ? null : jsonEncode(payload.attachment),
+        replyTo: payload.reply == null ? null : jsonEncode(_replyRef(payload.reply!)),
       );
       await _storage.updateConversation(
         id: contactId,
@@ -867,6 +1063,7 @@ class ChatService {
           attachment: payload.attachment == null
               ? null
               : jsonEncode(payload.attachment),
+          replyTo: payload.reply == null ? null : jsonEncode(_replyRef(payload.reply!)),
         );
         await _storage.updateConversation(
           id: contactId,
@@ -1228,7 +1425,7 @@ class ChatService {
       for (final row in rows) {
         final m = Message.fromMap(row);
         await _transmitMessage(contactId, m.id, m.content,
-            m.timestamp.millisecondsSinceEpoch, m.attachment);
+            m.timestamp.millisecondsSinceEpoch, m.attachment, m.replyTo);
       }
     } catch (e) {
       debugPrint('Re-sending unconfirmed messages failed: $e');

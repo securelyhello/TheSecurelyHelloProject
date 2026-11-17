@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import 'package:securelyhello/core/chat/chat_service.dart' show Message;
+import 'package:securelyhello/core/chat/chat_service.dart' show ChatService, Message;
 import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
 import 'package:securelyhello/core/notifications/notification_service.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
@@ -51,7 +51,10 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-enum _MsgAction { copy, info, retry }
+enum _MsgAction { reply, react, copy, edit, delete, info, retry }
+
+/// Quick reactions offered in the message menu.
+const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 enum _MenuAction { info, connect, clear }
 
@@ -80,6 +83,10 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _markerResolved = false;
   String? _unreadMarkerId;
   String? _highlightId;
+
+  /// The message being replied to, or edited, from the composer.
+  Message? _replyTo;
+  Message? _editing;
 
   String get _id => widget.contactUserId;
 
@@ -147,14 +154,110 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty) return;
     _input.clear();
     _drafts.remove(_id);
+    final editing = _editing;
+    if (editing != null) {
+      setState(() => _editing = null);
+      final ok = await _chat.editMessage(_id, editing.id, text);
+      if (!ok && mounted) {
+        showAppSnackBar(context, 'Messages can only be edited for 24 hours', error: true);
+      }
+      return;
+    }
+    final reply = _replyTo;
+    setState(() => _replyTo = null);
     _jumpToBottom();
-    final ok = await _chat.sendMessage(_id, text);
+    final ok = await _chat.sendMessage(_id, text,
+        replyTo: reply == null ? null : _replyRef(reply));
     if (!ok && mounted) {
       showAppSnackBar(
         context,
         friendlyError(_chat.errorMessage, fallback: 'Message not sent'),
         error: true,
       );
+    }
+  }
+
+  Map<String, dynamic> _replyRef(Message m) => {
+        'id': m.id,
+        'from': m.senderId,
+        'preview': m.hasAttachment && m.content.isEmpty
+            ? ChatService.previewText('', m.attachment)
+            : m.content,
+      };
+
+  String _authorName(String userId, Contact? contact) =>
+      userId == _chat.myUserId ? 'You' : (contact?.displayLabel ?? 'Them');
+
+  Widget _quote(Map<String, dynamic> r, Contact? contact, {VoidCallback? onClose}) {
+    final p = context.palette;
+    return Container(
+      key: ValueKey('quote-${r['id']}'),
+      padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(8),
+        border: Border(left: BorderSide(color: p.accent, width: 3)),
+      ),
+      child: Row(children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(_authorName(r['from'] as String? ?? '', contact),
+                style: TextStyle(color: p.accent, fontWeight: FontWeight.w600, fontSize: 12.5)),
+            Text(r['preview'] as String? ?? '',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: p.textSecondary, fontSize: 13)),
+          ]),
+        ),
+        if (onClose != null)
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(LucideIcons.x, size: 18),
+            onPressed: onClose,
+          ),
+      ]),
+    );
+  }
+
+  Future<void> _pickReaction(Message m, {Offset? position}) async {
+    final mine = m.reactions[_chat.myUserId];
+    final emoji = await showActionMenu<String>(
+      context,
+      position: position,
+      items: [
+        for (final e in quickReactions)
+          ActionItem(value: e, icon: LucideIcons.smile, label: e == mine ? '$e  (remove)' : e),
+      ],
+    );
+    if (emoji == null) return;
+    await _chat.react(_id, m.id, emoji == mine ? '' : emoji);
+  }
+
+  Future<void> _delete(Message m) async {
+    final everyone = ChatService.canEdit(m);
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete message?'),
+        content: Text(everyone
+            ? 'Delete it for everyone in this chat, or only on this device?'
+            : 'It will be removed from this device.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, 'me'), child: const Text('Delete for me')),
+          if (everyone)
+            TextButton(
+              key: const ValueKey('delete-everyone'),
+              onPressed: () => Navigator.pop(ctx, 'all'),
+              child: const Text('Delete for everyone'),
+            ),
+        ],
+      ),
+    );
+    if (choice == 'all') {
+      await _chat.deleteForEveryone(_id, m.id);
+    } else if (choice == 'me') {
+      await _chat.deleteForMe(_id, m.id);
     }
   }
 
@@ -237,11 +340,19 @@ class _ChatScreenState extends State<ChatScreen> {
             icon: LucideIcons.rotateCw,
             label: 'Retry sending',
           ),
-        const ActionItem(
-          value: _MsgAction.copy,
-          icon: LucideIcons.copy,
-          label: 'Copy',
-        ),
+        if (!m.deleted) ...[
+          const ActionItem(value: _MsgAction.reply, icon: LucideIcons.reply, label: 'Reply'),
+          const ActionItem(value: _MsgAction.react, icon: LucideIcons.smilePlus, label: 'React'),
+        ],
+        if (!m.deleted && m.content.isNotEmpty)
+          const ActionItem(
+            value: _MsgAction.copy,
+            icon: LucideIcons.copy,
+            label: 'Copy',
+          ),
+        if (ChatService.canEdit(m) && m.content.isNotEmpty)
+          const ActionItem(value: _MsgAction.edit, icon: LucideIcons.pencil, label: 'Edit'),
+        const ActionItem(value: _MsgAction.delete, icon: LucideIcons.trash2, label: 'Delete'),
         const ActionItem(
           value: _MsgAction.info,
           icon: LucideIcons.info,
@@ -252,6 +363,24 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted) return;
     setState(() => _highlightId = null);
     switch (action) {
+      case _MsgAction.reply:
+        setState(() {
+          _editing = null;
+          _replyTo = m;
+        });
+        _focus.requestFocus();
+      case _MsgAction.react:
+        await _pickReaction(m, position: position);
+      case _MsgAction.edit:
+        setState(() {
+          _replyTo = null;
+          _editing = m;
+          _input.text = m.content;
+          _input.selection = TextSelection.collapsed(offset: m.content.length);
+        });
+        _focus.requestFocus();
+      case _MsgAction.delete:
+        await _delete(m);
       case _MsgAction.copy:
         await Clipboard.setData(ClipboardData(text: m.content));
         if (mounted) showAppSnackBar(context, 'Message copied');
@@ -406,7 +535,16 @@ class _ChatScreenState extends State<ChatScreen> {
             controller: _input,
             focusNode: _focus,
             onSend: _send,
-            onAttach: _attach,
+            onAttach: _editing == null ? _attach : null,
+            header: _editing != null
+                ? _quote({'id': _editing!.id, 'from': _chat.myUserId, 'preview': 'Editing: ${_editing!.content}'},
+                    contact, onClose: () {
+                    setState(() => _editing = null);
+                    _input.clear();
+                  })
+                : _replyTo != null
+                    ? _quote(_replyRef(_replyTo!), contact, onClose: () => setState(() => _replyTo = null))
+                    : null,
             uploading: context.select<ChatProvider, bool>((c) => c.isUploading(_id)),
             onChanged: (text) => _chat.onComposerChanged(_id, text),
           ),
@@ -491,6 +629,11 @@ class _ChatScreenState extends State<ChatScreen> {
       body = Padding(
         padding: EdgeInsets.only(top: first ? 6 : 2),
         child: MessageBubble(
+          replyQuote: m.replyTo == null ? null : _quote(m.replyTo!, contact),
+          edited: m.editedAt != null,
+          deleted: m.deleted,
+          reactions: m.reactions.values.toList(),
+          onReactionsTap: () => _pickReaction(m),
           attachment: m.attachment == null
               ? null
               : AttachmentView(

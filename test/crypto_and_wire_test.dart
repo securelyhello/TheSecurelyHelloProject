@@ -166,6 +166,29 @@ void main() {
       expect(read.messageId, isNull);
     });
 
+    test('reply, reaction, edit and delete payloads round-trip', () {
+      final reply = WirePayload.decode(WirePayload.message(
+              messageId: 'm2', from: 'a', to: 'b', timestampMs: 1, body: 'yes',
+              reply: {'id': 'm1', 'from': 'b', 'preview': 'q?'})
+          .encode());
+      expect(reply.reply!['id'], 'm1');
+      for (final kind in [PayloadKind.react, PayloadKind.edit, PayloadKind.delete]) {
+        final p = WirePayload.decode(WirePayload.action(
+                kind: kind, from: 'a', to: 'a', timestampMs: 2, target: 'm1', conversation: 'b',
+                emoji: kind == PayloadKind.react ? '👍' : null,
+                body: kind == PayloadKind.edit ? 'new text' : null)
+            .encode());
+        expect(p.kind, kind);
+        expect(p.target, 'm1');
+        expect(p.conversation, 'b');
+      }
+      Uint8List enc(Map<String, dynamic> m) => bytes(jsonEncode(m));
+      expect(() => WirePayload.decode(enc({'k': 'edit', 'from': 'a', 'to': 'b', 't': 1, 'target': 'x'})),
+          throwsFormatException, reason: 'edit without text');
+      expect(() => WirePayload.decode(enc({'k': 'react', 'from': 'a', 'to': 'b', 't': 1, 'target': 'x', 'emoji': 'x' * 40})),
+          throwsFormatException, reason: 'oversized reaction');
+    });
+
     test('malformed payloads are rejected', () {
       Uint8List enc(Map<String, dynamic> m) => bytes(jsonEncode(m));
       expect(() => WirePayload.decode(enc({'k': 'msg', 'from': 'a', 'to': 'b', 't': 1})),

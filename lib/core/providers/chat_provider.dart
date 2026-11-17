@@ -192,15 +192,29 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// React to a message ('' removes our reaction).
+  Future<void> react(String contactId, String messageId, String emoji) =>
+      _chatService.react(contactId, messageId, emoji);
+
+  Future<bool> editMessage(String contactId, String messageId, String text) =>
+      _chatService.editMessage(contactId, messageId, text.trim());
+
+  Future<bool> deleteForEveryone(String contactId, String messageId) =>
+      _chatService.deleteForEveryone(contactId, messageId);
+
+  Future<void> deleteForMe(String contactId, String messageId) =>
+      _chatService.deleteForMe(contactId, messageId);
+
   /// Send a text message to a contact.
-  Future<bool> sendMessage(String contactId, String plaintext) async {
+  Future<bool> sendMessage(String contactId, String plaintext,
+      {Map<String, dynamic>? replyTo}) async {
     final text = plaintext.trim();
     if (text.isEmpty) return false;
     _errorMessage = null;
     _stopMyTyping(contactId);
 
     try {
-      await _chatService.sendMessage(contactId, text);
+      await _chatService.sendMessage(contactId, text, replyTo: replyTo);
       return true;
     } catch (e) {
       _errorMessage = 'Failed to send message: $e';

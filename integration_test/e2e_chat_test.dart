@@ -227,6 +227,44 @@ void main() {
       await until(() async => await statusOf(bob, alice, reply.id) == 'delivered',
           what: 'delivered receipt for the reply');
 
+      // ---- reply, react, edit, delete ---------------------------------------
+      Future<Message?> find(Stack who, Stack peer, String id) async =>
+          (await who.messagesWith(peer)).where((m) => m.id == id).firstOrNull;
+
+      final answer = await bob.chat.sendMessage(alice.id, 'replying to that',
+          replyTo: {'id': sent.id, 'from': alice.id, 'preview': 'hello bob, direct'});
+      await until(() async => (await find(alice, bob, answer.id))?.replyTo?['id'] == sent.id,
+          what: 'Alice sees the reply with its quote');
+
+      await alice.chat.react(bob.id, answer.id, '❤️');
+      await until(() async => (await find(bob, alice, answer.id))?.reactions[alice.id] == '❤️',
+          what: "Bob sees Alice's reaction");
+      await alice.chat.react(bob.id, answer.id, '');
+      await until(() async => (await find(bob, alice, answer.id))?.reactions.isEmpty ?? false,
+          what: 'the reaction is removed');
+
+      expect(await alice.chat.editMessage(bob.id, sent.id, 'hello bob (edited)'), isTrue);
+      await until(() async {
+        final m = await find(bob, alice, sent.id);
+        return m?.content == 'hello bob (edited)' && m?.editedAt != null;
+      }, what: 'Bob sees the edit');
+      expect(await bob.chat.editMessage(alice.id, sent.id, 'not yours'), isFalse,
+          reason: "can't edit someone else's message");
+
+      // A modified client forging an edit / delete of someone else's message
+      // is ignored by the receiver.
+      await bob.chat.debugSendRawAction(alice.id, 'edit', sent.id, body: 'forged');
+      await bob.chat.debugSendRawAction(alice.id, 'del', sent.id);
+      await Future<void>.delayed(const Duration(seconds: 2));
+      expect((await find(alice, bob, sent.id))!.content, 'hello bob (edited)');
+      expect((await find(alice, bob, sent.id))!.deleted, isFalse);
+
+      expect(await alice.chat.deleteForEveryone(bob.id, sent.id), isTrue);
+      await until(() async => (await find(bob, alice, sent.id))?.deleted ?? false,
+          what: 'Bob sees it deleted');
+      final tomb = await bob.storage.getMessage(sent.id);
+      expect(tomb!['content'], '', reason: 'the text is gone, only a tombstone remains');
+
       // ---- attachments: small ones inside the message, large ones uploaded --
       Future<Message> receivedBy(Stack who, Stack from, String id) async {
         late Message got;

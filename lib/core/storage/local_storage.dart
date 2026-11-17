@@ -28,7 +28,7 @@ import 'package:securelyhello/core/crypto/crypto_core.dart';
 /// **Nothing stored here ever leaves the device.**
 class LocalStorage {
   static const _legacyDbName = 'securelyhello.db';
-  static const _dbVersion = 3;
+  static const _dbVersion = 4;
   static const _sealedPrefix = 'enc1:';
 
   final DatabaseFactory _factory;
@@ -193,6 +193,25 @@ class LocalStorage {
 
     await batch.commit(noResult: true);
     await _createV3(db);
+    await _createV4(db);
+  }
+
+  /// Replies, edits, deletions and reactions.
+  static Future<void> _createV4(Database db) async {
+    final batch = db.batch()
+      ..execute('ALTER TABLE messages ADD COLUMN reply_to TEXT')
+      ..execute('ALTER TABLE messages ADD COLUMN edited_at INTEGER')
+      ..execute('ALTER TABLE messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0')
+      ..execute('''
+        CREATE TABLE IF NOT EXISTS reactions (
+          message_id TEXT NOT NULL,
+          reactor_id TEXT NOT NULL,
+          emoji      TEXT NOT NULL,
+          at         INTEGER NOT NULL,
+          PRIMARY KEY (message_id, reactor_id)
+        )
+      ''');
+    await batch.commit(noResult: true);
   }
 
   /// Protocol v3: per-device sessions, prekeys, device cache, attachments.
@@ -303,6 +322,7 @@ class LocalStorage {
       await db.update('contacts_cache',
           {'public_signing_key': null, 'public_encryption_key': null});
     }
+    if (oldVersion < 4) await _createV4(db);
   }
 
   /// Closes the database.  Safe to call multiple times.
@@ -353,10 +373,12 @@ class LocalStorage {
 
   Map<String, dynamic> _unsealMessage(Map<String, dynamic> row) {
     final att = row['attachment'] as String?;
+    final reply = row['reply_to'] as String?;
     return {
       ...row,
       'content': _unseal(row['content'] as String),
       'attachment': att == null ? null : _unseal(att),
+      'reply_to': reply == null ? null : _unseal(reply),
     };
   }
 
@@ -407,6 +429,7 @@ class LocalStorage {
     required bool isFromMe,
     String kind = 'text',
     String? attachment,
+    String? replyTo,
   }) async {
     await db.insert(
       'messages',
@@ -420,6 +443,7 @@ class LocalStorage {
         'is_from_me': isFromMe ? 1 : 0,
         'kind': kind,
         'attachment': attachment == null ? null : _seal(attachment),
+        'reply_to': replyTo == null ? null : _seal(replyTo),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -478,7 +502,7 @@ class LocalStorage {
   Future<List<Map<String, dynamic>>> getUnsentMessages() async {
     final rows = await db.query(
       'messages',
-      where: "is_from_me = 1 AND status IN ('failed', 'sending')",
+      where: "is_from_me = 1 AND deleted = 0 AND status IN ('failed', 'sending')",
       orderBy: 'timestamp ASC',
     );
     return rows.map(_unsealMessage).toList();
@@ -490,8 +514,8 @@ class LocalStorage {
       String conversationId, int sinceMs) async {
     final rows = await db.query(
       'messages',
-      where: "conversation_id = ? AND is_from_me = 1 AND status = 'sent' "
-          'AND timestamp >= ?',
+      where: "conversation_id = ? AND is_from_me = 1 AND deleted = 0 "
+          "AND status = 'sent' AND timestamp >= ?",
       whereArgs: [conversationId, sinceMs],
       orderBy: 'timestamp ASC',
     );
@@ -929,5 +953,70 @@ class LocalStorage {
 
   Future<void> pruneSeenEnvelopes(int beforeMs) async {
     await db.delete('seen_envelopes', where: 'seen_at < ?', whereArgs: [beforeMs]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Edits, deletions, reactions
+  // ---------------------------------------------------------------------------
+
+  Future<void> editMessage(String messageId, String content, int editedAt) async {
+    await db.update('messages', {'content': _seal(content), 'edited_at': editedAt},
+        where: 'id = ?', whereArgs: [messageId]);
+  }
+
+  /// "Deleted for everyone": the content and attachment are wiped, a
+  /// tombstone stays so the chat shows where it was.
+  Future<void> tombstoneMessage(String messageId) async {
+    await db.update(
+      'messages',
+      {'content': _seal(''), 'attachment': null, 'reply_to': null, 'deleted': 1},
+      where: 'id = ?',
+      whereArgs: [messageId],
+    );
+    await db.delete('reactions', where: 'message_id = ?', whereArgs: [messageId]);
+  }
+
+  /// Sets ([emoji] non-empty) or removes [reactorId]'s reaction.
+  Future<void> setReaction(String messageId, String reactorId, String emoji, int at) async {
+    if (emoji.isEmpty) {
+      await db.delete('reactions',
+          where: 'message_id = ? AND reactor_id = ?', whereArgs: [messageId, reactorId]);
+    } else {
+      await db.insert(
+        'reactions',
+        {'message_id': messageId, 'reactor_id': reactorId, 'emoji': emoji, 'at': at},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+  }
+
+  /// message id → {reactor id → emoji} for [messageIds].
+  Future<Map<String, Map<String, String>>> reactionsFor(List<String> messageIds) async {
+    final out = <String, Map<String, String>>{};
+    if (messageIds.isEmpty) return out;
+    for (var i = 0; i < messageIds.length; i += 500) {
+      final chunk = messageIds.sublist(i, i + 500 > messageIds.length ? messageIds.length : i + 500);
+      final rows = await db.query('reactions',
+          where: 'message_id IN (${List.filled(chunk.length, '?').join(',')})',
+          whereArgs: chunk,
+          orderBy: 'at');
+      for (final r in rows) {
+        out.putIfAbsent(r['message_id'] as String, () => {})[r['reactor_id'] as String] =
+            r['emoji'] as String;
+      }
+    }
+    return out;
+  }
+
+  /// Re-derives the conversation preview from its newest visible message.
+  Future<void> refreshConversationPreview(String conversationId, String Function(Map<String, dynamic>) preview) async {
+    final rows = await db.query('messages',
+        where: "conversation_id = ? AND kind != 'system'",
+        whereArgs: [conversationId],
+        orderBy: 'timestamp DESC',
+        limit: 1);
+    final text = rows.isEmpty ? null : preview(_unsealMessage(rows.first));
+    await db.update('conversations', {'last_message': text == null ? null : _seal(text)},
+        where: 'id = ?', whereArgs: [conversationId]);
   }
 }

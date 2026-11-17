@@ -19,6 +19,7 @@ class Composer extends StatefulWidget {
     this.onChanged,
     this.onAttach,
     this.uploading = false,
+    this.header,
     this.enabled = true,
     this.hint = 'Message',
   });
@@ -33,6 +34,9 @@ class Composer extends StatefulWidget {
 
   /// An attachment is being encrypted and uploaded.
   final bool uploading;
+
+  /// Shown above the field (e.g. "Replying to …" or "Editing").
+  final Widget? header;
   final bool enabled;
   final String hint;
 
@@ -125,70 +129,90 @@ class _ComposerState extends State<Composer> {
             border: Border(top: BorderSide(color: p.divider)),
           ),
           padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              if (widget.onAttach != null)
+              if (widget.header != null)
                 Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: SizedBox(
-                    width: 46,
-                    height: 46,
-                    child: widget.uploading
-                        ? Padding(
-                            padding: const EdgeInsets.all(13),
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: p.accent),
-                          )
-                        : IconButton(
-                            key: const ValueKey('composer-attach'),
-                            tooltip: 'Attach a file',
-                            icon: Icon(LucideIcons.paperclip, color: p.textMuted),
-                            onPressed: widget.enabled ? widget.onAttach : null,
-                          ),
-                  ),
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: widget.header,
                 ),
-              Expanded(
-                child: TextField(
-                  controller: widget.controller,
-                  focusNode: widget.focusNode,
-                  enabled: widget.enabled,
-                  minLines: 1,
-                  maxLines: 6,
-                  keyboardType: TextInputType.multiline,
-                  textInputAction: TextInputAction.newline,
-                  textCapitalization: TextCapitalization.sentences,
-                  onChanged: widget.onChanged,
-                  style: t.bodyLarge?.copyWith(fontSize: 15.5, height: 1.35),
-                  cursorColor: p.accent,
-                  decoration: InputDecoration(
-                    hintText: widget.hint,
-                    filled: true,
-                    fillColor: p.inputFill,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 12,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (widget.onAttach != null)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: SizedBox(
+                        width: 46,
+                        height: 46,
+                        child: widget.uploading
+                            ? Padding(
+                                padding: const EdgeInsets.all(13),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: p.accent,
+                                ),
+                              )
+                            : IconButton(
+                                key: const ValueKey('composer-attach'),
+                                tooltip: 'Attach a file',
+                                icon: Icon(
+                                  LucideIcons.paperclip,
+                                  color: p.textMuted,
+                                ),
+                                onPressed: widget.enabled
+                                    ? widget.onAttach
+                                    : null,
+                              ),
+                      ),
                     ),
-                    border: border,
-                    enabledBorder: border,
-                    focusedBorder: border,
-                    disabledBorder: border,
-                  ),
-                ),
-              ),
-              AnimatedSize(
-                duration: AppMotion.medium,
-                curve: AppMotion.curve,
-                alignment: Alignment.centerLeft,
-                child: _hasText
-                    ? Padding(
-                        padding: const EdgeInsets.only(left: 8),
-                        child: _SendButton(
-                          onPressed: widget.enabled ? widget.onSend : null,
+                  Expanded(
+                    child: TextField(
+                      controller: widget.controller,
+                      focusNode: widget.focusNode,
+                      enabled: widget.enabled,
+                      minLines: 1,
+                      maxLines: 6,
+                      keyboardType: TextInputType.multiline,
+                      textInputAction: TextInputAction.newline,
+                      textCapitalization: TextCapitalization.sentences,
+                      onChanged: widget.onChanged,
+                      style: t.bodyLarge?.copyWith(
+                        fontSize: 15.5,
+                        height: 1.35,
+                      ),
+                      cursorColor: p.accent,
+                      decoration: InputDecoration(
+                        hintText: widget.hint,
+                        filled: true,
+                        fillColor: p.inputFill,
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 12,
                         ),
-                      )
-                    : const SizedBox(height: 46),
+                        border: border,
+                        enabledBorder: border,
+                        focusedBorder: border,
+                        disabledBorder: border,
+                      ),
+                    ),
+                  ),
+                  AnimatedSize(
+                    duration: AppMotion.medium,
+                    curve: AppMotion.curve,
+                    alignment: Alignment.centerLeft,
+                    child: _hasText
+                        ? Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: _SendButton(
+                              onPressed: widget.enabled ? widget.onSend : null,
+                            ),
+                          )
+                        : const SizedBox(height: 46),
+                  ),
+                ],
               ),
             ],
           ),
