@@ -3,78 +3,117 @@
 Peer-to-peer, end-to-end encrypted chat built with Flutter.
 
 **Concept:** the server is only a phonebook and a switchboard. It handles
-sign-in, usernames, public keys, contact requests and the WebRTC handshake.
-Messages travel directly between devices over WebRTC data channels. When the
-other person is offline, the *encrypted* envelope waits in a short-lived relay
-queue (24 h) and is deleted as soon as their device picks it up. Private keys
-and chat history never leave the device.
+sign-in, usernames, the public keys of each device, contact requests and the
+WebRTC handshake. Messages travel directly between devices over WebRTC data
+channels. When a device is offline, its *encrypted* envelope waits in a
+short-lived relay queue (24 h) and is deleted as soon as that device picks it
+up. Private keys and chat history never leave the device.
+
+## Features
+
+- **End-to-end encryption with forward secrecy**: X3DH key agreement and a
+  Double Ratchet session per pair of devices. Keys change with every
+  message, so a key stolen today can't decrypt earlier messages.
+- **Several devices per account**: each phone or computer has its own keys.
+  A message reaches all of the recipient's devices, and a copy goes to your
+  own other devices. Read state syncs between your devices too. Settings →
+  Linked devices lists and removes them.
+- **Safety numbers** cover every device of both people and change when
+  either adds a device. A notice appears in the chat when that happens.
+- **Encrypted attachments**: photos and files are encrypted on the device
+  with a fresh key, and only the ciphertext is uploaded. Photos show inline;
+  files can be saved.
+- **E-mail verification and password reset** with 6-digit codes.
+- **Notifications** are built on the device after decryption. Optional push
+  wake-ups (Firebase Cloud Messaging) never carry content.
+- **Direct P2P when possible**, with a relay queue otherwise. Includes
+  delivered/read receipts, typing indicators and presence.
 
 ## How a message travels
 
 ```
- Alice's device                      Securely Hello server                 Bob's device
- ──────────────                      ─────────────────────                 ────────────
- text ─► sign (Ed25519)
-      ─► encrypt (X25519 NaCl box)
-      ─► envelope ──── WebRTC data channel (direct, DTLS) ────────────► verify + decrypt
-                  └─── or relay queue (ciphertext only) ──WebSocket───► verify + decrypt
-                                                                          ─► receipt back
+ Alice's phone                     Securely Hello server               Bob's laptop / Bob's phone
+ ─────────────                     ─────────────────────               ──────────────────────────
+ text ─► for each of Bob's devices (and Alice's other devices):
+         Double Ratchet encrypt
+      ─► envelope {to: device} ─── WebRTC data channel (direct, DTLS) ─► ratchet decrypt
+                               └── or that device's relay queue ──WS──► ratchet decrypt
+                                                                         ─► receipt back
 ```
 
-1. **Keys.** Each device generates an Ed25519 signing key and an X25519
-   encryption key. Private halves live in the platform keystore (Android
-   Keystore / iOS Keychain / DPAPI / libsecret). Only public halves are sent
-   to the server.
-2. **Sending.** The payload (text, receipt or typing flag, plus sender and
-   recipient ids) is signed, then boxed to the recipient's public key. If a
-   data channel is open it goes P2P; otherwise it goes to the relay queue
-   while a P2P handshake starts in the background.
-3. **Handshake.** SDP offer/answer and trickle ICE are forwarded live over
-   one authenticated WebSocket and never stored. Simultaneous offers are
-   resolved (the lower user id yields), early candidates are buffered, and a
-   handshake times out after 30 s.
-4. **Receiving.** The envelope is verified against the sender's signing key
-   and decrypted. It is stored in SQLite with the body encrypted at rest under
-   a per-account key, deduplicated by message id, and acknowledged with a
-   *delivered* or *read* receipt.
-5. **Trust.** Each chat has a 60-digit **safety number** (Contact info). If
-   the two sides' numbers match, the server could not have swapped keys. When
-   a contact's keys change, a notice appears in the chat.
+1. **Devices and keys.** Each install generates an Ed25519 signing key and
+   an X25519 identity key, kept in the platform keystore (Android Keystore,
+   iOS Keychain, DPAPI, libsecret). It registers the public halves with the
+   server, along with a signed prekey and 100 one-time prekeys. The private
+   prekeys stay in the local database, which is encrypted at rest. The
+   signed prekey rotates weekly, and one-time prekeys are topped up when the
+   server reports it is running low.
+2. **Sessions.** To reach a device for the first time, the sender claims its
+   prekey bundle (each one-time prekey is handed out once, and only to
+   contacts) and runs X3DH. Both sides then run the Double Ratchet:
+   HKDF/HMAC-SHA256, X25519 and XSalsa20-Poly1305. The header and both
+   identities are bound into every message. When both sides start a session
+   at the same moment, the session record resolves it.
+3. **Sending.** A message is encrypted once per recipient device, plus a
+   `sync` copy for each of the sender's other devices. Each envelope goes
+   over that device's data channel if one is open, otherwise into that
+   device's relay queue. The sender lists every device it knows of the
+   recipient, and the server refuses a stale list (409), so no device is
+   silently skipped.
+4. **Handshake.** SDP offer/answer and trickle ICE are forwarded live, per
+   device, over one authenticated WebSocket, and never stored.
+5. **Receiving.** The envelope is decrypted with the session for
+   `(sender, sender device)`. Redeliveries are recognised by their envelope
+   id, and messages by their message id. Bodies are stored encrypted at
+   rest. The device acknowledges each message as *delivered* or *read*.
+6. **Trust.** Each chat shows a 60-digit **safety number** (Contact info)
+   computed over all devices of both people. If both sides see the same
+   number, the server could not have slipped in a key.
 
 ## Project layout
 
 ```
 lib/
   core/
-    chat/chat_service.dart          orchestrator: send/receive, signaling, relay, receipts
-    chat/wire_protocol.dart         envelope + signed payload format (v2)
-    crypto/crypto_core.dart         NaCl box, Ed25519, SecretBox, safety numbers
+    chat/chat_service.dart          orchestrator: per-device fan-out, sync, relay, receipts, P2P
+    chat/wire_protocol.dart         envelope (v3) + payload format
+    chat/attachment_service.dart    encrypt / upload / verify / decrypt attachments
+    crypto/ratchet.dart             X3DH, Double Ratchet, session records
+    crypto/session_manager.dart     sessions per remote device, device lists, identity checks
+    crypto/device_manager.dart      device registration, prekeys, signed-prekey rotation
+    crypto/crypto_core.dart         NaCl primitives, safety numbers
     networking/directory_service.dart        HTTP + WebSocket client for server/
-    networking/p2p_connection_manager.dart   one RTCPeerConnection + data channel per contact
-    storage/local_storage.dart      per-account SQLite, bodies encrypted at rest
-    storage/secure_key_store.dart   private keys, DB key and session token in the OS keystore
+    networking/p2p_connection_manager.dart   one RTCPeerConnection per remote device
+    notifications/                  local notifications, optional FCM wake-ups
+    storage/local_storage.dart      per-account SQLite, encrypted at rest
+    storage/secure_key_store.dart   device keys, DB key and session token in the OS keystore
     providers/                      Auth / Chat / Contacts / Connection (Provider)
   features/                         auth, home, chat, contacts, settings screens
   shared/                           theme + widgets
 server/                             Node.js backend (Neon Postgres + Redis); see server/DEPLOY.md
 integration_test/                   end-to-end tests against a running server
-test/                               crypto, wire-protocol and widget tests
+test/                               ratchet, sessions, attachments, wire format, widgets
 scripts/dev.sh                      local Postgres + Redis + server
 ```
 
 ## Server
 
-`server/` is a small Node.js service (dependencies: `pg`, `ioredis`, `ws`).
+`server/` is a small Node.js service (dependencies: `pg`, `ioredis`, `ws`,
+`nodemailer`).
 
 - **Neon Postgres** holds the durable directory: accounts (scrypt password
-  hashes), hashed session tokens, public keys, contacts and contact requests.
-- **Redis** holds short-lived data: presence, rate limits, caches and the 24 h
-  ciphertext relay queue (native TTLs, `noeviction`).
+  hashes), hashed session tokens, devices with their public keys and
+  prekeys, contacts and contact requests, hashed e-mail codes, and
+  attachment ciphertext.
+- **Redis** holds short-lived data: presence, rate limits, caches, push
+  throttles and the per-device 24 h ciphertext relay queues (native TTLs,
+  `noeviction`).
 - **WebSocket** (`/api/ws`) carries signaling, presence and pushes.
 
-The server never sees plaintext or private keys, takes the sender's identity
-from the session (never from the request), and only forwards signaling and
-relay envelopes between accepted contacts. Deployment: `server/DEPLOY.md`.
+The server never sees plaintext, file names or private keys. It takes the
+sender's identity and device from the session (never from the request), and
+only forwards signaling, relay envelopes and attachments between accepted
+contacts. Deployment and configuration: `server/DEPLOY.md`.
 
 ## Setup
 
@@ -82,12 +121,17 @@ relay envelopes between accepted contacts. Deployment: `server/DEPLOY.md`.
    (`http://127.0.0.1:8787` for local development). Optionally set
    `TURN_URLS`, `TURN_USERNAME` and `TURN_CREDENTIAL`. Without a TURN server,
    peers behind strict NAT (common on mobile data) fall back to the relay
-   queue instead of connecting directly.
-2. Local backend: `scripts/dev.sh` (needs Docker and Node 22+).
+   queue instead of connecting directly. The `FIREBASE_*` values enable push
+   wake-ups on Android and iOS (see `server/DEPLOY.md`).
+2. Local backend: `scripts/dev.sh` (needs Docker and Node 22+). In
+   development, verification and reset codes are printed to the server's
+   stderr.
 3. `flutter pub get`, then `flutter run`.
 
 Linux desktop needs `libsecret-1-dev` (Debian/Ubuntu) or `libsecret-devel`
-(Fedora). Two accounts on one machine:
+(Fedora); the file picker uses the XDG desktop portal
+(`xdg-desktop-portal`, present on standard GNOME/KDE desktops). Two
+accounts, or two devices of one account, on one machine:
 
 ```
 SH_PROFILE=alice flutter run -d linux
@@ -97,14 +141,16 @@ SH_PROFILE=bob   flutter run -d linux
 ## Tests
 
 ```
-flutter test                                  # crypto, wire protocol, widgets
-(cd server && npm test)                       # API, WebSocket, relay queue (needs scripts/dev.sh db)
-flutter test integration_test/e2e_chat_test.dart -d linux   # two real clients against the running server
+flutter test                                  # ratchet, sessions, attachments, wire format, widgets
+(cd server && npm test)                       # API, devices, relay, e-mail codes, push, attachments (needs scripts/dev.sh db)
+flutter test integration_test/e2e_chat_test.dart -d linux   # real clients against the running server
 flutter test integration_test/ui_flow_test.dart -d linux    # drives the UI, saves screenshots (run files one at a time)
 ```
 
 `flutter test` needs a `.env` file (it is bundled as an asset), so run
-`cp .env.example .env` first on a fresh clone.
+`cp .env.example .env` first on a fresh clone. The UI test reads the
+verification code the server e-mails, so start the server with
+`MAIL_TRANSPORT=file MAIL_FILE_DIR=/tmp/sh_mail`.
 
 On a headless Linux machine (CI, containers) run the integration tests under
 `xvfb-run -a dbus-run-session -- …` and provide an audio device: libwebrtc
@@ -113,19 +159,28 @@ aborts at the first peer connection if it cannot open one
 `pulseaudio -D --exit-idle-time=-1 && pactl load-module module-null-sink`.
 `.github/workflows/ci.yml` runs all four suites this way on every push.
 
-`integration_test/e2e_chat_test.dart` signs up two accounts, exchanges a
-contact request, opens a real WebRTC data channel, checks delivered/read
-receipts, then takes one side offline and checks that the relay queue holds
-only ciphertext and is emptied on reconnect.
+`integration_test/e2e_chat_test.dart` signs up two accounts and exchanges a
+contact request. It then opens real WebRTC data channels, checks receipts,
+and sends an encrypted attachment. It takes one side offline to check that
+the relay queue holds only ciphertext and is emptied on reconnect. Finally,
+it signs Alice in on a second device and checks fan-out, sync of sent
+messages and read state, matching safety numbers on all three devices, and
+unlinking.
 
-## Known limits / next steps
+## Known limits
 
-- **No e-mail verification or password reset yet.** Sign-up is e-mail +
-  password + username; a forgotten password cannot be recovered.
-- **One active device per account.** Signing in on a new device publishes new
-  keys, so contacts encrypt to the newest device. Messages relayed to the old
-  keys can't be decrypted (you'll see a notice).
-- **No forward secrecy yet.** Keys are static per device. The next step would
-  be an X3DH + Double Ratchet session layer on top of `WireCodec`.
-- **Attachments and push notifications** are not implemented. With the app
-  closed, messages wait in the relay queue until it is opened.
+- **Local history is not end-to-end synced.** A newly linked device receives
+  messages from the moment it is linked; older history stays on the devices
+  that had it. Forward secrecy protects messages in transit; history at rest
+  is protected by the device's encrypted database and keystore.
+- **Losing the app data makes a new device.** The device id lives in the
+  local database. A reinstall registers as a new device, and the old one
+  stays listed (and queues messages for 24 h) until you remove it under
+  Linked devices.
+- **Push needs your own Firebase project** (`FIREBASE_*` in `.env`,
+  `FCM_SERVICE_ACCOUNT` on the server, APNs set up in Firebase for iOS).
+  Without it, mobile messages wait in the relay queue until the app is
+  opened. Desktop apps receive them while running.
+- **Push timing is visible to Google/Apple**: a wake-up reveals that
+  *something* arrived for a device, though not what or from whom.
+- **No group chats, voice or video calls yet.**

@@ -74,6 +74,9 @@ jobs:
       DATABASE_URL: postgresql://sh:sh_dev_password@127.0.0.1:55432/securelyhello
       REDIS_URL: redis://127.0.0.1:56379/0
       TRUST_PROXY: '0'
+      # E-mails (verification codes) land here; the UI test reads them.
+      MAIL_TRANSPORT: file
+      MAIL_FILE_DIR: /tmp/sh_mail
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
