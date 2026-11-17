@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
+import 'package:securelyhello/features/settings/screens/legal_screen.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/shared/widgets/app_text_field.dart';
 
@@ -251,7 +252,30 @@ class _SignupScreenState extends State<SignupScreen> {
                         )
                       : const Text('Sign up'),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 12),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text('By signing up you agree to the ',
+                        style: GoogleFonts.inter(color: const Color(0xFF6B6B80), fontSize: 12)),
+                    InkWell(
+                      onTap: () => LegalScreen.open(context, LegalScreen.terms),
+                      child: Text('Terms',
+                          style: GoogleFonts.inter(color: const Color(0xFF00E5CC), fontSize: 12)),
+                    ),
+                    Text(' and ',
+                        style: GoogleFonts.inter(color: const Color(0xFF6B6B80), fontSize: 12)),
+                    InkWell(
+                      onTap: () => LegalScreen.open(context, LegalScreen.privacy),
+                      child: Text('Privacy policy',
+                          style: GoogleFonts.inter(color: const Color(0xFF00E5CC), fontSize: 12)),
+                    ),
+                    Text('.',
+                        style: GoogleFonts.inter(color: const Color(0xFF6B6B80), fontSize: 12)),
+                  ],
+                ),
+                const SizedBox(height: 16),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [

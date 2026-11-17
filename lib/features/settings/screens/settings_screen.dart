@@ -11,6 +11,7 @@ import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/features/contacts/widgets/contact_info_sheet.dart';
 import 'package:securelyhello/features/home/chat_navigation.dart';
+import 'package:securelyhello/features/settings/screens/legal_screen.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/shared/widgets/app_dialogs.dart';
 import 'package:securelyhello/shared/widgets/avatar_widget.dart';
@@ -595,6 +596,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: p.textMuted,
                       ),
                       onTap: _showAbout,
+                    ),
+                    ListTile(
+                      leading: const Icon(LucideIcons.fileText),
+                      title: const Text('Privacy policy'),
+                      trailing: Icon(LucideIcons.chevronRight, size: 18, color: p.textMuted),
+                      onTap: () => LegalScreen.open(context, LegalScreen.privacy),
+                    ),
+                    ListTile(
+                      leading: const Icon(LucideIcons.scale),
+                      title: const Text('Terms of service'),
+                      trailing: Icon(LucideIcons.chevronRight, size: 18, color: p.textMuted),
+                      onTap: () => LegalScreen.open(context, LegalScreen.terms),
                     ),
                     ListTile(
                       leading: const Icon(LucideIcons.info),

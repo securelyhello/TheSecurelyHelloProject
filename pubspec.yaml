@@ -63,3 +63,4 @@ flutter:
 
   assets:
     - .env
+    - docs/legal/
