@@ -2,6 +2,7 @@ import http from 'node:http';
 
 import { registerRoutes } from './api.js';
 import { registerAttachmentRoutes } from './attachments.js';
+import { createBlobStore } from './blobstore.js';
 import { registerDeviceRoutes } from './devices.js';
 import { registerSafetyRoutes } from './safety.js';
 import { HotStore } from './hotstore.js';
@@ -58,6 +59,7 @@ export function createApp({
   log = logger,
   mailer = createMailer(),
   pushSender = senderFromEnv(process.env, log),
+  blobs = createBlobStore(process.env, pool),
 }) {
   config = { ...config };
   if (!mailer.enabled) {
@@ -80,7 +82,7 @@ export function createApp({
   const router = new Router();
   registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier });
   registerDeviceRoutes(router, { pool, hub, store, services, limits, log, notifier });
-  registerAttachmentRoutes(router, { pool, services, limits, config });
+  registerAttachmentRoutes(router, { pool, services, limits, config, blobs });
   registerSafetyRoutes(router, { pool, hub, services, limits, config });
 
   const server = http.createServer(async (req, res) => {
@@ -158,7 +160,12 @@ export function createApp({
   async function sweep() {
     const sessions = await pool.query('DELETE FROM sessions WHERE expires_at <= now()');
     const codes = await pool.query('DELETE FROM email_codes WHERE expires_at <= now()');
-    const attachments = await pool.query('DELETE FROM attachments WHERE expires_at <= now()');
+    const attachments = await pool.query('DELETE FROM attachments WHERE expires_at <= now() RETURNING id, storage');
+    for (const row of attachments.rows) {
+      if (row.storage !== 'postgres') {
+        await blobs.delete(row.id).catch((err) => log.warn('blob delete failed', { id: row.id, error: err.message }));
+      }
+    }
     return { sessions: sessions.rowCount, codes: codes.rowCount, attachments: attachments.rowCount };
   }
   let sweepTimer = null;

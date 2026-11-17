@@ -67,8 +67,35 @@ itself.
 
 ## Storage
 
-Attachments are ciphertext blobs in Postgres (`attachments`, swept after
-`ATTACHMENT_TTL_DAYS`). Size Neon storage accordingly, or lower the limits.
+Small files never reach the server: they travel inside the encrypted
+message. Larger ones are uploaded as ciphertext, and `ATTACHMENT_STORAGE`
+decides where the bytes go (metadata stays in Postgres):
+
+| Value | Where | Notes |
+|---|---|---|
+| `filesystem` (compose default) | the `attachments` volume on this VPS (`/data/attachments`) | back the volume up like any data |
+| `s3` | any S3-compatible store: MinIO on your VPS, AWS S3, Cloudflare R2, Backblaze B2 | set `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`; `S3_PATH_STYLE=1` (default) for MinIO |
+| `postgres` | the `attachments` table | simplest; uses database storage |
+
+Blobs expire after `ATTACHMENT_TTL_DAYS` and are deleted by the hourly
+sweep wherever they live. Pick one backend before launch: rows remember
+where their bytes are, so switching later leaves existing files readable
+only if the old backend is still configured.
+
+MinIO next to the app on the same VPS, if you prefer S3:
+
+```yaml
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY}
+    volumes: [minio-data:/data]
+```
+
+with `ATTACHMENT_STORAGE=s3`, `S3_ENDPOINT=http://minio:9000`, and a bucket
+created once (`mc mb local/securelyhello`).
 Request bodies for uploads go up to `ATTACHMENT_MAX_MB`, so the proxy must
 allow bodies that large on `/api/attachments`.
 

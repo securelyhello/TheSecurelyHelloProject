@@ -61,6 +61,7 @@ export async function startServer({
   env = {},
   mailer = captureMailer(),
   pushSender = null,
+  blobs,
 } = {}) {
   await recreateDatabase(TEST_DATABASE_URL);
   const pool = createPool(TEST_DATABASE_URL, { max: 5 });
@@ -77,6 +78,7 @@ export async function startServer({
     log: silentLogger,
     mailer,
     pushSender,
+    ...(blobs ? { blobs } : {}),
   });
   const addr = await app.listen(0, '127.0.0.1');
   const base = `http://127.0.0.1:${addr.port}`;

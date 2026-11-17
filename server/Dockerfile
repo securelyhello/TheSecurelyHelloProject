@@ -11,6 +11,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./
 COPY migrations ./migrations
 COPY src ./src
+# Attachment folder for ATTACHMENT_STORAGE=filesystem (mount a volume here);
+# owned by the unprivileged user so a fresh named volume inherits it.
+RUN mkdir -p /data/attachments && chown -R node:node /data
 USER node
 EXPOSE 8787
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
