@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:securelyhello/core/backup/chat_backup.dart';
 import 'package:securelyhello/core/chat/attachment_service.dart';
 import 'package:securelyhello/core/chat/profile_service.dart';
 import 'package:securelyhello/core/media/voice.dart';
@@ -488,6 +489,55 @@ class ChatService {
         debugPrint('Profile to $id not sent: $e');
       }
     }
+  }
+
+  /// Fires with the number of messages added when history arrives from
+  /// another of our devices.
+  Stream<int> get onHistoryImported => _historyImported.stream;
+  final _historyImported = StreamController<int>.broadcast();
+
+  /// Sends our chats to our other devices (e.g. one just approved). The
+  /// archive is uploaded encrypted; its key goes end to end. Returns how
+  /// many messages it carried.
+  Future<int> sendHistoryToMyDevices() async {
+    final me = _requireUserId();
+    // A device approved a moment ago isn't in our cached list yet.
+    await devicesOf(me, refresh: true);
+    final history = await _storage.exportHistory();
+    final bytes = ChatBackup.packTransfer(history);
+    final meta = await attachments.upload(bytes, name: 'history.json.gz', mime: 'application/gzip');
+    await _deliver(me, WirePayload.history(me: me, timestampMs: DateTime.now().millisecondsSinceEpoch, archive: meta));
+    return (history['messages'] as List).length;
+  }
+
+  /// Exports our chats into an encrypted backup file sealed with [backupKey].
+  Future<Uint8List> exportBackup(String backupKey) async =>
+      ChatBackup.seal(await _storage.exportHistory(), userId: _requireUserId(), backupKey: backupKey);
+
+  /// Restores a backup file; returns how many messages were added.
+  Future<int> restoreBackup(Uint8List file, String backupKey) async {
+    final history = await ChatBackup.open(file, userId: _requireUserId(), backupKey: backupKey);
+    return _importHistory(history);
+  }
+
+  Future<void> _importHistoryFrom(Map<String, dynamic> meta) async {
+    try {
+      final bytes = await attachments.load(meta);
+      final added = await _importHistory(ChatBackup.unpackTransfer(bytes));
+      if (!_historyImported.isClosed) _historyImported.add(added);
+      await attachments.forget(meta);
+    } catch (e) {
+      debugPrint('History transfer failed: $e');
+    }
+  }
+
+  Future<int> _importHistory(Map<String, dynamic> history) async {
+    final added = await _storage.importHistory(history);
+    await profiles.load();
+    for (final c in await _storage.getConversations()) {
+      _changed(c['id'] as String);
+    }
+    return added;
   }
 
   /// Device keys of [userId] (for ourselves: every device, this one first).
@@ -1144,6 +1194,8 @@ class ChatService {
         await _applySync(payload);
       } else if (payload.kind == PayloadKind.profile) {
         await profiles.receive(me, payload.profile!);
+      } else if (payload.kind == PayloadKind.history) {
+        await _importHistoryFrom(payload.attachment!);
       } else if (payload.kind == PayloadKind.timer && payload.conversation != null) {
         await _applyTimer(payload.conversation!, me, payload.expireSeconds!);
       } else if (payload.conversation != null &&
@@ -1177,6 +1229,8 @@ class ChatService {
         case PayloadKind.profile:
           await profiles.receive(contactId, payload.profile!);
           break;
+        case PayloadKind.history:
+          break; // only our own devices may send history
         case PayloadKind.sync:
           break; // only our own devices send these
       }

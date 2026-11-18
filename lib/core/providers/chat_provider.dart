@@ -352,6 +352,20 @@ class ChatProvider extends ChangeNotifier {
   Future<String?> safetyNumberFor(String contactId) =>
       _chatService.safetyNumberFor(contactId);
 
+  /// Copies our chats to our other devices; returns how many messages.
+  Future<int> sendHistoryToMyDevices() => _chatService.sendHistoryToMyDevices();
+
+  Future<Uint8List> exportBackup(String backupKey) => _chatService.exportBackup(backupKey);
+
+  /// Restores a backup file and reloads the chat list.
+  Future<int> restoreBackup(Uint8List file, String backupKey) async {
+    final n = await _chatService.restoreBackup(file, backupKey);
+    await loadConversations();
+    return n;
+  }
+
+  Stream<int> get onHistoryImported => _chatService.onHistoryImported;
+
   /// Changes our photo / about line and sends it to [contactIds].
   Future<void> setMyProfile(List<String> contactIds,
           {Uint8List? photo, bool removePhoto = false, String? about}) =>

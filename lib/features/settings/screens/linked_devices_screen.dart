@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/features/settings/widgets/history_transfer.dart';
 import 'package:securelyhello/core/crypto/device_manager.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
@@ -205,6 +206,7 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
                                   if (!context.mounted) return;
                                   showAppSnackBar(context, ok ? 'Approved' : 'Could not approve it', error: !ok);
                                   _reload();
+                                  if (ok) await offerHistoryTransfer(context, _nameOf(d));
                                 },
                                 child: const Text('Approve'),
                               ),

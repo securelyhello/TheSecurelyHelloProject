@@ -14,6 +14,7 @@ import 'package:securelyhello/core/security/app_lock.dart';
 import 'package:securelyhello/features/contacts/widgets/contact_info_sheet.dart';
 import 'package:securelyhello/features/home/chat_navigation.dart';
 import 'package:securelyhello/features/security/lock_screen.dart';
+import 'package:securelyhello/features/settings/screens/backup_screen.dart';
 import 'package:securelyhello/features/settings/screens/blocked_users_screen.dart';
 import 'package:securelyhello/features/settings/screens/edit_profile_screen.dart';
 import 'package:securelyhello/features/settings/screens/legal_screen.dart';
@@ -560,6 +561,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       trailing: Icon(LucideIcons.chevronRight, size: 18, color: p.textMuted),
                       onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
                           builder: (_) => const BlockedUsersScreen())),
+                    ),
+                    ListTile(
+                      key: const ValueKey('settings-backup'),
+                      leading: const Icon(LucideIcons.archive),
+                      title: const Text('Chat backup'),
+                      subtitle: const Text('Save or restore an encrypted backup'),
+                      trailing: Icon(LucideIcons.chevronRight, size: 18, color: p.textMuted),
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                          builder: (_) => const BackupScreen())),
                     ),
                     ListTile(
                       key: const ValueKey('settings-devices'),

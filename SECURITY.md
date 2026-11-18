@@ -14,6 +14,9 @@ issues within 30 days, and we credit reporters who want it.
 | Message text, attachments, reactions, edits, deletions, read receipts, typing | Only the people in the chat, on their approved devices |
 | Attachment files on the server or your VPS | Nobody: stored encrypted; the key travels inside the encrypted message |
 | Local chat database | Encrypted with a key kept in the platform keystore |
+| Profile photos and "about" lines | Only your contacts and your own devices |
+| Backup files | Whoever has the backup key: 125 random bits, shown once, never stored by us. XSalsa20-Poly1305, bound to your account. Sessions and identity keys are never in a backup |
+| History copied to a new device | Only that device: sent as an end-to-end message to your own approved devices |
 | Passwords | Hashed (scrypt) on the server |
 | Two-step secrets | AES-256-GCM at rest when `TOTP_ENCRYPTION_KEY` is set |
 

@@ -23,6 +23,11 @@ up. Private keys and chat history never leave the device.
 - **Encrypted attachments**: photos and files are encrypted on the device
   with a fresh key, and only the ciphertext is uploaded. Photos show inline;
   files can be saved.
+- **Profile photos and voice notes**, both sent end to end. The server
+  never sees a photo, an "about" line or a recording.
+- **Encrypted backup and history transfer**: save your chats to a file sealed
+  with a 25-character backup key, or copy them to a device you just approved.
+  The copy travels as an end-to-end message.
 - **E-mail verification and password reset** with 6-digit codes.
 - **Notifications** are built on the device after decryption. Optional push
   wake-ups (Firebase Cloud Messaging) never carry content.
@@ -197,10 +202,10 @@ unlinking.
 
 ## Known limits
 
-- **Local history is not end-to-end synced.** A newly linked device receives
-  messages from the moment it is linked; older history stays on the devices
-  that had it. Forward secrecy protects messages in transit; history at rest
-  is protected by the device's encrypted database and keystore.
+- **Older history reaches a new device only when you send it.** After you
+  approve a device, the app offers to copy your chats to it; otherwise it
+  receives messages from the moment it is linked. Disappearing and deleted
+  messages are never copied or backed up.
 - **Losing the app data makes a new device.** The device id lives in the
   local database. A reinstall registers as a new device, and the old one
   stays listed (and queues messages for 24 h) until you remove it under

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/features/settings/widgets/history_transfer.dart';
 import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/features/contacts/widgets/invite_prompt.dart';
 import 'package:securelyhello/core/invites/invites.dart';
@@ -107,6 +108,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     unawaited(push?.start());
 
     _invites?.addListener(_onInvite);
+    _historySub ??= _chat.onHistoryImported.listen((n) {
+      if (mounted && n > 0) showAppSnackBar(context, '$n messages copied from your other device');
+    });
     unawaited(_onInvite());
 
     _deviceSub ??= _auth.deviceEvents.listen((e) {
@@ -145,6 +149,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   PendingInvites? _invites;
+  StreamSubscription<int>? _historySub;
 
   /// An invite link was opened (now, or before signing in).
   Future<void> _onInvite() async {
@@ -161,6 +166,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     _contacts.removeListener(_syncProfiles);
+    _historySub?.cancel();
     _invites?.removeListener(_onInvite);
     WidgetsBinding.instance.removeObserver(this);
     _auth.removeListener(_onAuthChanged);
@@ -215,7 +221,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!mounted) return;
     if (choice == 'approve') {
       final ok = await _auth.approveDevice(d);
-      if (mounted) showAppSnackBar(context, ok ? '$name approved' : 'Could not approve it', error: !ok);
+      if (!mounted) return;
+      showAppSnackBar(context, ok ? '$name approved' : 'Could not approve it', error: !ok);
+      if (ok) await offerHistoryTransfer(context, name);
     } else if (choice == 'remove') {
       final ok = await _auth.removeDevice(deviceId);
       if (mounted) showAppSnackBar(context, ok ? '$name removed' : 'Could not remove it', error: !ok);

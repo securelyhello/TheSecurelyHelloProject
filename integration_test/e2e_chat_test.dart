@@ -486,6 +486,17 @@ void main() {
       expect(await alice.auth.approveDevice(pending), isTrue, reason: alice.auth.errorMessage);
       await until(() => laptop.auth.refreshDeviceApproval(), what: 'the laptop sees it is approved');
       await laptop.startChat();
+      // Copy Alice's chats to her new laptop (end to end, as a message).
+      expect(await laptop.messagesWith(bob), isEmpty);
+      final copied = await alice.chat.sendHistoryToMyDevices();
+      expect(copied, greaterThan(3));
+      await until(
+          () async => (await laptop.messagesWith(bob)).any((m) => m.content == 'this one stays' && m.isFromMe),
+          what: "the laptop gets Alice's earlier chats");
+      final copiedChat = await laptop.messagesWith(bob);
+      expect(copiedChat.any((m) => m.content == secret), isTrue);
+      expect(copiedChat.any((m) => m.content == 'hi alice 👋' && !m.isFromMe), isTrue);
+      expect(copiedChat.any((m) => m.id == sent.id), isFalse, reason: 'deleted for everyone stays behind');
       await until(
           () async => (await bob.chat.devicesOf(alice.id, refresh: true)).length == 2,
           what: "Bob sees Alice's second device");

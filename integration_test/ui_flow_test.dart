@@ -397,6 +397,23 @@ void main() {
       await shot('17d_two_step');
       nav().pop();
       await settle(600);
+      await tester.dragUntilVisible(find.byKey(const ValueKey('settings-backup')),
+          find.byType(ListView).last, const Offset(0, 250));
+      await tester.tap(find.byKey(const ValueKey('settings-backup')));
+      await waitFor(find.byKey(const ValueKey('backup-export')), 'backup screen');
+      await tester.tap(find.byKey(const ValueKey('backup-export')));
+      await waitFor(find.byKey(const ValueKey('backup-key')), 'backup key dialog');
+      final continueButton = find.byKey(const ValueKey('backup-continue'));
+      expect(tester.widget<FilledButton>(continueButton).onPressed, isNull,
+          reason: 'blocked until the key is saved');
+      await tester.tap(find.byKey(const ValueKey('backup-key-written')));
+      await settle(400);
+      expect(tester.widget<FilledButton>(continueButton).onPressed, isNotNull);
+      await shot('17e_backup_key');
+      await tester.tap(find.text('Cancel'));
+      await settle(500);
+      nav().pop();
+      await settle(600);
       unawaited(nav().pushNamed('/devices'));
       await waitFor(find.text('This device'), 'linked devices screen');
       await settle(800);

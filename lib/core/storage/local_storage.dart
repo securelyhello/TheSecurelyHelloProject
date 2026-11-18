@@ -336,6 +336,122 @@ class LocalStorage {
   }
 
   /// Closes the database.  Safe to call multiple times.
+  /// Chats for a backup or a transfer to another device: decrypted rows of
+  /// conversations, messages, reactions and contacts' profiles. Messages set
+  /// to disappear and deleted ones are left out.
+  Future<Map<String, dynamic>> exportHistory() async {
+    final messages = await db.query('messages',
+        where: 'expires_at IS NULL AND deleted = 0', orderBy: 'timestamp');
+    final ids = {for (final m in messages) m['id'] as String};
+    return {
+      'conversations': [
+        for (final c in await db.query('conversations'))
+          {
+            'id': c['id'],
+            'contact_user_id': c['contact_user_id'],
+            'last_message': c['last_message'] == null ? null : _unseal(c['last_message'] as String),
+            'last_message_time': c['last_message_time'],
+          }
+      ],
+      'messages': [
+        for (final m in messages)
+          {
+            'id': m['id'],
+            'conversation_id': m['conversation_id'],
+            'sender_id': m['sender_id'],
+            'content': _unseal(m['content'] as String),
+            'timestamp': m['timestamp'],
+            'status': m['status'],
+            'is_from_me': m['is_from_me'],
+            'kind': m['kind'],
+            'attachment': m['attachment'] == null ? null : _unseal(m['attachment'] as String),
+            'reply_to': m['reply_to'] == null ? null : _unseal(m['reply_to'] as String),
+            'edited_at': m['edited_at'],
+          }
+      ],
+      'reactions': [
+        for (final r in await db.query('reactions'))
+          if (ids.contains(r['message_id'])) r
+      ],
+      'profiles': {for (final e in await kvSealedByPrefix('profile:')) e.key: e.value},
+    };
+  }
+
+  /// Merges [data] from [exportHistory]. Messages already here are kept as
+  /// they are, so importing twice changes nothing. Returns how many
+  /// messages were added. Throws [FormatException] for malformed data.
+  Future<int> importHistory(Map<String, dynamic> data) async {
+    var added = 0;
+    String str(Object? v, String what) => v is String ? v : throw FormatException('Bad $what');
+    String? optStr(Object? v) => v is String ? v : null;
+    int integer(Object? v, String what) => v is int ? v : throw FormatException('Bad $what');
+    await db.transaction((txn) async {
+      for (final m in (data['messages'] as List? ?? const [])) {
+        if (m is! Map) throw const FormatException('Bad message');
+        final id = await txn.insert(
+          'messages',
+          {
+            'id': str(m['id'], 'id'),
+            'conversation_id': str(m['conversation_id'], 'conversation'),
+            'sender_id': str(m['sender_id'], 'sender'),
+            'content': _seal(str(m['content'], 'content')),
+            'timestamp': integer(m['timestamp'], 'timestamp'),
+            'status': optStr(m['status']) ?? 'received',
+            'is_from_me': m['is_from_me'] == 1 ? 1 : 0,
+            'kind': optStr(m['kind']) ?? 'text',
+            'attachment': optStr(m['attachment']) == null ? null : _seal(m['attachment'] as String),
+            'reply_to': optStr(m['reply_to']) == null ? null : _seal(m['reply_to'] as String),
+            'edited_at': m['edited_at'] is int ? m['edited_at'] : null,
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+        if (id != 0) added++;
+      }
+      for (final r in (data['reactions'] as List? ?? const [])) {
+        if (r is! Map) continue;
+        await txn.insert(
+          'reactions',
+          {
+            'message_id': str(r['message_id'], 'reaction'),
+            'reactor_id': str(r['reactor_id'], 'reaction'),
+            'emoji': str(r['emoji'], 'reaction'),
+            'at': integer(r['at'], 'reaction'),
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
+      for (final c in (data['conversations'] as List? ?? const [])) {
+        if (c is! Map) continue;
+        final id = str(c['id'], 'conversation');
+        final time = c['last_message_time'] is int ? c['last_message_time'] as int : 0;
+        final last = optStr(c['last_message']);
+        final existing = await txn.query('conversations', where: 'id = ?', whereArgs: [id], limit: 1);
+        if (existing.isEmpty) {
+          await txn.insert('conversations', {
+            'id': id,
+            'contact_user_id': str(c['contact_user_id'], 'conversation'),
+            'last_message': last == null ? null : _seal(last),
+            'last_message_time': time,
+            'unread_count': 0,
+          });
+        } else if ((existing.first['last_message_time'] as int? ?? 0) < time) {
+          await txn.update('conversations', {'last_message': last == null ? null : _seal(last), 'last_message_time': time},
+              where: 'id = ?', whereArgs: [id]);
+        }
+      }
+    });
+    final profiles = data['profiles'];
+    if (profiles is Map) {
+      for (final e in profiles.entries) {
+        if (e.key is String && (e.key as String).startsWith('profile:') && e.value is String &&
+            await kvGetSealed(e.key as String) == null) {
+          await kvSetSealed(e.key as String, e.value as String);
+        }
+      }
+    }
+    return added;
+  }
+
   Future<void> close() async {
     await _db?.close();
     _db = null;

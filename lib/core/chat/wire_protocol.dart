@@ -46,7 +46,11 @@ enum PayloadKind {
   timer('timer'),
 
   /// The sender's profile photo and "about" line (see ProfileService).
-  profile('profile');
+  profile('profile'),
+
+  /// Chat history for our own other devices (an encrypted archive as an
+  /// attachment). Only accepted from our own account.
+  history('history');
 
   const PayloadKind(this.wire);
   final String wire;
@@ -224,6 +228,14 @@ class WirePayload {
     required Map<String, dynamic> profile,
   }) =>
       WirePayload._(kind: PayloadKind.profile, from: from, to: to, timestampMs: timestampMs, profile: profile);
+
+  /// Our chat history, for our own other devices.
+  factory WirePayload.history({
+    required String me,
+    required int timestampMs,
+    required Map<String, dynamic> archive,
+  }) =>
+      WirePayload._(kind: PayloadKind.history, from: me, to: me, timestampMs: timestampMs, attachment: archive);
 
   /// The disappearing-messages timer of a conversation changed. To the
   /// contact without [conversation]; to our devices with it.
@@ -422,6 +434,9 @@ class WirePayload {
         break;
       case PayloadKind.profile:
         if (payload.profile == null) throw const FormatException('Malformed profile');
+        break;
+      case PayloadKind.history:
+        if (payload.attachment == null) throw const FormatException('Malformed history');
         break;
       case PayloadKind.timer:
         final s = payload.expireSeconds;
