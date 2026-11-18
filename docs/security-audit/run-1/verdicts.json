@@ -1,0 +1,20 @@
+{"note":"Each unit verified by a fresh agent that did not hunt it, reproducing locally where safe (throwaway Postgres/Redis test DB, in-memory app tests).","verdicts":[
+{"id":"U2-1","verdict":"confirmed","severity":"high","evidence":"Password-only session adopted the single device's id with new keys: approved:true; contact fetched the attacker's key and relayed to it; attacker read it."},
+{"id":"U5-1","verdict":"confirmed","severity":"high","evidence":"Wipe with a slow onWipe: locked=false during the wipe; restart mid-wipe: lock disabled, data intact."},
+{"id":"U5-3","verdict":"confirmed","severity":"high","evidence":"Widget test: text under the lock found in semantics; a semantics tap fired a hidden button; Tab focused a hidden text field."},
+{"id":"U1-1","verdict":"confirmed","severity":"medium","evidence":"Recovery codes regenerated with password only; old codes invalidated; new code signed in and disabled 2FA."},
+{"id":"U2-2","verdict":"confirmed","severity":"medium","evidence":"Self-relay accepted; ~164 KB Redis per envelope; ~30 MB/min per account vs 256 MB noeviction (computed, not filled)."},
+{"id":"U3-1","verdict":"confirmed","severity":"medium","evidence":"Unverified squatter matched under the victim's address-book name; owner later got email_taken."},
+{"id":"U4-1","verdict":"confirmed","severity":"medium","evidence":"Replay with a new outer id reset the session; next replay decrypted and restored a deleted message (no-OPK session)."},
+{"id":"U4-2","verdict":"confirmed","severity":"medium","evidence":"Shown 1 device, pinned 2 (server added a device between display and tap); badge shows verified."},
+{"id":"U5-2","verdict":"confirmed","severity":"medium","evidence":"retryIn 1:59 before restart, 0 after; correct PIN accepted immediately."},
+{"id":"U1-2","verdict":"confirmed","severity":"low","evidence":"After password change the revoked session's socket stayed open and received relay pushes. (U2-3 is the same.)"},
+{"id":"U1-3","verdict":"confirmed","severity":"low","evidence":"signup 409 email_taken; reset on suspended account 403 vs 400. forgot timing oracle unverified (needs real SMTP)."},
+{"id":"U3-2","verdict":"confirmed","severity":"low","evidence":"Unverified inviter became a contact of a verified user and relayed a message."},
+{"id":"U3-3","verdict":"confirmed","severity":"low","evidence":"Three new unrelated accounts restricted an old verified account for 7 days."},
+{"id":"U3-4","verdict":"confirmed","severity":"low","evidence":"Blob file left on disk after account deletion and sweep."},
+{"id":"U4-3","verdict":"confirmed","severity":"low","evidence":"Backdated edit accepted 30 days later."},
+{"id":"U4-4","verdict":"confirmed","severity":"low","evidence":"Inline attachment reusing an id replaced our cached bytes; forget deleted our cache file."},
+{"id":"U4-5","verdict":"confirmed","severity":"low","evidence":"Text 'enc1:...' stored as plaintext in SQLite."},
+{"id":"U5-4","verdict":"confirmed","severity":"low","evidence":"Contact name in notification with previews off."}
+]}

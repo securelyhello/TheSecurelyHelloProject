@@ -84,7 +84,11 @@ class AppLockService extends ChangeNotifier {
   bool _biometricsSupported = false;
 
   bool get enabled => _enabled;
-  bool get locked => _enabled && _locked;
+  bool get locked => (_enabled && _locked) || _wiping;
+
+  /// Erasing after too many wrong PINs.
+  bool get wiping => _wiping;
+  bool _wiping = false;
   bool get useBiometrics => _biometrics;
 
   /// The device has enrolled biometrics (checked at start-up).
@@ -123,7 +127,9 @@ class AppLockService extends ChangeNotifier {
     _incognitoKeyboard = await _store.readSetting('incognito_kb') != '0';
     _timeout = int.tryParse(await _store.readSetting('lock_timeout') ?? '') ?? 60;
     _failures = int.tryParse(await _store.readSetting('lock_failures') ?? '') ?? 0;
-    _locked = _enabled;
+    final until = int.tryParse(await _store.readSetting('lock_until') ?? '');
+    _lockedUntil = until == null ? null : DateTime.fromMillisecondsSinceEpoch(until);
+    _locked = _enabled || await _store.readSetting('wipe_pending') == '1';
     _biometricsSupported = await biometricsAvailable();
     await _applyScreenFlag();
     notifyListeners();
@@ -177,22 +183,45 @@ class AppLockService extends ChangeNotifier {
     }
     await _setFailures(_failures + 1);
     if (_wipeOnFailures && _failures >= wipeAfter) {
-      await disable();
-      await onWipe?.call();
+      await _wipe();
       return false;
     }
-    // 5 free tries, then 30 s, 1 min, 2 min … capped at 30 min.
+    // 5 free tries, then 30 s, 1 min, 2 min … capped at 30 min. The deadline
+    // is stored, so restarting the app doesn't skip it.
     if (_failures >= 5) {
       final secs = min(1800, 30 * pow(2, _failures - 5).toInt());
       _lockedUntil = DateTime.now().add(Duration(seconds: secs));
+      await _store.writeSetting('lock_until', '${_lockedUntil!.millisecondsSinceEpoch}');
     }
     notifyListeners();
     return false;
   }
 
+  /// Erases this device's data. The app stays locked throughout; the PIN is
+  /// only forgotten once the data is gone. The intent is stored first, so a
+  /// wipe cut short (app killed) is finished at the next start.
+  Future<void> _wipe() async {
+    _wiping = true;
+    _locked = true;
+    notifyListeners();
+    await _store.writeSetting('wipe_pending', '1');
+    await onWipe?.call();
+    await _store.deleteSetting('wipe_pending');
+    _wiping = false;
+    await disable();
+  }
+
+  /// Finishes a wipe that was interrupted. Call once [onWipe] is set.
+  Future<void> resumePendingWipe() async {
+    if (await _store.readSetting('wipe_pending') == '1') await _wipe();
+  }
+
   Future<void> _setFailures(int n) async {
     _failures = n;
-    if (n == 0) _lockedUntil = null;
+    if (n == 0) {
+      _lockedUntil = null;
+      await _store.deleteSetting('lock_until');
+    }
     await _store.writeSetting('lock_failures', '$n');
   }
 

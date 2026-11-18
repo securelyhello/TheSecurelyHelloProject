@@ -1,0 +1,6 @@
+{"verifier":"fresh agent, did not hunt U3","verdicts":[
+{"id":"U3-1","verdict":"confirmed","severity":"medium","evidence":"Local repro (EMAIL_VERIFICATION=required): unverified squatter turned on discovery; a verified user's match returned the squatter under the victim's address-book name; the 'Add' request was sent; the real owner's signup then got 409. In optional mode the squatter can accept and chat."},
+{"id":"U3-2","verdict":"confirmed","severity":"low","evidence":"Unverified account created an invite (201); a verified user accepted (200); the unverified account then relayed a message (201). The same account's contact request got 403 email_unverified."},
+{"id":"U3-3","verdict":"confirmed","severity":"low","evidence":"Three new, unverified, unrelated accounts reported a 200-day-old verified account; it was restricted for 7 days (contact requests and invites 403)."},
+{"id":"U3-4","verdict":"confirmed","severity":"low","evidence":"Filesystem store: upload, delete account, expire and sweep; the blob file is still on disk."}
+]}

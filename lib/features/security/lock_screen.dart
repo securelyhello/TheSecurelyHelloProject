@@ -38,7 +38,15 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
     final lock = context.watch<AppLockService>();
     return Stack(
       children: [
-        widget.child,
+        // Same widgets either way (no remount); only the flags change. Hidden
+        // means hidden from screen readers and keyboards too.
+        ExcludeSemantics(
+          excluding: lock.locked || lock.obscured,
+          child: ExcludeFocus(
+            excluding: lock.locked || lock.obscured,
+            child: IgnorePointer(ignoring: lock.locked || lock.obscured, child: widget.child),
+          ),
+        ),
         // The builder sits above the Navigator, so the PIN field needs its
         // own Overlay.
         if (lock.locked)

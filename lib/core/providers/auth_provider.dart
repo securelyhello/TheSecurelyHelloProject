@@ -246,20 +246,27 @@ class AuthProvider extends ChangeNotifier {
   /// account stays; the device must be approved again). Used by the app
   /// lock after too many wrong PINs.
   Future<void> wipeThisDevice() async {
-    final userId = _user?.id;
+    final userId = _user?.id ?? (await _keyStore.loadSession())?.userId;
     _signingOut = true;
-    try {
-      await _runSignOutHooks();
-      await _directoryService.signOut();
-    } catch (e) {
-      debugPrint('Wipe sign-out error: $e');
-    }
+    // Local data first: nothing here waits on the network.
     if (userId != null) {
       await _localStorage.deleteDatabaseForUser(userId);
       await _keyStore.deleteAll(userId);
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_profileCacheKey(userId));
     }
+    // Then tell the server, briefly; the token is forgotten locally anyway.
+    try {
+      await _runSignOutHooks().timeout(const Duration(seconds: 3));
+    } catch (e) {
+      debugPrint('Wipe sign-out hooks: $e');
+    }
+    try {
+      await _directoryService.signOut().timeout(const Duration(seconds: 3));
+    } catch (e) {
+      debugPrint('Wipe sign-out: $e');
+    }
+    await _directoryService.forgetSession();
     await _clearSession();
     _signingOut = false;
   }

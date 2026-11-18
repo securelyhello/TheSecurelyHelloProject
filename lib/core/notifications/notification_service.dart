@@ -151,7 +151,8 @@ class NotificationService {
 
   Future<void> showContactRequest(String text) async {
     if (!_ready || !_enabled || appInForeground) return;
-    await _show(1, 'Securely Hello', text, '');
+    // Names are hidden like message text when previews are off.
+    await _show(1, 'Securely Hello', _showPreview ? text : 'New contact activity', '');
   }
 
   Future<void> _show(int id, String title, String body, String payload) async {

@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
@@ -69,6 +71,49 @@ void main() {
       expect(reloaded.enabled, isFalse);
     });
 
+    test('the back-off survives a restart', () async {
+      await lock.setPin('2468');
+      await store.writeSetting('lock_failures', '6');
+      final a = AppLockService(store: store);
+      await a.init();
+      expect(await a.unlockWithPin('0000'), isFalse);
+      expect(a.retryIn, greaterThan(const Duration(seconds: 60)));
+      final restarted = AppLockService(store: store);
+      await restarted.init();
+      expect(restarted.retryIn, greaterThan(const Duration(seconds: 60)),
+          reason: 'restarting the app must not reset the wait');
+      expect(await restarted.unlockWithPin('2468'), isFalse);
+    });
+
+    test('the wipe keeps the app locked and is finished after a restart', () async {
+      final wipeStarted = Completer<void>();
+      final release = Completer<void>();
+      await lock.setPin('2468');
+      await lock.setWipeOnFailures(true);
+      await store.writeSetting('lock_failures', '9');
+      final a = AppLockService(store: store)
+        ..onWipe = () async {
+          wipeStarted.complete();
+          await release.future; // slow network, or the app gets killed here
+        };
+      await a.init();
+      final attempt = a.unlockWithPin('0000');
+      await wipeStarted.future;
+      expect(a.locked, isTrue, reason: 'still locked while erasing');
+
+      // Killed mid-wipe: the next start is locked and finishes the wipe.
+      var resumed = false;
+      final next = AppLockService(store: store)..onWipe = () async => resumed = true;
+      await next.init();
+      expect(next.locked, isTrue);
+      await next.resumePendingWipe();
+      expect(resumed, isTrue);
+      expect(next.enabled, isFalse, reason: 'PIN forgotten only after the wipe');
+
+      release.complete();
+      await attempt;
+    });
+
     test('locks after the background timeout and covers the screen', () async {
       await lock.setPin('2468');
       await lock.setTimeout(0);
@@ -90,6 +135,35 @@ void main() {
       expect(await store.readSetting('lock_hash'), isNull);
       expect(lock.locked, isFalse);
     });
+  });
+
+  testWidgets('while locked the app is hidden from screen readers and the keyboard',
+      (tester) async {
+    final store = SecureKeyStore(storage: MemorySecretStorage());
+    final setup = AppLockService(store: store);
+    await tester.runAsync(() => setup.setPin('2468'));
+    final lock = AppLockService(store: store);
+    await tester.runAsync(lock.init);
+    var sent = 0;
+    final handle = tester.ensureSemantics();
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: lock,
+      child: MaterialApp(
+        builder: (context, child) => AppLockGate(child: child!),
+        home: Scaffold(
+          body: Column(children: [
+            const Text('SECRET CHAT TEXT'),
+            ElevatedButton(onPressed: () => sent++, child: const Text('Send secret')),
+          ]),
+        ),
+      ),
+    ));
+    expect(find.bySemanticsLabel('SECRET CHAT TEXT'), findsNothing);
+    expect(find.bySemanticsLabel('Send secret'), findsNothing);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    expect(sent, 0);
+    handle.dispose();
   });
 
   testWidgets('the gate covers the app until the PIN is entered', (tester) async {

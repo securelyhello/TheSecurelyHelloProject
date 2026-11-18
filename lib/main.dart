@@ -117,6 +117,7 @@ Future<void> main() async {
   final appLock = AppLockService(store: keyStore)
     ..onWipe = authProvider.wipeThisDevice;
   await appLock.init();
+  unawaited(appLock.resumePendingWipe());
   final invites = PendingInvites();
   unawaited(invites.init());
   unawaited(authProvider.init());
