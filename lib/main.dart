@@ -14,6 +14,7 @@ import 'package:securelyhello/core/networking/directory_service.dart';
 import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
 import 'package:securelyhello/core/networking/tls_pinning.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
+import 'package:securelyhello/core/chat/profile_service.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
@@ -131,6 +132,7 @@ Future<void> main() async {
     push: push,
     appLock: appLock,
     invites: invites,
+    profiles: chatService.profiles,
   ));
 }
 
@@ -168,6 +170,7 @@ class SecurelyHelloApp extends StatelessWidget {
   final PushService? push;
   final AppLockService? appLock;
   final PendingInvites? invites;
+  final ProfileService? profiles;
 
   const SecurelyHelloApp({
     super.key,
@@ -179,6 +182,7 @@ class SecurelyHelloApp extends StatelessWidget {
     this.push,
     this.appLock,
     this.invites,
+    this.profiles,
   });
 
   @override
@@ -193,6 +197,7 @@ class SecurelyHelloApp extends StatelessWidget {
             value: notifications ?? NotificationService()),
         Provider<PushService?>.value(value: push),
         ChangeNotifierProvider<PendingInvites?>.value(value: invites),
+        if (profiles != null) ChangeNotifierProvider<ProfileService>.value(value: profiles!),
         ChangeNotifierProvider<AppLockService>.value(
             value: appLock ?? AppLockService(store: SecureKeyStore(storage: MemorySecretStorage()))),
       ],

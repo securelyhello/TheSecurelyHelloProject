@@ -14,6 +14,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as hash;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -432,6 +433,14 @@ void main() {
       final raw = await bob.storage.db.query('messages');
       expect(raw.every((r) => (r['content'] as String).startsWith('enc1:')),
           isTrue);
+
+      // Profile photo and about line travel end to end.
+      final photo = Uint8List.fromList(img.encodePng(img.Image(width: 300, height: 200)));
+      await alice.chat.setMyProfile([bob.id], photo: photo, about: 'Hello from Alice');
+      await until(() => bob.chat.profiles.photoOf(alice.id) != null,
+          what: "Bob receives Alice's photo");
+      expect(bob.chat.profiles.aboutOf(alice.id), 'Hello from Alice');
+      expect(img.decodeJpg(bob.chat.profiles.photoOf(alice.id)!)!.width, 256);
 
       // ---- Bob verifies Alice ------------------------------------------------
       expect(await bob.chat.verificationOf(alice.id), Verification.unverified);

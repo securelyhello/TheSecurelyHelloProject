@@ -1,5 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import 'package:securelyhello/core/chat/profile_service.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 
 /// Predefined avatar sizes.
@@ -32,7 +35,7 @@ enum AvatarSize {
 class AvatarWidget extends StatelessWidget {
   const AvatarWidget({
     super.key,
-    this.imageUrl,
+    this.photo,
     required this.displayName,
     this.size = AvatarSize.medium,
     this.isOnline = false,
@@ -40,7 +43,9 @@ class AvatarWidget extends StatelessWidget {
     this.ringColor,
   });
 
-  final String? imageUrl;
+  /// A photo to show instead of initials. Without it, the profile photo of
+  /// the user [seed] (shared end to end, see ProfileService) is used.
+  final Uint8List? photo;
   final String displayName;
   final AvatarSize size;
   final bool isOnline;
@@ -105,19 +110,31 @@ class AvatarWidget extends StatelessWidget {
   }
 
   Widget _avatar(BuildContext context, AppPalette p, double d) {
-    final hasImage = imageUrl != null && imageUrl!.isNotEmpty;
-    if (hasImage) {
+    final bytes = photo ?? _profilePhoto(context);
+    if (bytes != null) {
       return ClipOval(
-        child: Image.network(
-          imageUrl!,
+        child: Image.memory(
+          bytes,
           width: d,
           height: d,
           fit: BoxFit.cover,
+          gaplessPlayback: true,
+          cacheWidth: (d * MediaQuery.devicePixelRatioOf(context)).round(),
           errorBuilder: (_, _, _) => _initials(context, p, d),
         ),
       );
     }
     return _initials(context, p, d);
+  }
+
+  Uint8List? _profilePhoto(BuildContext context) {
+    final id = seed;
+    if (id == null) return null;
+    try {
+      return context.select<ProfileService, Uint8List?>((s) => s.photoOf(id));
+    } on ProviderNotFoundException {
+      return null;
+    }
   }
 
   Widget _initials(BuildContext context, AppPalette p, double d) {

@@ -89,6 +89,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _contacts.init();
     await _chat.init(identity: identity, myUserId: myUserId, deviceId: deviceId);
     await _contacts.loadContacts();
+    _contacts.addListener(_syncProfiles);
+    _syncProfiles();
 
     // Notifications are composed here, after decryption: names and previews
     // never pass through the server or a push provider.
@@ -150,8 +152,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (token != null && mounted) await openInvite(context, token);
   }
 
+  /// New contacts get our profile photo and about line.
+  void _syncProfiles() {
+    unawaited(_chat.syncProfiles([for (final c in _contacts.contacts) c.userId]));
+  }
+
   @override
   void dispose() {
+    _contacts.removeListener(_syncProfiles);
     _invites?.removeListener(_onInvite);
     WidgetsBinding.instance.removeObserver(this);
     _auth.removeListener(_onAuthChanged);

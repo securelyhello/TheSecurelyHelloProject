@@ -43,7 +43,10 @@ enum PayloadKind {
   delete('del'),
 
   /// Disappearing-messages timer for the conversation changed.
-  timer('timer');
+  timer('timer'),
+
+  /// The sender's profile photo and "about" line (see ProfileService).
+  profile('profile');
 
   const PayloadKind(this.wire);
   final String wire;
@@ -168,6 +171,9 @@ class WirePayload {
   /// (0 = off).
   final int? expireSeconds;
 
+  /// [profile]: `{photo?, about, v}`.
+  final Map<String, dynamic>? profile;
+
   const WirePayload._({
     required this.kind,
     required this.from,
@@ -185,6 +191,7 @@ class WirePayload {
     this.target,
     this.emoji,
     this.expireSeconds,
+    this.profile,
   });
 
   factory WirePayload.message({
@@ -208,6 +215,15 @@ class WirePayload {
         attachment: attachment,
         reply: reply,
       );
+
+  /// Our profile, to a contact or to our own other devices.
+  factory WirePayload.profile({
+    required String from,
+    required String to,
+    required int timestampMs,
+    required Map<String, dynamic> profile,
+  }) =>
+      WirePayload._(kind: PayloadKind.profile, from: from, to: to, timestampMs: timestampMs, profile: profile);
 
   /// The disappearing-messages timer of a conversation changed. To the
   /// contact without [conversation]; to our devices with it.
@@ -338,6 +354,7 @@ class WirePayload {
         if (target != null) 'target': target,
         if (emoji != null) 'emoji': emoji,
         if (expireSeconds != null) 'exp': expireSeconds,
+        if (profile != null) 'prof': profile,
       };
 
   Uint8List encode() => Uint8List.fromList(utf8.encode(jsonEncode(toJson())));
@@ -351,6 +368,7 @@ class WirePayload {
     final kind = PayloadKind.fromWire(json['k'] as String);
     final att = json['att'];
     final reply = json['reply'];
+    final prof = json['prof'];
     final payload = WirePayload._(
       kind: kind,
       from: json['from'] as String,
@@ -370,6 +388,7 @@ class WirePayload {
       target: json['target'] as String?,
       emoji: json['emoji'] as String?,
       expireSeconds: json['exp'] as int?,
+      profile: prof is Map ? Map<String, dynamic>.from(prof) : null,
     );
     switch (kind) {
       case PayloadKind.message:
@@ -400,6 +419,9 @@ class WirePayload {
         break;
       case PayloadKind.delete:
         if (payload.target == null) throw const FormatException('Malformed delete');
+        break;
+      case PayloadKind.profile:
+        if (payload.profile == null) throw const FormatException('Malformed profile');
         break;
       case PayloadKind.timer:
         final s = payload.expireSeconds;

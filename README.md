@@ -128,8 +128,10 @@ contacts. Deployment and configuration: `server/DEPLOY.md`.
    stderr.
 3. `flutter pub get`, then `flutter run`.
 
-Linux desktop needs `libsecret-1-dev` (Debian/Ubuntu) or `libsecret-devel`
-(Fedora); the file picker uses the XDG desktop portal
+Linux desktop needs `libsecret-1-dev` and, for voice notes,
+`libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-good`
+(Debian/Ubuntu; `libsecret-devel` and `gstreamer1-devel gstreamer1-plugins-base-devel`
+on Fedora); the file picker uses the XDG desktop portal
 (`xdg-desktop-portal`, present on standard GNOME/KDE desktops). Two
 accounts, or two devices of one account, on one machine:
 

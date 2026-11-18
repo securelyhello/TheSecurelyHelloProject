@@ -332,6 +332,14 @@ class ChatProvider extends ChangeNotifier {
   Future<String?> safetyNumberFor(String contactId) =>
       _chatService.safetyNumberFor(contactId);
 
+  /// Changes our photo / about line and sends it to [contactIds].
+  Future<void> setMyProfile(List<String> contactIds,
+          {Uint8List? photo, bool removePhoto = false, String? about}) =>
+      _chatService.setMyProfile(contactIds, photo: photo, removePhoto: removePhoto, about: about);
+
+  /// Sends our profile to contacts that don't have the current one.
+  Future<void> syncProfiles(List<String> contactIds) => _chatService.sendProfileIfNeeded(contactIds);
+
   Future<Verification> verificationOf(String contactId) =>
       _chatService.verificationOf(contactId);
 

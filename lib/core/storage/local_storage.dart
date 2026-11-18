@@ -769,6 +769,21 @@ class LocalStorage {
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  /// Like [kvSet], but the value is encrypted at rest (personal data).
+  Future<void> kvSetSealed(String key, String value) => kvSet(key, _seal(value));
+
+  Future<String?> kvGetSealed(String key) async {
+    final raw = await kvGet(key);
+    return raw == null ? null : _unseal(raw);
+  }
+
+  /// Sealed entries whose key starts with [prefix].
+  Future<List<MapEntry<String, String>>> kvSealedByPrefix(String prefix) async {
+    final rows = await db.query('kv',
+        where: "key LIKE ? ESCAPE '\\'", whereArgs: ['${prefix.replaceAll(r'%', r'\%').replaceAll('_', r'\_')}%']);
+    return [for (final r in rows) MapEntry(r['key'] as String, _unseal(r['value'] as String))];
+  }
+
   Future<void> kvDelete(String key) async {
     await db.delete('kv', where: 'key = ?', whereArgs: [key]);
   }

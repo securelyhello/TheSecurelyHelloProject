@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:securelyhello/core/chat/attachment_service.dart';
+import 'package:securelyhello/core/chat/profile_service.dart';
 import 'package:securelyhello/core/chat/wire_protocol.dart';
 import 'package:securelyhello/core/crypto/crypto_core.dart';
 import 'package:securelyhello/core/crypto/device_manager.dart';
@@ -316,6 +317,7 @@ class ChatService {
           .listen((e) => _handleIncomingBytes(e.contactId, e.data)));
 
     _started = true;
+    await profiles.load();
     _sweeper = Timer.periodic(const Duration(seconds: 30), (_) => unawaited(sweepExpired()));
     unawaited(sweepExpired());
 
@@ -375,6 +377,7 @@ class ChatService {
   /// Stops everything for the current user (sign-out / account switch).
   Future<void> stop() async {
     _started = false;
+    profiles.reset();
     _sweeper?.cancel();
     _sweeper = null;
     for (final sub in _subscriptions) {
@@ -452,6 +455,38 @@ class ChatService {
   Future<void> deleteConversation(String contactId) async {
     await _storage.deleteConversation(contactId);
     _changed(contactId);
+  }
+
+  /// Profile photos and "about" lines (ours and our contacts').
+  late final ProfileService profiles = ProfileService(storage: _storage);
+
+  /// Changes our profile and sends it to our other devices and [contactIds].
+  Future<void> setMyProfile(List<String> contactIds,
+      {Uint8List? photo, bool removePhoto = false, String? about}) async {
+    final me = _requireUserId();
+    final p = await profiles.setMine(me, photo: photo, removePhoto: removePhoto, about: about);
+    await _deliver(me, WirePayload.profile(
+        from: me, to: me, timestampMs: DateTime.now().millisecondsSinceEpoch, profile: p));
+    await sendProfileIfNeeded(contactIds);
+  }
+
+  /// Sends our current profile to each contact that doesn't have it yet.
+  Future<void> sendProfileIfNeeded(List<String> contactIds) async {
+    final me = _myUserId;
+    if (me == null || !_started) return;
+    final p = await profiles.mine(me);
+    if (p == null) return;
+    final v = p['v'] as int;
+    for (final id in contactIds) {
+      if (await profiles.sentVersion(id) >= v) continue;
+      try {
+        final ok = await _deliver(id, WirePayload.profile(
+            from: me, to: id, timestampMs: DateTime.now().millisecondsSinceEpoch, profile: p));
+        if (ok) await profiles.markSent(id, v);
+      } catch (e) {
+        debugPrint('Profile to $id not sent: $e');
+      }
+    }
   }
 
   /// Device keys of [userId] (for ourselves: every device, this one first).
@@ -1098,6 +1133,8 @@ class ChatService {
     if (envelope.senderId == me) {
       if (payload.kind == PayloadKind.sync) {
         await _applySync(payload);
+      } else if (payload.kind == PayloadKind.profile) {
+        await profiles.receive(me, payload.profile!);
       } else if (payload.kind == PayloadKind.timer && payload.conversation != null) {
         await _applyTimer(payload.conversation!, me, payload.expireSeconds!);
       } else if (payload.conversation != null &&
@@ -1127,6 +1164,9 @@ class ChatService {
           break;
         case PayloadKind.timer:
           await _applyTimer(contactId, contactId, payload.expireSeconds!);
+          break;
+        case PayloadKind.profile:
+          await profiles.receive(contactId, payload.profile!);
           break;
         case PayloadKind.sync:
           break; // only our own devices send these

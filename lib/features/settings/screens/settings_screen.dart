@@ -14,6 +14,7 @@ import 'package:securelyhello/features/contacts/widgets/contact_info_sheet.dart'
 import 'package:securelyhello/features/home/chat_navigation.dart';
 import 'package:securelyhello/features/security/lock_screen.dart';
 import 'package:securelyhello/features/settings/screens/blocked_users_screen.dart';
+import 'package:securelyhello/features/settings/screens/edit_profile_screen.dart';
 import 'package:securelyhello/features/settings/screens/legal_screen.dart';
 import 'package:securelyhello/features/settings/screens/two_factor_screen.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
@@ -95,29 +96,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
-  }
-
-  Future<void> _editDisplayName(AuthProvider auth) async {
-    final name = await showDialog<String>(
-      context: context,
-      builder: (ctx) => _EditNameDialog(initial: auth.displayName),
-    );
-    if (name == null || !mounted) return;
-    if (name.trim() == auth.displayName.trim()) return;
-    final ok = await auth.updateDisplayName(name);
-    if (!mounted) return;
-    if (ok) {
-      showAppSnackBar(context, 'Name updated', success: true);
-    } else {
-      showAppSnackBar(
-        context,
-        friendlyError(
-          auth.errorMessage,
-          fallback: 'Could not update your name',
-        ),
-        error: true,
-      );
-    }
   }
 
   Future<void> _pickContactForSafetyNumber() async {
@@ -364,7 +342,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       borderRadius: BorderRadius.circular(AppRadius.lg),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(AppRadius.lg),
-                        onTap: () => _editDisplayName(auth),
+                        onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                            builder: (_) => const EditProfileScreen())),
                         child: Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
@@ -412,7 +391,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                               ),
                               Tooltip(
-                                message: 'Edit name',
+                                message: 'Edit profile',
                                 child: Icon(
                                   LucideIcons.pencil,
                                   size: 18,
@@ -747,64 +726,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
         ],
       ),
-    );
-  }
-}
-
-class _EditNameDialog extends StatefulWidget {
-  const _EditNameDialog({required this.initial});
-
-  final String initial;
-
-  @override
-  State<_EditNameDialog> createState() => _EditNameDialogState();
-}
-
-class _EditNameDialogState extends State<_EditNameDialog> {
-  late final _controller = TextEditingController(text: widget.initial);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _save() {
-    final v = _controller.text.trim();
-    if (v.isEmpty) return;
-    Navigator.pop(context, v);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final valid = _controller.text.trim().isNotEmpty;
-    return AlertDialog(
-      title: const Text('Your name'),
-      content: SizedBox(
-        width: 360,
-        child: TextField(
-          controller: _controller,
-          autofocus: true,
-          maxLength: 40,
-          textCapitalization: TextCapitalization.words,
-          onChanged: (_) => setState(() {}),
-          onSubmitted: (_) => _save(),
-          decoration: const InputDecoration(
-            hintText: 'Display name',
-            helperText: 'Shown to your contacts',
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: valid ? _save : null,
-          child: const Text('Save'),
-        ),
-      ],
     );
   }
 }
