@@ -41,7 +41,11 @@ class AvatarWidget extends StatelessWidget {
     this.isOnline = false,
     this.seed,
     this.ringColor,
+    this.icon,
   });
+
+  /// Shown instead of initials, e.g. for a group.
+  final IconData? icon;
 
   /// A photo to show instead of initials. Without it, the profile photo of
   /// the user [seed] (shared end to end, see ProfileService) is used.
@@ -155,18 +159,20 @@ class AvatarWidget extends StatelessWidget {
         ),
       ),
       alignment: Alignment.center,
-      child: Text(
-        initialsOf(displayName),
-        maxLines: 1,
-        textScaler: TextScaler.noScaling,
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-          fontSize: d * 0.38,
-          height: 1,
-          fontWeight: FontWeight.w700,
-          color: Colors.white,
-          letterSpacing: 0.3,
-        ),
-      ),
+      child: icon != null
+          ? Icon(icon, color: Colors.white, size: d * 0.46)
+          : Text(
+              initialsOf(displayName),
+              maxLines: 1,
+              textScaler: TextScaler.noScaling,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontSize: d * 0.38,
+                height: 1,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+                letterSpacing: 0.3,
+              ),
+            ),
     );
   }
 }

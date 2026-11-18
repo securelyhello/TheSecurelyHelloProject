@@ -7,20 +7,28 @@ import 'package:securelyhello/shared/utils/chat_time_format.dart';
 import 'package:securelyhello/shared/widgets/message_status_icon.dart';
 
 /// Details for a single message: when it was sent / received and its
-/// delivery state.
-Future<void> showMessageInfoSheet(BuildContext context, Message m) {
+/// delivery state. For our group messages, [receipts] has each member's
+/// status, and [nameOf] names them.
+Future<void> showMessageInfoSheet(
+  BuildContext context,
+  Message m, {
+  Map<String, String>? receipts,
+  String Function(String userId)? nameOf,
+}) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    builder: (ctx) => _MessageInfo(message: m),
+    builder: (ctx) => _MessageInfo(message: m, receipts: receipts, nameOf: nameOf),
   );
 }
 
 class _MessageInfo extends StatelessWidget {
-  const _MessageInfo({required this.message});
+  const _MessageInfo({required this.message, this.receipts, this.nameOf});
 
   final Message message;
+  final Map<String, String>? receipts;
+  final String Function(String userId)? nameOf;
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +83,9 @@ class _MessageInfo extends StatelessWidget {
               m.isFromMe ? 'Sent' : 'Received',
               ChatTimeFormat.full(m.timestamp, use24h: use24h),
             ),
-            if (m.isFromMe)
+            if (m.isFromMe && receipts != null)
+              ..._groupReceipts(context, receipts!, nameOf ?? (u) => u)
+            else if (m.isFromMe)
               row(
                 MessageStatusIcon(
                   status: status,
@@ -97,12 +107,46 @@ class _MessageInfo extends StatelessWidget {
             row(
               Icon(LucideIcons.lock, color: p.accent),
               'End-to-end encrypted',
-              'Signed and encrypted on this device. Only the two of you can '
-                  'read it.',
+              receipts != null
+                  ? 'Encrypted on this device for each member. Only people in the group can read it.'
+                  : 'Signed and encrypted on this device. Only the two of you can read it.',
             ),
           ],
         ),
       ),
     );
+  }
+
+  /// Members grouped by how far the message got: read, delivered, waiting.
+  List<Widget> _groupReceipts(BuildContext context, Map<String, String> receipts, String Function(String) nameOf) {
+    final p = context.palette;
+    final t = Theme.of(context).textTheme;
+    final groups = <(String, MessageStatus, List<String>)>[
+      ('Read by', MessageStatus.read, []),
+      ('Delivered to', MessageStatus.delivered, []),
+      ('Waiting for', MessageStatus.sent, []),
+    ];
+    for (final e in receipts.entries) {
+      final i = switch (e.value) { 'read' => 0, 'delivered' => 1, _ => 2 };
+      groups[i].$3.add(nameOf(e.key));
+    }
+    return [
+      for (final (label, status, names) in groups)
+        if (names.isNotEmpty)
+          ListTile(
+            key: ValueKey('receipts-${status.name}'),
+            contentPadding: EdgeInsets.zero,
+            leading: MessageStatusIcon(
+                status: status, color: p.textSecondary, readColor: p.tickRead, errorColor: p.danger, size: 22),
+            title: Text(label),
+            subtitle: Text((names..sort()).join(', '), style: t.bodyMedium?.copyWith(color: p.textSecondary)),
+          ),
+      if (receipts.isEmpty)
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(LucideIcons.users, color: p.textSecondary),
+          title: const Text('Nobody else is in the group'),
+        ),
+    ];
   }
 }

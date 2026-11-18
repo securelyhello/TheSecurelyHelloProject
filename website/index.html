@@ -84,6 +84,10 @@
             <p>Quote a message, add a reaction, fix a typo or delete for everyone. Only the author can edit or delete their messages; anything else is rejected.</p>
           </article>
           <article class="card">
+            <h3>Group chats</h3>
+            <p>Up to 64 people, who don't all need to know each other. Each message is encrypted for every member, and every member's app checks who an admin added.</p>
+          </article>
+          <article class="card">
             <h3>Disappearing messages</h3>
             <p>Set a timer per chat, from 5 minutes to a week. Messages are removed from every device in the conversation when it runs out.</p>
           </article>
@@ -174,6 +178,7 @@
             <ul class="list">
               <li>Your e-mail, username and display name</li>
               <li>Who your contacts are, and who you blocked</li>
+              <li>Who is in your groups (not their names or messages)</li>
               <li>When your devices connect, and from which IP address</li>
               <li>The size and time of envelopes it relays</li>
             </ul>
@@ -195,7 +200,7 @@
           <ul class="list">
             <li>A malicious server could add a device to your account and claim it was recovered by e-mail. Verified contacts are protected: their app stops sending until they check the new safety number. Unverified contacts only see a notice.</li>
             <li>No sealed sender yet: the server knows who sends to whom.</li>
-            <li>No post-quantum key agreement yet, and no group chats yet.</li>
+            <li>No post-quantum key agreement yet. In groups, the server knows who is a member (never the group's name or messages).</li>
             <li>Disappearing messages can't stop someone photographing their screen.</li>
             <li>Screenshot blocking is enforced on Android. Other platforms hide the app in the app switcher.</li>
           </ul>
@@ -209,6 +214,7 @@
         <p class="section-lead">These screenshots aren't mock-ups. Our UI test drives the app against a real server and captures them, and this page shows the latest run.</p>
         <div class="gallery" role="list">
           <figure role="listitem"><div class="phone"><img loading="lazy" src="assets/screens/10_chats_unread.png" alt="Chat list with an unread conversation" width="412" height="892"></div><figcaption>Your chats</figcaption></figure>
+          <figure role="listitem"><div class="phone"><img loading="lazy" src="assets/screens/15c_group_chat.png" alt="A group chat with three people" width="412" height="892"></div><figcaption>Group chats</figcaption></figure>
           <figure role="listitem"><div class="phone"><img loading="lazy" src="assets/screens/12b_chat_attachments.png" alt="Chat with an encrypted photo and PDF" width="412" height="892"></div><figcaption>Encrypted photos and files</figcaption></figure>
           <figure role="listitem"><div class="phone"><img loading="lazy" src="assets/screens/14_contact_info.png" alt="Contact info with the safety number" width="412" height="892"></div><figcaption>Safety number</figcaption></figure>
           <figure role="listitem"><div class="phone"><img loading="lazy" src="assets/screens/06b_invite.png" alt="Invite screen with QR code and share button" width="412" height="892"></div><figcaption>Invite with a link or QR</figcaption></figure>

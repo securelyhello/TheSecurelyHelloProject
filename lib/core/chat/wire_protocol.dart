@@ -50,7 +50,10 @@ enum PayloadKind {
 
   /// Chat history for our own other devices (an encrypted archive as an
   /// attachment). Only accepted from our own account.
-  history('history');
+  history('history'),
+
+  /// A group's state: name, members, admins, revision (see GroupState).
+  group('group');
 
   const PayloadKind(this.wire);
   final String wire;
@@ -178,6 +181,13 @@ class WirePayload {
   /// [profile]: `{photo?, about, v}`.
   final Map<String, dynamic>? profile;
 
+  /// [group]: the group's state.
+  final Map<String, dynamic>? group;
+
+  /// Set when a message, action, receipt or timer belongs to a group
+  /// rather than to the 1:1 chat with the sender.
+  final String? groupId;
+
   const WirePayload._({
     required this.kind,
     required this.from,
@@ -196,6 +206,8 @@ class WirePayload {
     this.emoji,
     this.expireSeconds,
     this.profile,
+    this.group,
+    this.groupId,
   });
 
   factory WirePayload.message({
@@ -207,9 +219,11 @@ class WirePayload {
     Map<String, dynamic>? attachment,
     Map<String, dynamic>? reply,
     int? expireSeconds,
+    String? groupId,
   }) =>
       WirePayload._(
         kind: PayloadKind.message,
+        groupId: groupId,
         expireSeconds: expireSeconds,
         messageId: messageId,
         from: from,
@@ -229,6 +243,15 @@ class WirePayload {
   }) =>
       WirePayload._(kind: PayloadKind.profile, from: from, to: to, timestampMs: timestampMs, profile: profile);
 
+  /// A group's new state, to its members and our own devices.
+  factory WirePayload.group({
+    required String from,
+    required String to,
+    required int timestampMs,
+    required Map<String, dynamic> group,
+  }) =>
+      WirePayload._(kind: PayloadKind.group, from: from, to: to, timestampMs: timestampMs, group: group);
+
   /// Our chat history, for our own other devices.
   factory WirePayload.history({
     required String me,
@@ -245,9 +268,11 @@ class WirePayload {
     required int timestampMs,
     required int seconds,
     String? conversation,
+    String? groupId,
   }) =>
       WirePayload._(
         kind: PayloadKind.timer,
+        groupId: groupId,
         from: from,
         to: to,
         timestampMs: timestampMs,
@@ -267,9 +292,11 @@ class WirePayload {
     String? conversation,
     String? emoji,
     String? body,
+    String? groupId,
   }) =>
       WirePayload._(
         kind: kind,
+        groupId: groupId,
         from: from,
         to: to,
         timestampMs: timestampMs,
@@ -285,9 +312,11 @@ class WirePayload {
     required int timestampMs,
     required List<String> ids,
     required ReceiptStatus status,
+    String? groupId,
   }) =>
       WirePayload._(
         kind: PayloadKind.receipt,
+        groupId: groupId,
         from: from,
         to: to,
         timestampMs: timestampMs,
@@ -367,6 +396,8 @@ class WirePayload {
         if (emoji != null) 'emoji': emoji,
         if (expireSeconds != null) 'exp': expireSeconds,
         if (profile != null) 'prof': profile,
+        if (group != null) 'grp': group,
+        if (groupId != null) 'gid': groupId,
       };
 
   Uint8List encode() => Uint8List.fromList(utf8.encode(jsonEncode(toJson())));
@@ -381,6 +412,7 @@ class WirePayload {
     final att = json['att'];
     final reply = json['reply'];
     final prof = json['prof'];
+    final grp = json['grp'];
     final payload = WirePayload._(
       kind: kind,
       from: json['from'] as String,
@@ -401,6 +433,8 @@ class WirePayload {
       emoji: json['emoji'] as String?,
       expireSeconds: json['exp'] as int?,
       profile: prof is Map ? Map<String, dynamic>.from(prof) : null,
+      group: grp is Map ? Map<String, dynamic>.from(grp) : null,
+      groupId: json['gid'] as String?,
     );
     switch (kind) {
       case PayloadKind.message:
@@ -438,6 +472,9 @@ class WirePayload {
       case PayloadKind.history:
         if (payload.attachment == null) throw const FormatException('Malformed history');
         break;
+      case PayloadKind.group:
+        if (payload.group == null) throw const FormatException('Malformed group');
+        break;
       case PayloadKind.timer:
         final s = payload.expireSeconds;
         if (s == null || s < 0 || s > 365 * 86400) {
@@ -447,6 +484,8 @@ class WirePayload {
       case PayloadKind.typing:
         break;
     }
+    final gid = payload.groupId;
+    if (gid != null && (gid.isEmpty || gid.length > 64)) throw const FormatException('Bad group id');
     if (payload.expireSeconds != null &&
         (payload.expireSeconds! < 0 || payload.expireSeconds! > 365 * 86400)) {
       throw const FormatException('Bad expiry');

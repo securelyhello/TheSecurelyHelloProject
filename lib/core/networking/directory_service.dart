@@ -440,6 +440,30 @@ class DirectoryService {
     return res['contact_user_id'] as String;
   }
 
+  // Groups: the server keeps who is in which group, for abuse control. The
+  // group's name and messages travel end to end (see GroupService).
+
+  /// Members of a group: `[{user_id, username, display_name, admin}]`.
+  Future<List<Map<String, dynamic>>> groupMembers(String groupId) async =>
+      _groupMembers(await _request('GET', '/api/groups/${Uri.encodeComponent(groupId)}'));
+
+  Future<List<Map<String, dynamic>>> createGroup(String groupId, List<String> members) async =>
+      _groupMembers(await _request('POST', '/api/groups', body: {'group_id': groupId, 'members': members}));
+
+  Future<List<Map<String, dynamic>>> addGroupMembers(String groupId, List<String> userIds) async =>
+      _groupMembers(await _request('POST', '/api/groups/${Uri.encodeComponent(groupId)}/members',
+          body: {'user_ids': userIds}));
+
+  /// Removes [userId] (an admin removing someone, or ourselves leaving).
+  Future<void> removeGroupMember(String groupId, String userId) =>
+      _request('DELETE', '/api/groups/${Uri.encodeComponent(groupId)}/members/${Uri.encodeComponent(userId)}');
+
+  Future<void> setGroupAdmin(String groupId, String userId, bool admin) => _request(
+      'PATCH', '/api/groups/${Uri.encodeComponent(groupId)}/members/${Uri.encodeComponent(userId)}',
+      body: {'admin': admin});
+
+  List<Map<String, dynamic>> _groupMembers(Object? res) => _list((res as Map)['members']);
+
   Future<bool> emailDiscoverable() async =>
       (await _request('GET', '/api/me/discovery') as Map)['email_discoverable'] == true;
 

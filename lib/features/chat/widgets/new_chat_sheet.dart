@@ -8,10 +8,13 @@ import 'package:securelyhello/shared/utils/chat_time_format.dart';
 import 'package:securelyhello/shared/widgets/avatar_widget.dart';
 import 'package:securelyhello/shared/widgets/search_field.dart';
 
+/// What [showNewChatSheet] returns when "New group" was chosen.
+const newGroupChoice = '#new-group';
+
 /// Contact picker for starting a conversation.
 ///
-/// Resolves to the chosen contact's user id, or `null` (dismissed, or the
-/// user went to "Find people" instead).
+/// Resolves to the chosen contact's user id, [newGroupChoice], or `null`
+/// (dismissed, or the user went to "Find people" instead).
 Future<String?> showNewChatSheet(BuildContext context) {
   return showModalBottomSheet<String>(
     context: context,
@@ -86,6 +89,17 @@ class _NewChatSheetState extends State<_NewChatSheet> {
         Expanded(
           child: ListView(
             children: [
+              ListTile(
+                key: const ValueKey('new-group'),
+                leading: CircleAvatar(
+                  radius: 22,
+                  backgroundColor: p.accent,
+                  child: Icon(LucideIcons.users, color: p.onAccent, size: 20),
+                ),
+                title: const Text('New group'),
+                subtitle: const Text('Chat with several contacts at once'),
+                onTap: () => Navigator.pop(context, newGroupChoice),
+              ),
               ListTile(
                 leading: CircleAvatar(
                   radius: 22,

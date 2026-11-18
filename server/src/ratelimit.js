@@ -24,8 +24,10 @@ export const DEFAULT_LIMITS = {
   report: { capacity: 10, perMs: 60 * MIN },
   // attachment uploads, per user
   upload: { capacity: 60, perMs: 60 * MIN },
-  // relay envelopes, per sender
-  relay: { capacity: 120, perMs: MIN },
+  // relay calls, per sender; a group message is one call per member
+  relay: { capacity: 600, perMs: MIN },
+  // creating groups and changing their members, per user
+  groupChange: { capacity: 60, perMs: 60 * MIN },
   // contact requests, per sender
   contactRequest: { capacity: 30, perMs: 60 * MIN },
   // contact requests from accounts less than a day old, per sender

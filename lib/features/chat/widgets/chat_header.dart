@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
@@ -125,6 +126,69 @@ class ChatHeader extends StatelessWidget {
                         ],
                         ConnectionBadge(connectionState: transport),
                       ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// App-bar title for a group: its name and who is in it.
+class GroupHeader extends StatelessWidget {
+  const GroupHeader({
+    super.key,
+    required this.conversationId,
+    required this.name,
+    required this.subtitle,
+    this.onTap,
+  });
+
+  final String conversationId;
+  final String name;
+
+  /// Member names, or a note that we left.
+  final String subtitle;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final t = Theme.of(context).textTheme;
+    return Semantics(
+      button: onTap != null,
+      label: onTap != null ? 'Group info for $name' : null,
+      child: InkWell(
+        key: const ValueKey('group-header'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+          child: Row(
+            children: [
+              AvatarWidget(displayName: name, seed: conversationId, icon: LucideIcons.users, size: AvatarSize.medium),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: t.titleMedium?.copyWith(fontSize: 16.5, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: t.bodySmall?.copyWith(color: p.textSecondary),
                     ),
                   ],
                 ),

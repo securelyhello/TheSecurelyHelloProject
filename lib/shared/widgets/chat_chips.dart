@@ -101,9 +101,13 @@ class SystemNoticeChip extends StatelessWidget {
 /// The "messages are end-to-end encrypted" banner shown at the very top of
 /// a conversation.
 class EncryptionBanner extends StatelessWidget {
-  const EncryptionBanner({super.key, this.onTap});
+  const EncryptionBanner({super.key, this.onTap, this.group = false});
 
   final VoidCallback? onTap;
+
+  /// Group wording: messages go to each member through the relay, and
+  /// there's no single safety number to verify.
+  final bool group;
 
   @override
   Widget build(BuildContext context) {
@@ -137,10 +141,13 @@ class EncryptionBanner extends StatelessWidget {
                     const SizedBox(width: 7),
                     Flexible(
                       child: Text(
-                        'Messages are end-to-end encrypted and travel directly '
-                        'between devices when possible. No one outside this '
-                        'chat can read them.'
-                        '${onTap != null ? ' Tap to verify.' : ''}',
+                        group
+                            ? 'Messages are end-to-end encrypted for each member. '
+                                  'Only people in this group can read them.'
+                            : 'Messages are end-to-end encrypted and travel directly '
+                                  'between devices when possible. No one outside this '
+                                  'chat can read them.'
+                                  '${onTap != null ? ' Tap to verify.' : ''}',
                         textAlign: TextAlign.center,
                         style: Theme.of(
                           context,

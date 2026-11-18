@@ -7,9 +7,12 @@ import 'package:provider/provider.dart';
 import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/core/chat/chat_service.dart'
     show Conversation, Message;
+import 'package:securelyhello/core/chat/group_state.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/features/chat/widgets/conversation_tile.dart';
+import 'package:securelyhello/features/groups/group_info_screen.dart';
+import 'package:securelyhello/features/groups/new_group_screen.dart';
 import 'package:securelyhello/features/chat/widgets/new_chat_sheet.dart';
 import 'package:securelyhello/features/contacts/widgets/contact_info_sheet.dart';
 import 'package:securelyhello/features/home/chat_navigation.dart';
@@ -66,7 +69,14 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
 
   Future<void> _newChat() async {
     final id = await showNewChatSheet(context);
-    if (id != null && mounted) await _startChat(id);
+    if (id == null || !mounted) return;
+    if (id == newGroupChoice) {
+      final group = await Navigator.of(context)
+          .push<String>(MaterialPageRoute(builder: (_) => const NewGroupScreen()));
+      if (group != null && mounted) openChat(context, group);
+      return;
+    }
+    await _startChat(id);
   }
 
   Future<void> _conversationMenu(
@@ -75,6 +85,8 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
     String name, {
     Offset? position,
   }) async {
+    final chat = context.read<ChatProvider>();
+    final group = chat.groupOf(conv.id);
     final action = await showActionMenu<_ConvAction>(
       context,
       position: position,
@@ -84,6 +96,7 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
               leading: AvatarWidget(
                 displayName: name,
                 seed: conv.contactUserId,
+                icon: group != null ? LucideIcons.users : null,
                 size: AvatarSize.medium,
               ),
               title: Text(
@@ -98,7 +111,9 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
             icon: LucideIcons.checkCheck,
             label: L10n.of(context).markAsRead,
           ),
-        if (contact != null)
+        if (group != null)
+          const ActionItem(value: _ConvAction.info, icon: LucideIcons.users, label: 'Group info')
+        else if (contact != null)
           ActionItem(
             value: _ConvAction.info,
             icon: LucideIcons.user,
@@ -118,10 +133,15 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
       ],
     );
     if (!mounted || action == null) return;
-    final chat = context.read<ChatProvider>();
     switch (action) {
       case _ConvAction.read:
         await chat.markConversationAsRead(conv.id);
+      case _ConvAction.info when group != null:
+        final result = await Navigator.of(context).push<(GroupInfoResult, String?)>(
+            MaterialPageRoute(builder: (_) => GroupInfoScreen(conversationId: conv.id)));
+        if (!mounted || result == null) return;
+        if (result.$1 == GroupInfoResult.message && result.$2 != null) openChat(context, result.$2!);
+        if (result.$1 == GroupInfoResult.deleted) closeChatIfOpen(context, conv.id);
       case _ConvAction.info:
         final result = await showContactInfoSheet(
           context,
@@ -152,12 +172,13 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
     }
   }
 
-  Future<bool> _confirmDelete(String name) => showConfirmDialog(
+  Future<bool> _confirmDelete(String name, {bool group = false}) => showConfirmDialog(
     context,
-    title: 'Delete chat with $name?',
-    message:
-        'The conversation and its messages will be deleted from this '
-        'device. This cannot be undone.',
+    title: group ? 'Leave and delete “$name”?' : 'Delete chat with $name?',
+    message: group
+        ? "You'll leave the group if you're still in it, and its messages will be deleted from this device."
+        : 'The conversation and its messages will be deleted from this '
+              'device. This cannot be undone.',
     confirmLabel: 'Delete',
     destructive: true,
   );
@@ -167,7 +188,7 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
     String name, {
     required bool confirmed,
   }) async {
-    if (!confirmed && !await _confirmDelete(name)) return;
+    if (!confirmed && !await _confirmDelete(name, group: GroupState.isGroup(conv.id))) return;
     if (!mounted) return;
     final chat = context.read<ChatProvider>();
     closeChatIfOpen(context, conv.contactUserId);
@@ -217,7 +238,8 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
       if (_filter == _Filter.unread && conv.unreadCount == 0) return false;
       if (q.isEmpty) return true;
       final c = contactsProvider.getContact(conv.contactUserId);
-      return matches(c?.displayLabel) ||
+      return matches(chat.groupOf(conv.id)?.name) ||
+          matches(c?.displayLabel) ||
           matches(c?.username) ||
           matches(conv.lastMessage);
     }).toList();
@@ -440,8 +462,10 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
     Conversation conv,
     String? selectedId,
   ) {
-    final contact = contacts.getContact(conv.contactUserId);
+    final group = chat.groupOf(conv.id);
+    final contact = group != null ? null : contacts.getContact(conv.contactUserId);
     final name =
+        group?.name ??
         contact?.displayLabel ??
         (contacts.isLoading && contacts.contacts.isEmpty
             ? '…'
@@ -457,11 +481,12 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
         color: context.palette.danger,
         child: const Icon(LucideIcons.trash2, color: Colors.white),
       ),
-      confirmDismiss: (_) => _confirmDelete(name),
+      confirmDismiss: (_) => _confirmDelete(name, group: group != null),
       onDismissed: (_) =>
           unawaited(_deleteConversation(conv, name, confirmed: true)),
       child: ConversationTile(
         contactUserId: conv.contactUserId,
+        isGroup: group != null,
         name: name,
         isOnline: contact?.isOnline ?? false,
         lastMessage: conv.lastMessage,

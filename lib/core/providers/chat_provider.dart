@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:securelyhello/core/chat/attachment_service.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
+import 'package:securelyhello/core/chat/group_state.dart';
 import 'package:securelyhello/core/media/voice.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
 import 'package:securelyhello/core/crypto/crypto_core.dart';
@@ -346,6 +347,38 @@ class ChatProvider extends ChangeNotifier {
       await loadConversations();
     }
     return contactUserId;
+  }
+
+  // Groups
+
+  List<GroupState> get groups => _chatService.groups;
+  GroupState? groupOf(String conversationId) => _chatService.groupOf(conversationId);
+  bool isGroup(String conversationId) => GroupState.isGroup(conversationId);
+
+  /// Name of a group member who isn't a contact, if known.
+  String? memberName(String userId) => _chatService.memberName(userId);
+
+  /// Creates a group and returns its conversation id.
+  Future<String> createGroup(String name, List<String> memberIds) async {
+    final g = await _chatService.createGroup(name, memberIds);
+    await loadConversations();
+    return g.conversationId;
+  }
+
+  Future<void> renameGroup(String id, String name) => _groupChange(() => _chatService.renameGroup(id, name));
+  Future<void> addGroupMembers(String id, List<String> users) =>
+      _groupChange(() => _chatService.addGroupMembers(id, users));
+  Future<void> removeGroupMember(String id, String user) =>
+      _groupChange(() => _chatService.removeGroupMember(id, user));
+  Future<void> setGroupAdmin(String id, String user, bool admin) =>
+      _groupChange(() => _chatService.setGroupAdmin(id, user, admin));
+  Future<void> leaveGroup(String id) => _groupChange(() => _chatService.leaveGroup(id));
+  Future<void> refreshGroupMembers(String id) => _chatService.refreshGroupMembers(id);
+  Future<Map<String, String>> groupReceiptsOf(String messageId) => _chatService.groupReceiptsOf(messageId);
+
+  Future<void> _groupChange(Future<void> Function() change) async {
+    await change();
+    notifyListeners();
   }
 
   /// Safety number shared with [contactId].

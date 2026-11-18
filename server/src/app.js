@@ -8,6 +8,7 @@ import { createBlobStore } from './blobstore.js';
 import { registerDeviceRoutes } from './devices.js';
 import { registerSafetyRoutes } from './safety.js';
 import { registerInviteRoutes } from './invites.js';
+import { registerGroupRoutes } from './groups.js';
 import { createAntiSpam } from './spam.js';
 import { createTwoFactor, registerTwoFactorRoutes } from './twofactor.js';
 import { HotStore } from './hotstore.js';
@@ -120,6 +121,7 @@ export function createApp({
   registerAttachmentRoutes(router, { pool, services, limits, config, blobs });
   registerSafetyRoutes(router, { pool, hub, services, limits, config, antiSpam });
   registerInviteRoutes(router, { pool, hub, services, limits, config, antiSpam });
+  registerGroupRoutes(router, { pool, services, limits });
 
   const server = http.createServer(async (req, res) => {
     const started = Date.now();

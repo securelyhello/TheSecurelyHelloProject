@@ -54,7 +54,7 @@ export function registerAttachmentRoutes(router, { pool, services, limits, confi
     { rawBody: config.attachmentMaxBytes },
   );
 
-  /** The ciphertext, for its uploader and the uploader's contacts. */
+  /** The ciphertext, for its uploader and whoever the uploader can message. */
   router.add('GET', '/api/attachments/:id', async ({ params, user }) => {
     const id = v.uuid(params.id);
     const { rows } = await pool.query(
@@ -62,7 +62,7 @@ export function registerAttachmentRoutes(router, { pool, services, limits, confi
       [id],
     );
     const row = rows[0];
-    const allowed = row && (row.uploader_id === user.id || (await services.areContacts(row.uploader_id, user.id)));
+    const allowed = row && (row.uploader_id === user.id || (await services.canReach(row.uploader_id, user.id)));
     if (!allowed) throw new HttpError(404, 'not_found', 'This attachment has expired or is not available');
     const bytes = row.storage === 'postgres' ? row.data : await blobs.get(id);
     if (!bytes) throw new HttpError(404, 'not_found', 'This attachment has expired or is not available');

@@ -19,6 +19,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:securelyhello/core/chat/chat_service.dart';
+import 'package:securelyhello/core/chat/group_state.dart';
 import 'package:securelyhello/core/invites/invites.dart';
 import 'package:securelyhello/core/media/voice.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
@@ -668,6 +669,99 @@ void main() {
 
       await dan.dispose();
       await erin.dispose();
+    });
+  });
+
+  testWidgets('a group where not everyone knows each other', (tester) async {
+    await tester.runAsync(() async {
+      final gail = Stack('gail');
+      final hal = Stack('hal');
+      final ivy = Stack('ivy');
+      for (final s in [gail, hal, ivy]) {
+        await s.signUp();
+      }
+      // Gail knows both; Hal and Ivy have never met.
+      for (final s in [hal, ivy]) {
+        await s.contacts.acceptInvite(inviteTokenFrom((await gail.contacts.createInvite())['url'] as String)!);
+      }
+      await gail.contacts.loadContacts();
+      expect((await hal.chat.sendMessage(ivy.id, 'hello stranger')).status, 'failed',
+          reason: 'strangers cannot reach each other');
+
+      Future<List<Message>> inGroup(Stack s, String cid) => s.chat.fetchMessages(cid);
+      Future<bool> has(Stack s, String cid, bool Function(Message) test) async => (await inGroup(s, cid)).any(test);
+
+      final cid = (await gail.chat.createGroup('Book club', [hal.id, ivy.id])).conversationId;
+      for (final s in [hal, ivy]) {
+        await until(() => s.chat.groupOf(cid)?.name == 'Book club', what: '${s.name} learns about the group');
+        await until(() => has(s, cid, (m) => m.isSystem && m.content == 'Gail created the group “Book club”'),
+            what: '${s.name} sees who made it');
+      }
+      // Ivy learns Hal's name from the group, though he isn't her contact.
+      await until(() => ivy.chat.memberName(hal.id) == 'hal', what: "Ivy gets Hal's public name");
+
+      // Hal writes; both others get it, though Ivy isn't his contact.
+      final hello = await hal.chat.sendMessage(cid, 'Chapter 3 tonight?');
+      for (final s in [gail, ivy]) {
+        await until(() => has(s, cid, (m) => m.id == hello.id && m.senderId == hal.id && !m.isFromMe),
+            what: '${s.name} receives the group message');
+      }
+      expect((await gail.chat.fetchConversations()).firstWhere((c) => c.id == cid).lastMessage,
+          'hal: Chapter 3 tonight?');
+
+      // Read once everyone has read it; per-member receipts along the way.
+      Future<String?> status() async => (await hal.chat.getMessage(hello.id))?.status;
+      await until(() async => await status() == 'delivered', what: 'delivered to both');
+      await gail.chat.markConversationRead(cid);
+      await until(() async => (await hal.chat.groupReceiptsOf(hello.id))[gail.id] == 'read', what: "Gail's read receipt");
+      expect(await status(), 'delivered', reason: 'Ivy has not read it yet');
+      await ivy.chat.markConversationRead(cid);
+      await until(() async => await status() == 'read', what: 'read by everyone');
+
+      // Reactions and edits reach every member.
+      await ivy.chat.react(cid, hello.id, '👍');
+      await until(() async => (await hal.chat.getMessage(hello.id)) != null &&
+              (await inGroup(hal, cid)).firstWhere((m) => m.id == hello.id).reactions[ivy.id] == '👍',
+          what: "Hal sees Ivy's reaction");
+      expect(await hal.chat.editMessage(cid, hello.id, 'Chapter 4 tonight?'), isTrue);
+      await until(() async => (await gail.chat.getMessage(hello.id))?.content == 'Chapter 4 tonight?',
+          what: 'the edit reaches Gail');
+
+      // Only admins change the group, and other members' apps enforce it.
+      expect(() => hal.chat.renameGroup(cid, 'Hal rules'), throwsStateError);
+      await hal.chat.debugSendGroupState(hal.chat.groupOf(cid)!.rename('Hal rules'));
+      final probe = await hal.chat.sendMessage(cid, 'did that work?');
+      await until(() => has(ivy, cid, (m) => m.id == probe.id), what: 'Ivy gets the next message');
+      expect(ivy.chat.groupOf(cid)!.name, 'Book club', reason: 'a forged rename is ignored');
+
+      await gail.chat.renameGroup(cid, 'Book club 📚');
+      await until(() => hal.chat.groupOf(cid)?.name == 'Book club 📚', what: 'an admin rename arrives');
+      await until(() => has(ivy, cid, (m) => m.content == 'Gail renamed the group to “Book club 📚”'),
+          what: 'with a notice');
+
+      // Removed members stop receiving; they keep the history, read-only.
+      await gail.chat.removeGroupMember(cid, ivy.id);
+      await until(() => ivy.chat.groupOf(cid)?.isMember(ivy.id) == false, what: 'Ivy learns she was removed');
+      await until(() => has(ivy, cid, (m) => m.content == 'Gail removed you'), what: 'with a notice');
+      final after = await hal.chat.sendMessage(cid, 'just us now');
+      await until(() => has(gail, cid, (m) => m.id == after.id), what: 'Gail still gets messages');
+      await until(() async => await hal.chat.getMessage(after.id).then((m) => m?.status) != 'sending',
+          what: 'Hal is done sending');
+      expect((await hal.chat.groupReceiptsOf(after.id)).keys, [gail.id], reason: 'sent to current members only');
+      await Future<void>.delayed(const Duration(seconds: 2));
+      expect(await has(ivy, cid, (m) => m.id == after.id), isFalse);
+      expect((await ivy.chat.sendMessage(cid, 'let me back in')).status, 'failed');
+
+      // The last admin leaving hands the group to the longest-standing member.
+      await gail.chat.leaveGroup(cid);
+      await until(() => hal.chat.groupOf(cid)?.isAdmin(hal.id) ?? false, what: 'Hal becomes admin');
+      await until(() => has(hal, cid, (m) => m.content == 'Gail left'), what: 'Hal sees Gail leave');
+      expect((await hal.directory.groupMembers(GroupState.idOf(cid))).single['admin'], isTrue,
+          reason: 'the server made the same choice');
+
+      for (final s in [gail, hal, ivy]) {
+        await s.dispose();
+      }
     });
   });
 

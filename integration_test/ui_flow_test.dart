@@ -21,6 +21,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:securelyhello/features/chat/widgets/voice_note.dart';
+import 'package:securelyhello/core/invites/invites.dart';
 import 'package:securelyhello/core/media/voice.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
@@ -110,6 +111,7 @@ void main() {
     final tag = Random.secure().nextInt(1 << 24).toRadixString(16);
     final me = Client('me');
     final mira = Client('mira');
+    final sam = Client('sam');
     final out = Directory(_shotDir.isEmpty
         ? '${Directory.systemTemp.path}/sh_shots'
         : _shotDir)
@@ -377,8 +379,67 @@ void main() {
       nav().pop(); // back to the list
       await settle(700);
 
-      // ---- other tabs -----------------------------------------------------
       await shot('15_chats_read');
+
+      // ---- a group with Mira and Sam, who don't know each other ------------
+      await sam.auth.init();
+      expect(
+          await sam.auth.signUp(
+              email: 'sam_$tag@example.test',
+              password: 'a long enough password',
+              username: 'sam_$tag',
+              displayName: 'Sam Okafor'),
+          isTrue,
+          reason: sam.auth.errorMessage);
+      sam.contacts.init();
+      await sam.chat.start(
+          identity: sam.auth.identity!, myUserId: sam.auth.myUserId!, deviceId: sam.auth.deviceId!);
+      await sam.contacts.acceptInvite(inviteTokenFrom((await me.contacts.createInvite())['url'] as String)!);
+      await me.contacts.loadContacts();
+
+      await tester.tap(find.byTooltip('New chat'));
+      await waitFor(find.byKey(const ValueKey('new-group')), 'new chat sheet');
+      await settle(600);
+      await tester.tap(find.byKey(const ValueKey('new-group')));
+      await waitFor(find.byKey(const ValueKey('group-name')), 'new group screen');
+      await settle(600);
+      final create = find.byKey(const ValueKey('group-create'));
+      expect(tester.widget<FilledButton>(create).onPressed, isNull, reason: 'needs a name and members');
+      await tester.enterText(find.byKey(const ValueKey('group-name')), 'Weekend trip');
+      await tester.tap(find.byKey(ValueKey('pick-mira_$tag')));
+      await tester.tap(find.byKey(ValueKey('pick-sam_$tag')));
+      await settle(600);
+      await shot('15b_new_group');
+      await tester.tap(create);
+      await waitFor(find.byKey(const ValueKey('group-header')), 'the new group chat');
+      final groupId = me.chatProvider.groups.single.conversationId;
+      for (final c in [mira, sam]) {
+        final gEnd = DateTime.now().add(const Duration(seconds: 15));
+        while (c.chat.groupOf(groupId) == null) {
+          if (DateTime.now().isAfter(gEnd)) fail('${c == mira ? 'Mira' : 'Sam'} never got the group');
+          await settle(100);
+        }
+      }
+      await mira.chat.sendMessage(groupId, 'I can drive on Saturday 🚗');
+      await sam.chat.sendMessage(groupId, 'Great, I’ll bring snacks');
+      await waitFor(find.textContaining('bring snacks'), 'group messages');
+      await me.chatProvider.sendMessage(groupId, 'Perfect. Leaving at 9?');
+      await settle(1500);
+      await shot('15c_group_chat');
+      expect(find.text('Sam Okafor'), findsWidgets, reason: 'sender names on group bubbles');
+
+      await tester.tap(find.byKey(const ValueKey('group-header')));
+      await waitFor(find.byKey(const ValueKey('group-info-name')), 'group info');
+      await settle(1000);
+      await shot('15d_group_info');
+      expect(find.byKey(ValueKey('member-${mira.auth.myUserId}')), findsOneWidget);
+      expect(find.byKey(const ValueKey('group-add')), findsOneWidget, reason: 'we are the admin');
+      nav().pop();
+      await settle(600);
+      nav().pop();
+      await settle(800);
+
+      // ---- other tabs -----------------------------------------------------
       await tester.tap(find.text('Contacts').last);
       await settle(900);
       await shot('16_contacts');

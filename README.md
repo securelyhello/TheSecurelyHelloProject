@@ -23,6 +23,11 @@ up. Private keys and chat history never leave the device.
 - **Encrypted attachments**: photos and files are encrypted on the device
   with a fresh key, and only the ciphertext is uploaded. Photos show inline;
   files can be saved.
+- **Group chats** of up to 64 people, who don't all need to know each other.
+  Each message is encrypted separately for every member's devices. Admins
+  add (their own contacts), remove and promote members; every member's app
+  checks each change, so a server can't rename a group or add someone to
+  it unnoticed. Per-member delivered and read receipts.
 - **Profile photos and voice notes**, both sent end to end. The server
   never sees a photo, an "about" line or a recording.
 - **Encrypted backup and history transfer**: save your chats to a file sealed
@@ -216,4 +221,7 @@ unlinking.
   opened. Desktop apps receive them while running.
 - **Push timing is visible to Google/Apple**: a wake-up reveals that
   *something* arrived for a device, though not what or from whom.
-- **No group chats, voice or video calls yet.**
+- **Groups send one copy per member.** Fine up to the 64-member cap, but each
+  message costs one relay call per member. New members see messages from
+  when they joined, not earlier ones.
+- **No voice or video calls yet.**

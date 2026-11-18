@@ -14,11 +14,15 @@ import 'package:securelyhello/core/notifications/notification_service.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/connection_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
+import 'package:securelyhello/core/chat/group_state.dart';
+import 'package:securelyhello/features/chat/chat_names.dart';
 import 'package:securelyhello/features/chat/widgets/attachment_view.dart';
 import 'package:securelyhello/features/chat/widgets/chat_header.dart';
 import 'package:securelyhello/features/chat/widgets/composer.dart';
 import 'package:securelyhello/features/chat/widgets/message_info_sheet.dart';
 import 'package:securelyhello/features/contacts/widgets/contact_info_sheet.dart';
+import 'package:securelyhello/features/groups/group_info_screen.dart';
+import 'package:securelyhello/features/home/chat_navigation.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/shared/utils/chat_time_format.dart';
 import 'package:securelyhello/shared/widgets/action_menu.dart';
@@ -29,7 +33,7 @@ import 'package:securelyhello/shared/widgets/connection_badge.dart';
 import 'package:securelyhello/shared/widgets/message_bubble.dart';
 import 'package:securelyhello/shared/widgets/skeleton_loader.dart';
 
-/// A 1:1 conversation.
+/// A conversation: 1:1 with a contact, or a group.
 ///
 /// Used both as the `/chat` route (phones) and, with [embedded], inside the
 /// right-hand pane of the two-pane home layout (wide windows).
@@ -130,6 +134,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Message? _editing;
 
   String get _id => widget.contactUserId;
+  bool get _isGroup => GroupState.isGroup(_id);
 
   @override
   void initState() {
@@ -229,8 +234,11 @@ class _ChatScreenState extends State<ChatScreen> {
             : m.content,
       };
 
-  String _authorName(String userId, Contact? contact) =>
-      userId == _chat.myUserId ? 'You' : (contact?.displayLabel ?? 'Them');
+  String _authorName(String userId, Contact? contact) => _isGroup
+      ? personName(_chat, context.read<ContactsProvider>(), userId)
+      : userId == _chat.myUserId
+          ? 'You'
+          : (contact?.displayLabel ?? 'Them');
 
   Widget _quote(Map<String, dynamic> r, Contact? contact, {VoidCallback? onClose}) {
     final p = context.palette;
@@ -338,6 +346,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _openInfo(Contact? contact) async {
+    if (_isGroup) return _openGroupInfo();
     if (contact == null) {
       showAppSnackBar(context, 'Contact details are not available');
       return;
@@ -345,6 +354,20 @@ class _ChatScreenState extends State<ChatScreen> {
     final result = await showContactInfoSheet(context, contact);
     if (!mounted) return;
     if ((result == ContactSheetAction.removed || result == ContactSheetAction.blocked)) _close();
+  }
+
+  Future<void> _openGroupInfo() async {
+    final result = await Navigator.of(context).push<(GroupInfoResult, String?)>(
+        MaterialPageRoute(builder: (_) => GroupInfoScreen(conversationId: _id)));
+    if (!mounted || result == null) return;
+    switch (result.$1) {
+      case GroupInfoResult.message:
+        if (result.$2 != null) openChat(context, result.$2!);
+      case GroupInfoResult.deleted:
+        _close();
+      case GroupInfoResult.left:
+        break;
+    }
   }
 
   void _close() {
@@ -434,7 +457,15 @@ class _ChatScreenState extends State<ChatScreen> {
         await Clipboard.setData(ClipboardData(text: m.content));
         if (mounted) showAppSnackBar(context, 'Message copied');
       case _MsgAction.info:
-        await showMessageInfoSheet(context, m);
+        if (_isGroup && m.isFromMe) {
+          final receipts = await _chat.groupReceiptsOf(m.id);
+          if (!mounted) return;
+          final contacts = context.read<ContactsProvider>();
+          await showMessageInfoSheet(context, m,
+              receipts: receipts, nameOf: (u) => personName(_chat, contacts, u));
+        } else {
+          await showMessageInfoSheet(context, m);
+        }
       case _MsgAction.retry:
         await _chat.retryFailed();
       case null:
@@ -474,8 +505,10 @@ class _ChatScreenState extends State<ChatScreen> {
     final contacts = context.watch<ContactsProvider>();
     final conn = context.watch<ConnectionProvider>();
 
-    final contact = contacts.getContact(_id);
-    final name = contact?.displayLabel ?? 'this contact';
+    final contact = _isGroup ? null : contacts.getContact(_id);
+    final group = chat.groupOf(_id);
+    final name = group?.name ?? contact?.displayLabel ?? 'this contact';
+    final inGroup = group?.isMember(chat.myUserId ?? '') ?? false;
     final messages = chat.getMessages(_id);
     final transport = _transport(conn.getConnectionState(_id));
 
@@ -494,6 +527,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final Widget list;
     if (messages.isEmpty && !_opened) {
       list = SkeletonLoader.messageList();
+    } else if (messages.isEmpty && _isGroup) {
+      list = Center(child: EncryptionBanner(group: true, onTap: _openGroupInfo));
     } else if (messages.isEmpty) {
       list = _EmptyConversation(
         contact: contact,
@@ -510,14 +545,27 @@ class _ChatScreenState extends State<ChatScreen> {
         automaticallyImplyLeading: !widget.embedded,
         titleSpacing: widget.embedded ? 8 : 0,
         toolbarHeight: 62,
-        title: ChatHeader(
-          contactUserId: _id,
-          contact: contact,
-          contactsLoading: contacts.isLoading,
-          isTyping: chat.isContactTyping(_id),
-          transport: transport,
-          onTap: () => _openInfo(contact),
-        ),
+        title: _isGroup
+            ? GroupHeader(
+                conversationId: _id,
+                name: group?.name ?? 'Group',
+                subtitle: !inGroup
+                    ? "You're no longer in this group"
+                    : [
+                        'You',
+                        for (final u in group!.members)
+                          if (u != chat.myUserId) personName(chat, contacts, u),
+                      ].join(', '),
+                onTap: _openGroupInfo,
+              )
+            : ChatHeader(
+                contactUserId: _id,
+                contact: contact,
+                contactsLoading: contacts.isLoading,
+                isTyping: chat.isContactTyping(_id),
+                transport: transport,
+                onTap: () => _openInfo(contact),
+              ),
         actions: [
           if (_timer > 0)
             Tooltip(
@@ -545,11 +593,13 @@ class _ChatScreenState extends State<ChatScreen> {
               }
             },
             itemBuilder: (context) => [
-              _menuItem(
-                _MenuAction.info,
-                LucideIcons.shieldCheck,
-                'Contact info & safety number',
-              ),
+              _isGroup
+                  ? _menuItem(_MenuAction.info, LucideIcons.users, 'Group info')
+                  : _menuItem(
+                      _MenuAction.info,
+                      LucideIcons.shieldCheck,
+                      'Contact info & safety number',
+                    ),
               _menuItem(
                 _MenuAction.timer,
                 LucideIcons.timer,
@@ -557,7 +607,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     ? 'Disappearing messages'
                     : 'Disappearing: ${ChatService.disappearLabel(_timer)}',
               ),
-              if (transport == PeerConnectionState.offline)
+              if (!_isGroup && transport == PeerConnectionState.offline)
                 _menuItem(
                   _MenuAction.connect,
                   LucideIcons.zap,
@@ -598,7 +648,9 @@ class _ChatScreenState extends State<ChatScreen> {
               ],
             ),
           ),
-          if (chat.verificationCached(_id) == Verification.changed)
+          if (_isGroup && !inGroup)
+            const _LeftGroupBar()
+          else if (chat.verificationCached(_id) == Verification.changed)
             _KeysChangedBar(
               name: name,
               onReview: () => _openInfo(contact),
@@ -665,7 +717,7 @@ class _ChatScreenState extends State<ChatScreen> {
       itemBuilder: (context, i) {
         if (i == messages.length) {
           return allLoaded
-              ? EncryptionBanner(onTap: () => _openInfo(contact))
+              ? EncryptionBanner(group: _isGroup, onTap: () => _openInfo(contact))
               : const Padding(
                   padding: EdgeInsets.all(16),
                   child: Center(
@@ -686,6 +738,7 @@ class _ChatScreenState extends State<ChatScreen> {
       !a.isSystem &&
       !b.isSystem &&
       a.isFromMe == b.isFromMe &&
+      a.senderId == b.senderId &&
       ChatTimeFormat.isSameDay(a.timestamp, b.timestamp) &&
       a.timestamp.difference(b.timestamp).abs() < _groupGap;
 
@@ -706,13 +759,17 @@ class _ChatScreenState extends State<ChatScreen> {
     if (m.isSystem) {
       body = SystemNoticeChip(
         text: m.content,
-        onTap: contact == null ? null : () => _openInfo(contact),
+        onTap: _isGroup ? _openGroupInfo : contact == null ? null : () => _openInfo(contact),
       );
     } else {
       final status = MessageStatus.fromString(m.status);
       body = Padding(
         padding: EdgeInsets.only(top: first ? 6 : 2),
         child: MessageBubble(
+          senderName: _isGroup && first && !m.isFromMe
+              ? personName(_chat, context.read<ContactsProvider>(), m.senderId)
+              : null,
+          senderColor: _isGroup ? context.palette.avatarColorFor(m.senderId) : null,
           replyQuote: m.replyTo == null ? null : _quote(m.replyTo!, contact),
           edited: m.editedAt != null,
           deleted: m.deleted,
@@ -899,6 +956,30 @@ class _EmptyConversation extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Replaces the composer once we've left or been removed from a group.
+class _LeftGroupBar extends StatelessWidget {
+  const _LeftGroupBar();
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return SafeArea(
+      top: false,
+      child: Container(
+        key: const ValueKey('left-group-bar'),
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        decoration: BoxDecoration(color: p.surface, border: Border(top: BorderSide(color: p.border))),
+        child: Text(
+          "You can't send messages to this group because you're no longer a member.",
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: p.textSecondary),
         ),
       ),
     );

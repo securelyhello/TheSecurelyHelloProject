@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:securelyhello/core/backup/chat_backup.dart';
 import 'package:securelyhello/core/chat/attachment_service.dart';
+import 'package:securelyhello/core/chat/group_state.dart';
 import 'package:securelyhello/core/chat/profile_service.dart';
 import 'package:securelyhello/core/media/voice.dart';
 import 'package:securelyhello/core/chat/wire_protocol.dart';
@@ -17,13 +18,15 @@ import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
 import 'package:securelyhello/core/storage/local_storage.dart';
 
+part 'chat_groups.dart';
+
 // Domain models
 
 /// Local representation of a chat message.
 class Message {
   final String id;
 
-  /// For 1:1 chats this is the contact's user id.
+  /// The contact's user id for a 1:1 chat; `g_<uuid>` for a group.
   final String conversationId;
   final String senderId;
 
@@ -233,7 +236,12 @@ class ChatService {
   Future<void> _relayChain = Future.value();
   final List<StreamSubscription<dynamic>> _subscriptions = [];
 
-  // Batched outgoing receipts: contactId → status → ids.
+  /// Groups by conversation id, and public names of group members who
+  /// aren't contacts (see chat_groups.dart).
+  final Map<String, GroupState> _groups = {};
+  final Map<String, Map<String, String>> _memberNames = {};
+
+  // Batched outgoing receipts: contactId (or contactId|groupId) → status → ids.
   final Map<String, Map<ReceiptStatus, Set<String>>> _pendingReceipts = {};
   final Map<String, Timer> _receiptTimers = {};
 
@@ -320,6 +328,7 @@ class ChatService {
 
     _started = true;
     await profiles.load();
+    await _loadGroups();
     _sweeper = Timer.periodic(const Duration(seconds: 30), (_) => unawaited(sweepExpired()));
     unawaited(sweepExpired());
 
@@ -380,6 +389,8 @@ class ChatService {
   Future<void> stop() async {
     _started = false;
     profiles.reset();
+    _groups.clear();
+    _memberNames.clear();
     _sweeper?.cancel();
     _sweeper = null;
     for (final sub in _subscriptions) {
@@ -454,7 +465,10 @@ class ChatService {
     _changed(contactId);
   }
 
+  /// Deletes a chat from this device. For a group we're still in, leaves it
+  /// first, or its messages would bring the chat back.
   Future<void> deleteConversation(String contactId) async {
+    if (_groups[contactId]?.isMember(_requireUserId()) ?? false) await leaveGroup(contactId);
     await _storage.deleteConversation(contactId);
     _changed(contactId);
   }
@@ -533,6 +547,7 @@ class ChatService {
 
   Future<int> _importHistory(Map<String, dynamic> history) async {
     final added = await _storage.importHistory(history);
+    await _mergeGroups(history);
     await profiles.load();
     for (final c in await _storage.getConversations()) {
       _changed(c['id'] as String);
@@ -552,7 +567,7 @@ class ChatService {
   /// device of both people, so it changes whenever either adds a device.
   Future<String?> safetyNumberFor(String contactId) async {
     final me = _myUserId;
-    if (me == null || _sessions == null) return null;
+    if (me == null || _sessions == null || GroupState.isGroup(contactId)) return null;
     try {
       final mine = await devicesOf(me);
       final theirs = await devicesOf(contactId);
@@ -579,6 +594,7 @@ class ChatService {
 
   /// Whether [contactId] is verified, and whether their keys changed since.
   Future<Verification> verificationOf(String contactId) async {
+    if (GroupState.isGroup(contactId)) return Verification.unverified;
     final pinned = await _storage.kvGet('verified:$contactId');
     if (pinned == null) return Verification.unverified;
     final current = await devicesOf(contactId);
@@ -667,7 +683,7 @@ class ChatService {
       expireSeconds: timer > 0 ? timer : null,
     )));
 
-    if (!_p2p.hasConnectionWithPrefix('$contactId:')) {
+    if (!GroupState.isGroup(contactId) && !_p2p.hasConnectionWithPrefix('$contactId:')) {
       unawaited(connect(contactId));
     }
 
@@ -770,11 +786,16 @@ class ChatService {
     final me = _requireUserId();
     await _applyTimer(contactId, me, seconds);
     final now = DateTime.now().millisecondsSinceEpoch;
-    try {
-      await _deliver(contactId,
-          WirePayload.timer(from: me, to: contactId, timestampMs: now, seconds: seconds));
-    } catch (e) {
-      debugPrint('Timer to $contactId failed: $e');
+    if (GroupState.isGroup(contactId)) {
+      await _sendToGroup(contactId,
+          (to, gid) => WirePayload.timer(from: me, to: to, timestampMs: now, seconds: seconds, groupId: gid));
+    } else {
+      try {
+        await _deliver(contactId,
+            WirePayload.timer(from: me, to: contactId, timestampMs: now, seconds: seconds));
+      } catch (e) {
+        debugPrint('Timer to $contactId failed: $e');
+      }
     }
     unawaited(_syncToOwnDevices(WirePayload.timer(
         from: me, to: me, timestampMs: now, seconds: seconds, conversation: contactId)));
@@ -783,9 +804,7 @@ class ChatService {
   Future<void> _applyTimer(String conversation, String actor, int seconds) async {
     if (await _storage.disappearAfter(conversation) == seconds) return;
     await _storage.setDisappearAfter(conversation, seconds);
-    final who = actor == _myUserId
-        ? 'You'
-        : ((await _storage.getCachedContact(actor))?['display_name'] as String? ?? 'Your contact');
+    final who = ChatGroups._capitalized(await _noticeName(actor));
     await _storage.insertSystemMessage(
       conversation,
       seconds == 0
@@ -840,13 +859,20 @@ class ChatService {
       {String? emoji, String? body}) async {
     final me = _requireUserId();
     final now = DateTime.now().millisecondsSinceEpoch;
-    try {
-      await _deliver(
+    if (GroupState.isGroup(contactId)) {
+      await _sendToGroup(
           contactId,
-          WirePayload.action(
-              kind: kind, from: me, to: contactId, timestampMs: now, target: target, emoji: emoji, body: body));
-    } catch (e) {
-      debugPrint('${kind.wire} to $contactId failed: $e');
+          (to, gid) => WirePayload.action(
+              kind: kind, from: me, to: to, timestampMs: now, target: target, emoji: emoji, body: body, groupId: gid));
+    } else {
+      try {
+        await _deliver(
+            contactId,
+            WirePayload.action(
+                kind: kind, from: me, to: contactId, timestampMs: now, target: target, emoji: emoji, body: body));
+      } catch (e) {
+        debugPrint('${kind.wire} to $contactId failed: $e');
+      }
     }
     unawaited(_syncToOwnDevices(WirePayload.action(
         kind: kind,
@@ -936,6 +962,7 @@ class ChatService {
     if (!_started || _resending) return;
     _resending = true;
     try {
+      await _resendGroupStates();
       final rows = await _storage.getUnsentMessages();
       for (final row in rows) {
         final m = Message.fromMap(row);
@@ -954,7 +981,7 @@ class ChatService {
   Future<void> sendTyping(String contactId, bool isTyping) async {
     final me = _myUserId;
     final sessions = _sessions;
-    if (!_started || me == null || sessions == null) return;
+    if (!_started || me == null || sessions == null || GroupState.isGroup(contactId)) return;
     try {
       final devices = (await sessions.devices(contactId))
           .where((d) => _p2p.isConnected(d.address))
@@ -982,9 +1009,15 @@ class ChatService {
     final ids = await _storage.getUnreadIncomingIds(contactId);
     if (ids.isNotEmpty) {
       await _storage.markIncomingRead(ids);
+      final status = sendReadReceipts ? ReceiptStatus.read : ReceiptStatus.delivered;
+      final group = _groups[contactId];
       for (final id in ids) {
-        _queueReceipt(contactId, id,
-            sendReadReceipts ? ReceiptStatus.read : ReceiptStatus.delivered);
+        if (group == null) {
+          _queueReceipt(contactId, id, status);
+        } else {
+          final sender = (await _storage.getMessage(id))?['sender_id'] as String?;
+          if (sender != null) _queueReceipt(sender, id, status, groupId: group.id);
+        }
       }
       final me = _myUserId;
       if (me != null) {
@@ -1005,7 +1038,22 @@ class ChatService {
     final me = _requireUserId();
     var delivered = false;
     try {
-      delivered = await _deliver(
+      delivered = GroupState.isGroup(contactId)
+          ? await _transmitToGroup(
+              contactId,
+              (to, gid) => WirePayload.message(
+                    messageId: id,
+                    from: me,
+                    to: to,
+                    timestampMs: timestampMs,
+                    body: text,
+                    attachment: attachment == null ? null : _wireAttachment(attachment),
+                    reply: reply,
+                    expireSeconds: expireSeconds,
+                    groupId: gid,
+                  ),
+              id)
+          : await _deliver(
         contactId,
         WirePayload.message(
           messageId: id,
@@ -1097,21 +1145,23 @@ class ChatService {
 
   // Receipts
 
-  void _queueReceipt(String contactId, String messageId, ReceiptStatus status) {
+  void _queueReceipt(String contactId, String messageId, ReceiptStatus status, {String? groupId}) {
+    final key = groupId == null ? contactId : '$contactId|$groupId';
     _pendingReceipts
-        .putIfAbsent(contactId, () => {})
+        .putIfAbsent(key, () => {})
         .putIfAbsent(status, () => {})
         .add(messageId);
-    _receiptTimers[contactId]?.cancel();
-    _receiptTimers[contactId] =
-        Timer(_receiptDebounce, () => _flushReceipts(contactId));
+    _receiptTimers[key]?.cancel();
+    _receiptTimers[key] = Timer(_receiptDebounce, () => _flushReceipts(key));
   }
 
-  Future<void> _flushReceipts(String contactId) async {
-    _receiptTimers.remove(contactId);
-    final byStatus = _pendingReceipts.remove(contactId);
+  Future<void> _flushReceipts(String key) async {
+    _receiptTimers.remove(key);
+    final byStatus = _pendingReceipts.remove(key);
     final me = _myUserId;
     if (byStatus == null || me == null || !_started) return;
+    final [contactId, ...rest] = key.split('|');
+    final groupId = rest.firstOrNull;
 
     for (final entry in byStatus.entries) {
       try {
@@ -1123,6 +1173,7 @@ class ChatService {
             timestampMs: DateTime.now().millisecondsSinceEpoch,
             ids: entry.value.toList(),
             status: entry.key,
+            groupId: groupId,
           ),
         );
       } catch (e) {
@@ -1196,6 +1247,8 @@ class ChatService {
         await profiles.receive(me, payload.profile!);
       } else if (payload.kind == PayloadKind.history) {
         await _importHistoryFrom(payload.attachment!);
+      } else if (payload.kind == PayloadKind.group) {
+        await _receiveGroupState(me, payload);
       } else if (payload.kind == PayloadKind.timer && payload.conversation != null) {
         await _applyTimer(payload.conversation!, me, payload.expireSeconds!);
       } else if (payload.conversation != null &&
@@ -1204,6 +1257,8 @@ class ChatService {
               payload.kind == PayloadKind.delete)) {
         await _applyAction(payload.conversation!, me, payload);
       }
+    } else if (payload.groupId != null && payload.kind != PayloadKind.group) {
+      await _receiveForGroup(envelope.senderId, payload);
     } else {
       final contactId = envelope.senderId;
       switch (payload.kind) {
@@ -1231,6 +1286,9 @@ class ChatService {
           break;
         case PayloadKind.history:
           break; // only our own devices may send history
+        case PayloadKind.group:
+          await _receiveGroupState(contactId, payload);
+          break;
         case PayloadKind.sync:
           break; // only our own devices send these
       }
@@ -1247,18 +1305,21 @@ class ChatService {
         n + const Duration(minutes: 5).inMilliseconds);
   }
 
-  Future<void> _storeIncomingMessage(
-      String contactId, WirePayload payload) async {
+  /// Stores a message from [contactId], in their 1:1 chat or in the group
+  /// [conversation].
+  Future<void> _storeIncomingMessage(String contactId, WirePayload payload, {String? conversation}) async {
+    final conv = conversation ?? contactId;
     final id = payload.messageId!;
     final sentAt = arrivalTime(payload.timestampMs);
     final existing = await _storage.getMessage(id);
-    final isActive = _activeConversationId == contactId;
+    if (existing != null && existing['conversation_id'] != conv) return; // an id reused elsewhere
+    final isActive = _activeConversationId == conv;
 
     if (existing == null) {
       final status = isActive ? 'read' : 'received';
       await _storage.insertMessage(
         id: id,
-        conversationId: contactId,
+        conversationId: conv,
         senderId: contactId,
         content: payload.body!,
         timestamp: sentAt,
@@ -1269,18 +1330,19 @@ class ChatService {
         replyTo: payload.reply == null ? null : jsonEncode(_replyRef(payload.reply!)),
         expiresAt: _expiryFrom(payload.expireSeconds),
       );
+      final preview = previewText(payload.body!, payload.attachment);
       await _storage.updateConversation(
-        id: contactId,
-        contactUserId: contactId,
-        lastMessage: previewText(payload.body!, payload.attachment),
+        id: conv,
+        contactUserId: conv,
+        lastMessage: conversation == null ? preview : '${await _noticeName(contactId)}: $preview',
         lastMessageTime: sentAt,
       );
-      if (!isActive) await _storage.incrementUnreadCount(contactId);
+      if (!isActive) await _storage.incrementUnreadCount(conv);
 
       if (!_onMessageReceivedController.isClosed) {
         _onMessageReceivedController.add(Message(
           id: id,
-          conversationId: contactId,
+          conversationId: conv,
           senderId: contactId,
           content: payload.body!,
           timestamp: DateTime.fromMillisecondsSinceEpoch(sentAt),
@@ -1289,7 +1351,7 @@ class ChatService {
           attachment: payload.attachment,
         ));
       }
-      _changed(contactId);
+      _changed(conv);
     }
 
     final alreadyRead = existing?['status'] == 'read' || isActive;
@@ -1299,6 +1361,7 @@ class ChatService {
       alreadyRead && sendReadReceipts
           ? ReceiptStatus.read
           : ReceiptStatus.delivered,
+      groupId: payload.groupId,
     );
   }
 
@@ -1433,6 +1496,7 @@ class ChatService {
   Future<void> connect(String contactId) async {
     final sessions = _sessions;
     if (!_started || sessions == null || !_directory.isRealtimeConnected) return;
+    if (GroupState.isGroup(contactId)) return; // group messages use the relay
     List<DeviceKeys> devices;
     try {
       devices = await sessions.devices(contactId);

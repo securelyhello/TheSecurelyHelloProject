@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
@@ -28,7 +29,7 @@ import 'package:securelyhello/core/crypto/crypto_core.dart';
 /// **Nothing stored here ever leaves the device.**
 class LocalStorage {
   static const _legacyDbName = 'securelyhello.db';
-  static const _dbVersion = 5;
+  static const _dbVersion = 6;
   static const _sealedPrefix = 'enc1:';
 
   final DatabaseFactory _factory;
@@ -193,6 +194,19 @@ class LocalStorage {
     await _createV3(db);
     await _createV4(db);
     await _createV5(db);
+    await _createV6(db);
+  }
+
+  /// Group chats: who has received and read each of our group messages.
+  static Future<void> _createV6(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS group_receipts (
+        message_id TEXT NOT NULL,
+        user_id    TEXT NOT NULL,
+        status     TEXT NOT NULL,
+        PRIMARY KEY (message_id, user_id)
+      )
+    ''');
   }
 
   /// Disappearing messages.
@@ -333,6 +347,7 @@ class LocalStorage {
     }
     if (oldVersion < 4) await _createV4(db);
     if (oldVersion < 5) await _createV5(db);
+    if (oldVersion < 6) await _createV6(db);
   }
 
   /// Closes the database.  Safe to call multiple times.
@@ -374,6 +389,9 @@ class LocalStorage {
           if (ids.contains(r['message_id'])) r
       ],
       'profiles': {for (final e in await kvSealedByPrefix('profile:')) e.key: e.value},
+      // Checked and merged by ChatService, which knows the group rules.
+      'groups': {for (final e in await kvSealedByPrefix('group:')) e.key: e.value},
+      'names': {for (final e in await kvSealedByPrefix('member:')) e.key: e.value},
     };
   }
 
@@ -779,6 +797,8 @@ class LocalStorage {
   /// Removes all messages but keeps the conversation entry.
   Future<void> clearConversation(String conversationId) async {
     final batch = db.batch();
+    batch.delete('group_receipts',
+        where: 'message_id IN (SELECT id FROM messages WHERE conversation_id = ?)', whereArgs: [conversationId]);
     batch.delete('messages',
         where: 'conversation_id = ?', whereArgs: [conversationId]);
     batch.update(
@@ -790,6 +810,8 @@ class LocalStorage {
   /// Deletes a conversation and all its messages.
   Future<void> deleteConversation(String conversationId) async {
     final batch = db.batch();
+    batch.delete('group_receipts',
+        where: 'message_id IN (SELECT id FROM messages WHERE conversation_id = ?)', whereArgs: [conversationId]);
     batch.delete('messages',
         where: 'conversation_id = ?', whereArgs: [conversationId]);
     batch.delete('conversations',
@@ -879,6 +901,55 @@ class LocalStorage {
     final rows = await db.query('kv', where: 'key = ?', whereArgs: [key], limit: 1);
     return rows.isEmpty ? null : rows.first['value'] as String;
   }
+
+  // Group receipts
+
+  static const _receiptRank = {'sending': 0, 'sent': 1, 'delivered': 2, 'read': 3};
+
+  /// The members a group message goes to, each at `sending` until it
+  /// reaches them. Recipients already recorded are kept as they are.
+  Future<void> addGroupRecipients(String messageId, Iterable<String> userIds) async {
+    final batch = db.batch();
+    for (final u in userIds) {
+      batch.insert('group_receipts', {'message_id': messageId, 'user_id': u, 'status': 'sending'},
+          conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Raises [userId]'s status for [messageId] (never lowers it) and returns
+  /// the status every recipient has reached, or null if [userId] isn't a
+  /// recipient.
+  Future<String?> applyGroupReceipt(String messageId, String userId, String status) async {
+    await db.update('group_receipts', {'status': status},
+        where: 'message_id = ? AND user_id = ? AND '
+            "(CASE status WHEN 'sending' THEN 0 WHEN 'sent' THEN 1 WHEN 'delivered' THEN 2 ELSE 3 END) < ?",
+        whereArgs: [messageId, userId, _receiptRank[status] ?? 0]);
+    final all = await groupReceipts(messageId);
+    return all.containsKey(userId) ? _lowest(all.values) : null;
+  }
+
+  /// A member we can no longer send to (they left, or blocked us) stops
+  /// holding the message's status back. Returns the new overall status.
+  Future<String?> removeGroupRecipient(String messageId, String userId) async {
+    await db.delete('group_receipts', where: 'message_id = ? AND user_id = ?', whereArgs: [messageId, userId]);
+    final all = await groupReceipts(messageId);
+    return all.isEmpty ? null : _lowest(all.values);
+  }
+
+  static String _lowest(Iterable<String> statuses) {
+    var lowest = 3;
+    for (final s in statuses) {
+      lowest = math.min(lowest, _receiptRank[s] ?? 0);
+    }
+    return _receiptRank.entries.firstWhere((e) => e.value == lowest).key;
+  }
+
+  /// Per-member status of one of our group messages.
+  Future<Map<String, String>> groupReceipts(String messageId) async => {
+        for (final r in await db.query('group_receipts', where: 'message_id = ?', whereArgs: [messageId]))
+          r['user_id'] as String: r['status'] as String
+      };
 
   Future<void> kvSet(String key, String value) async {
     await db.insert('kv', {'key': key, 'value': value},
@@ -1170,6 +1241,7 @@ class LocalStorage {
       final marks = List.filled(chunk.length, '?').join(',');
       batch.delete('messages', where: 'id IN ($marks)', whereArgs: chunk);
       batch.delete('reactions', where: 'message_id IN ($marks)', whereArgs: chunk);
+      batch.delete('group_receipts', where: 'message_id IN ($marks)', whereArgs: chunk);
     }
     await batch.commit(noResult: true);
     return (

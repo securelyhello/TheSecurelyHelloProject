@@ -456,8 +456,8 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
     if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_DEVICES_PER_USER || !ids.every(v.isUuid)) {
       throw bad(`device_ids must be 1-${MAX_DEVICES_PER_USER} UUIDs`);
     }
-    if (target !== user.id && !(await services.areContacts(user.id, target))) {
-      throw new HttpError(403, 'not_contacts', 'You can only start sessions with accepted contacts');
+    if (target !== user.id && !(await services.canReach(user.id, target))) {
+      throw new HttpError(403, 'not_contacts', 'You can only start sessions with contacts and people in your groups');
     }
     await limit('prekeyClaim', user.id);
     const bundles = await withTransaction(pool, async (client) => {
@@ -555,8 +555,8 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
     if (!Array.isArray(body.messages) || body.messages.length > MAX_DEVICES_PER_USER) {
       throw bad(`messages must be an array of at most ${MAX_DEVICES_PER_USER}`);
     }
-    if (recipientId !== user.id && !(await services.areContacts(user.id, recipientId))) {
-      throw new HttpError(403, 'not_contacts', 'You can only message accepted contacts');
+    if (recipientId !== user.id && !(await services.canReach(user.id, recipientId))) {
+      throw new HttpError(403, 'not_contacts', 'You can only message contacts and people in your groups');
     }
 
     let actual = await services.deviceIds(recipientId);

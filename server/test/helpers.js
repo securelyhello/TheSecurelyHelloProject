@@ -59,6 +59,7 @@ export const GENEROUS_LIMITS = {
   invite: generous,
   inviteLookup: generous,
   discovery: generous,
+  groupChange: generous,
 };
 
 export const TEST_REDIS_URL = process.env.TEST_REDIS_URL ?? 'redis://127.0.0.1:56379/15';

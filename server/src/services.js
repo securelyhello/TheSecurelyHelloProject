@@ -55,6 +55,23 @@ export class Services {
     return ofA.includes(b) && ofB.includes(a);
   }
 
+  /**
+   * Whether [a] may send to [b]: contacts, or members of a common group
+   * where neither has blocked the other.
+   */
+  async canReach(a, b) {
+    if (await this.areContacts(a, b)) return true;
+    const { rows } = await this.pool.query(
+      `SELECT 1 FROM group_members x JOIN group_members y ON y.group_id = x.group_id
+        WHERE x.user_id = $1 AND y.user_id = $2
+          AND NOT EXISTS (SELECT 1 FROM blocks
+                           WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1))
+        LIMIT 1`,
+      [a, b],
+    );
+    return rows.length > 0;
+  }
+
   /** Call after any change to the contact edges of these users. */
   async contactsChanged(...userIds) {
     await this.store.forgetContacts(...userIds);

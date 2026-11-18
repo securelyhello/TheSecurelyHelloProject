@@ -36,7 +36,13 @@ class MessageBubble extends StatefulWidget {
     this.deleted = false,
     this.reactions = const [],
     this.onReactionsTap,
+    this.senderName,
+    this.senderColor,
   });
+
+  /// In a group: who sent it, shown at the top of their first bubble.
+  final String? senderName;
+  final Color? senderColor;
 
   /// A quoted message this one replies to, shown at the top of the bubble.
   final Widget? replyQuote;
@@ -264,7 +270,7 @@ class _MessageBubbleState extends State<MessageBubble> {
               if (widget.message.isEmpty) metaRow else textBody,
             ],
           );
-    final Widget body = quote == null
+    final Widget quoted = quote == null
         ? withAttachment
         : Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -272,6 +278,29 @@ class _MessageBubbleState extends State<MessageBubble> {
             children: [
               Padding(padding: const EdgeInsets.only(bottom: 4), child: quote),
               withAttachment,
+            ],
+          );
+    final sender = widget.senderName;
+    final Widget body = sender == null
+        ? quoted
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: EdgeInsets.fromLTRB(widget.attachment == null ? 0 : 7, 0, 0, 2),
+                child: Text(
+                  sender,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: (theme.textTheme.labelLarge ?? const TextStyle()).copyWith(
+                    color: widget.senderColor ?? p.accent,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+              quoted,
             ],
           );
 

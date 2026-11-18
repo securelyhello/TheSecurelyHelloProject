@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/features/chat/chat_names.dart';
 import 'package:securelyhello/features/settings/widgets/history_transfer.dart';
 import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/features/contacts/widgets/invite_prompt.dart';
@@ -97,10 +98,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // Notifications are composed here, after decryption: names and previews
     // never pass through the server or a push provider.
     _messageSub ??= _chat.onMessageReceived.listen((m) {
+      final preview = ChatService.previewText(m.content, m.attachment);
+      final group = _chat.groupOf(m.conversationId);
       _notifications.showMessage(
         contactId: m.conversationId,
-        sender: _contacts.getContact(m.conversationId)?.displayLabel ?? 'New message',
-        preview: ChatService.previewText(m.content, m.attachment),
+        sender: group?.name ?? _contacts.getContact(m.conversationId)?.displayLabel ?? 'New message',
+        preview: group == null ? preview : '${personName(_chat, _contacts, m.senderId)}: $preview',
         activeConversation: _chat.activeConversationId,
       );
     });

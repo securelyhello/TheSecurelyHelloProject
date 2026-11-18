@@ -24,9 +24,11 @@ class ConversationTile extends StatelessWidget {
     this.onTap,
     this.onLongPress,
     this.onSecondaryTapDown,
+    this.isGroup = false,
   });
 
   final String contactUserId;
+  final bool isGroup;
   final String name;
   final bool isOnline;
   final String? lastMessage;
@@ -131,6 +133,7 @@ class ConversationTile extends StatelessWidget {
                   displayName: name,
                   seed: contactUserId,
                   isOnline: isOnline,
+                  icon: isGroup ? LucideIcons.users : null,
                   size: AvatarSize.list,
                   ringColor: selected ? p.selection : p.background,
                 ),

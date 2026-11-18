@@ -45,6 +45,8 @@ The server relays ciphertext and can't read it. It does see metadata:
 
 - account e-mail, username, display name;
 - who is contacts with whom, and who blocked whom;
+- who is in which group, and who its admins are (not the group's name,
+  and nothing said in it);
 - when each device connects and from which IP address;
 - the size and time of each relayed message and attachment, and its sender
   and recipient devices;
@@ -63,7 +65,9 @@ Message content is end-to-end encrypted, so spam controls never look at it:
   challenge. Signups are capped per IP, and disposable e-mail domains are
   refused.
 - Only contacts can message each other, and becoming contacts takes an
-  accepted request. Requests from accounts less than a week old carry a
+  accepted request. Group members can also reach each other, but only an
+  admin can add people, and only their own contacts, so a stranger can't
+  put you in a group. Blocking someone cuts them off in shared groups too. Requests from accounts less than a week old carry a
   warning, and accounts less than a day old have a smaller quota.
 - Accounts that several people report or block, or whose requests are
   mostly rejected, can't send new requests for a while (see
@@ -78,7 +82,11 @@ Message content is end-to-end encrypted, so spam controls never look at it:
   any key change pauses sending. Unverified contacts only see a notice.
 - No sealed sender: the server knows who messages whom.
 - No post-quantum key agreement yet.
-- No group chats yet.
+- Group membership is visible to the server, which needs it to let members
+  who aren't contacts reach each other. The authoritative member list is
+  the one members' apps agree on end to end; a server that adds someone to
+  its own copy still can't get them messages, because apps only encrypt to
+  members an admin added.
 - Disappearing messages are removed from devices running this app. They
   can't stop a recipient taking a photo of the screen.
 - The app lock protects the UI. The data is protected by the platform

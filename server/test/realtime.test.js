@@ -101,6 +101,8 @@ describe('websocket', () => {
         'contacts',
         'devices',
         'email_codes',
+        'group_members',
+        'groups',
         'invites',
         'one_time_prekeys',
         'reports',
