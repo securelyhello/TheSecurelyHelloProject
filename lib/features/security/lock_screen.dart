@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/core/security/app_lock.dart';
 
@@ -118,8 +119,8 @@ class _LockScreenState extends State<LockScreen> {
       _error = ok
           ? null
           : lock.wipeOnFailures && left <= 3
-          ? 'Wrong PIN. $left more and this device is erased.'
-          : 'Wrong PIN';
+          ? L10n.of(context).wrongPinLeft(left)
+          : L10n.of(context).wrongPin;
     });
   }
 
@@ -141,7 +142,7 @@ class _LockScreenState extends State<LockScreen> {
                   Icon(LucideIcons.lock, size: 44, color: context.palette.accent),
                   const SizedBox(height: 20),
                   Text(
-                    'Securely Hello is locked',
+                    L10n.of(context).lockTitle,
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 24),
@@ -158,9 +159,9 @@ class _LockScreenState extends State<LockScreen> {
                     enabled: wait == Duration.zero && !_checking,
                     style: TextStyle(fontSize: 22, letterSpacing: 8, color: context.palette.textPrimary),
                     decoration: InputDecoration(
-                      hintText: 'PIN',
+                      hintText: L10n.of(context).pin,
                       errorText: wait > Duration.zero
-                          ? 'Too many tries. Wait ${wait.inSeconds + 1} s'
+                          ? L10n.of(context).waitSeconds(wait.inSeconds + 1)
                           : _error,
                     ),
                     onSubmitted: (_) => _submit(),
@@ -177,7 +178,7 @@ class _LockScreenState extends State<LockScreen> {
                               height: 18,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Text('Unlock'),
+                          : Text(L10n.of(context).unlock),
                     ),
                   ),
                   if (lock.useBiometrics) ...[
@@ -185,7 +186,7 @@ class _LockScreenState extends State<LockScreen> {
                     TextButton.icon(
                       onPressed: _tryBiometrics,
                       icon: const Icon(LucideIcons.fingerprint),
-                      label: const Text('Use biometrics'),
+                      label: Text(L10n.of(context).useBiometrics),
                     ),
                   ],
                 ],
@@ -243,8 +244,8 @@ Future<String?> askNewPin(BuildContext context) async {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            TextButton(key: const ValueKey('pin-save'), onPressed: save, child: const Text('Save')),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(L10n.of(context).cancel)),
+            TextButton(key: const ValueKey('pin-save'), onPressed: save, child: Text(L10n.of(context).save)),
           ],
         );
       },

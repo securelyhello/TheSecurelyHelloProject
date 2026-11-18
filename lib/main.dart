@@ -8,6 +8,8 @@ import 'package:provider/provider.dart';
 import 'package:securelyhello/core/invites/invites.dart';
 import 'package:securelyhello/core/config/app_config.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
+import 'package:securelyhello/l10n/app_localizations.dart';
+import 'package:securelyhello/shared/theme/locale_controller.dart';
 import 'package:securelyhello/shared/theme/theme_controller.dart';
 import 'package:securelyhello/core/storage/local_storage.dart';
 import 'package:securelyhello/core/storage/secure_key_store.dart';
@@ -111,6 +113,8 @@ Future<void> main() async {
     ..addSignOutHook(() async => connectionProvider.reset());
   final theme = ThemeController();
   await theme.load();
+  final language = LocaleController();
+  await language.load();
   final appLock = AppLockService(store: keyStore)..onWipe = authProvider.wipeThisDevice;
   await appLock.init();
   unawaited(appLock.resumePendingWipe());
@@ -130,6 +134,7 @@ Future<void> main() async {
       invites: invites,
       profiles: chatService.profiles,
       theme: theme,
+      language: language,
     ),
   );
 }
@@ -170,6 +175,7 @@ class SecurelyHelloApp extends StatelessWidget {
   final PendingInvites? invites;
   final ProfileService? profiles;
   final ThemeController theme;
+  final LocaleController language;
 
   SecurelyHelloApp({
     super.key,
@@ -183,7 +189,9 @@ class SecurelyHelloApp extends StatelessWidget {
     this.invites,
     this.profiles,
     ThemeController? theme,
-  }) : theme = theme ?? ThemeController();
+    LocaleController? language,
+  })  : theme = theme ?? ThemeController(),
+        language = language ?? LocaleController();
 
   @override
   Widget build(BuildContext context) {
@@ -197,6 +205,7 @@ class SecurelyHelloApp extends StatelessWidget {
         Provider<PushService?>.value(value: push),
         ChangeNotifierProvider<PendingInvites?>.value(value: invites),
         ChangeNotifierProvider<ThemeController>.value(value: theme),
+        ChangeNotifierProvider<LocaleController>.value(value: language),
         if (profiles != null) ChangeNotifierProvider<ProfileService>.value(value: profiles!),
         ChangeNotifierProvider<AppLockService>.value(
           value: appLock ?? AppLockService(store: SecureKeyStore(storage: MemorySecretStorage())),
@@ -204,13 +213,16 @@ class SecurelyHelloApp extends StatelessWidget {
       ],
       // Listens to the controller itself: this context is above the providers.
       child: ListenableBuilder(
-        listenable: theme,
+        listenable: Listenable.merge([theme, language]),
         builder: (context, _) => MaterialApp(
           title: 'Securely Hello',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,
           themeMode: theme.mode,
+          locale: language.locale,
+          localizationsDelegates: L10n.localizationsDelegates,
+          supportedLocales: L10n.supportedLocales,
           builder: (context, child) => AppLockGate(child: child ?? const SizedBox()),
           initialRoute: '/splash',
           routes: {

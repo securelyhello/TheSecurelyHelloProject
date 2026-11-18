@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/core/chat/chat_service.dart'
     show Conversation, Message;
 import 'package:securelyhello/core/providers/chat_provider.dart';
@@ -92,26 +93,26 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
             ),
       items: [
         if (conv.unreadCount > 0)
-          const ActionItem(
+          ActionItem(
             value: _ConvAction.read,
             icon: LucideIcons.checkCheck,
-            label: 'Mark as read',
+            label: L10n.of(context).markAsRead,
           ),
         if (contact != null)
-          const ActionItem(
+          ActionItem(
             value: _ConvAction.info,
             icon: LucideIcons.user,
-            label: 'Contact info',
+            label: L10n.of(context).contactInfo,
           ),
-        const ActionItem(
+        ActionItem(
           value: _ConvAction.clear,
           icon: LucideIcons.eraser,
-          label: 'Clear chat history',
+          label: L10n.of(context).clearChatHistory,
         ),
-        const ActionItem(
+        ActionItem(
           value: _ConvAction.delete,
           icon: LucideIcons.trash2,
-          label: 'Delete chat',
+          label: L10n.of(context).deleteChat,
           destructive: true,
         ),
       ],
@@ -246,7 +247,7 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
           child: SearchField(
             controller: _search,
-            hint: 'Search chats',
+            hint: L10n.of(context).searchChats,
             onChanged: (v) => setState(() => _query = v),
           ),
         ),
@@ -258,14 +259,14 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
             spacing: 8,
             children: [
               ChoiceChip(
-                label: const Text('All'),
+                label: Text(L10n.of(context).filterAll),
                 selected: _filter == _Filter.all,
                 showCheckmark: false,
                 onSelected: (_) => setState(() => _filter = _Filter.all),
               ),
               ChoiceChip(
                 label: Text(
-                  unreadChats > 0 ? 'Unread ($unreadChats)' : 'Unread',
+                  unreadChats > 0 ? L10n.of(context).filterUnreadCount(unreadChats) : L10n.of(context).filterUnread,
                 ),
                 selected: _filter == _Filter.unread,
                 showCheckmark: false,
@@ -287,8 +288,8 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
                 size: 22,
               ),
             ),
-            title: const Text(
-              'Contact requests',
+            title: Text(
+              L10n.of(context).contactRequests,
               style: TextStyle(fontWeight: FontWeight.w700),
             ),
             subtitle: Text(
@@ -328,10 +329,10 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
           hasScrollBody: false,
           child: q.isNotEmpty
               ? EmptyStateWidget.noSearchResults(query: _query.trim())
-              : const EmptyStateWidget(
+              : EmptyStateWidget(
                   icon: LucideIcons.mailCheck,
                   title: "You're all caught up",
-                  subtitle: 'No unread chats.',
+                  subtitle: L10n.of(context).noUnreadChats,
                 ),
         ),
       );
@@ -384,10 +385,10 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Chats'),
+        title: Text(L10n.of(context).tabChats),
         actions: [
           PopupMenuButton<_TopMenu>(
-            tooltip: 'More options',
+            tooltip: L10n.of(context).moreOptions,
             icon: const Icon(LucideIcons.ellipsisVertical),
             onSelected: (v) {
               switch (v) {
@@ -398,16 +399,16 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
               }
             },
             itemBuilder: (context) => [
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: _TopMenu.findPeople,
-                child: Text('Find people'),
+                child: Text(L10n.of(context).findPeople),
               ),
               PopupMenuItem(
                 value: _TopMenu.requests,
                 child: Text(
                   requestCount > 0
-                      ? 'Contact requests ($requestCount)'
-                      : 'Contact requests',
+                      ? L10n.of(context).contactRequestsCount(requestCount)
+                      : L10n.of(context).contactRequests,
                 ),
               ),
             ],
@@ -417,7 +418,7 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         heroTag: 'new-chat-fab',
-        tooltip: 'New chat',
+        tooltip: L10n.of(context).newChat,
         onPressed: _newChat,
         child: const Icon(LucideIcons.squarePen),
       ),

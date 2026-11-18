@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/shared/widgets/app_dialogs.dart';
 import 'package:securelyhello/features/chat/widgets/voice_note.dart';
 import 'package:securelyhello/core/media/voice.dart';
@@ -27,7 +28,7 @@ class Composer extends StatefulWidget {
     this.uploading = false,
     this.header,
     this.enabled = true,
-    this.hint = 'Message',
+    this.hint,
   });
 
   final TextEditingController controller;
@@ -47,7 +48,7 @@ class Composer extends StatefulWidget {
   /// Shown above the field (e.g. "Replying to …" or "Editing").
   final Widget? header;
   final bool enabled;
-  final String hint;
+  final String? hint;
 
   /// Whether Enter sends (hardware-keyboard platforms).
   static bool get enterSends {
@@ -70,7 +71,7 @@ class _ComposerState extends State<Composer> {
     if (!await rec.hasPermission()) {
       await rec.dispose();
       if (mounted) {
-        showAppSnackBar(context, 'Allow microphone access to record voice messages', error: true);
+        showAppSnackBar(context, L10n.of(context).micPermission, error: true);
       }
       return;
     }
@@ -193,7 +194,7 @@ class _ComposerState extends State<Composer> {
                                     )
                                   : IconButton(
                                       key: const ValueKey('composer-attach'),
-                                      tooltip: 'Attach a file',
+                                      tooltip: L10n.of(context).attachFile,
                                       icon: Icon(LucideIcons.paperclip, color: p.textMuted),
                                       onPressed: widget.enabled ? widget.onAttach : null,
                                     ),
@@ -214,7 +215,7 @@ class _ComposerState extends State<Composer> {
                             style: t.bodyLarge?.copyWith(fontSize: 15.5, height: 1.35),
                             cursorColor: p.accent,
                             decoration: InputDecoration(
-                              hintText: widget.hint,
+                              hintText: widget.hint ?? L10n.of(context).messageHint,
                               filled: true,
                               fillColor: p.inputFill,
                               isDense: true,
@@ -245,7 +246,7 @@ class _ComposerState extends State<Composer> {
                                   padding: const EdgeInsets.only(left: 4),
                                   child: IconButton(
                                     key: const ValueKey('composer-mic'),
-                                    tooltip: 'Record a voice message',
+                                    tooltip: L10n.of(context).recordVoice,
                                     icon: Icon(LucideIcons.mic, color: p.textMuted),
                                     onPressed: widget.enabled ? _startRecording : null,
                                   ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/features/settings/screens/legal_screen.dart';
@@ -107,7 +108,7 @@ class _SignupScreenState extends State<SignupScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'Create your account',
+                  L10n.of(context).signupTitle,
                   style: GoogleFonts.manrope(
                     fontSize: 32,
                     fontWeight: FontWeight.bold,
@@ -117,7 +118,7 @@ class _SignupScreenState extends State<SignupScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Join Securely Hello and chat privately.',
+                  L10n.of(context).signupSubtitle,
                   style: GoogleFonts.inter(
                     fontSize: 16,
                     color: context.palette.textSecondary,
@@ -126,24 +127,24 @@ class _SignupScreenState extends State<SignupScreen> {
                 const SizedBox(height: 32),
                 AppTextField(
                   controller: _emailController,
-                  label: 'Email',
-                  hint: 'Enter your email',
+                  label: L10n.of(context).email,
+                  hint: L10n.of(context).emailHint,
                   prefixIcon: const Icon(LucideIcons.mail),
                   keyboardType: TextInputType.emailAddress,
-                  validator: (v) => v!.isEmpty || !v.contains('@') ? 'Valid email required' : null,
+                  validator: (v) => v!.isEmpty || !v.contains('@') ? L10n.of(context).emailInvalid : null,
                 ),
                 const SizedBox(height: 20),
                 AppTextField(
                   controller: _nameController,
-                  label: 'Display Name',
-                  hint: 'How others will see you',
+                  label: L10n.of(context).displayName,
+                  hint: L10n.of(context).displayNameHint,
                   prefixIcon: const Icon(LucideIcons.user),
-                  validator: (v) => v!.isEmpty ? 'Display name is required' : null,
+                  validator: (v) => v!.isEmpty ? L10n.of(context).displayNameRequired : null,
                 ),
                 const SizedBox(height: 20),
                 AppTextField(
                   controller: _usernameController,
-                  label: 'Username',
+                  label: L10n.of(context).username,
                   hint: 'e.g. johndoe',
                   prefixIcon: const Icon(LucideIcons.atSign),
                   onChanged: _checkUsername,
@@ -162,19 +163,19 @@ class _SignupScreenState extends State<SignupScreen> {
                           )
                         : null,
                   validator: (v) {
-                    if (v!.length < 3) return 'Min 3 characters';
+                    if (v!.length < 3) return L10n.of(context).usernameTooShort;
                     if (!RegExp(r'^[a-zA-Z0-9_]{3,30}$').hasMatch(v.trim())) {
-                      return 'Letters, numbers and _ only (max 30)';
+                      return L10n.of(context).usernameRules;
                     }
-                    if (_isUsernameAvailable == false) return 'Username is taken';
+                    if (_isUsernameAvailable == false) return L10n.of(context).usernameTaken;
                     return null;
                   },
                 ),
                 const SizedBox(height: 20),
                 AppTextField(
                   controller: _passwordController,
-                  label: 'Password',
-                  hint: 'Create a strong password',
+                  label: L10n.of(context).password,
+                  hint: L10n.of(context).passwordCreateHint,
                   prefixIcon: const Icon(LucideIcons.lock),
                   obscureText: _obscurePassword,
                   suffixIcon: IconButton(
@@ -188,7 +189,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       });
                     },
                   ),
-                  validator: (v) => v!.length < 8 ? 'At least 8 characters' : null,
+                  validator: (v) => v!.length < 8 ? L10n.of(context).passwordTooShort : null,
                 ),
                 const SizedBox(height: 8),
                 // Simple password strength indicator
@@ -211,11 +212,11 @@ class _SignupScreenState extends State<SignupScreen> {
                 const SizedBox(height: 20),
                 AppTextField(
                   controller: _confirmController,
-                  label: 'Confirm Password',
-                  hint: 'Repeat your password',
+                  label: L10n.of(context).confirmPassword,
+                  hint: L10n.of(context).confirmPasswordHint,
                   prefixIcon: const Icon(LucideIcons.lock),
                   obscureText: _obscurePassword,
-                  validator: (v) => v != _passwordController.text ? 'Passwords do not match' : null,
+                  validator: (v) => v != _passwordController.text ? L10n.of(context).passwordsDontMatch : null,
                 ),
                 const SizedBox(height: 32),
                 if (authProvider.errorMessage != null)
@@ -251,25 +252,25 @@ class _SignupScreenState extends State<SignupScreen> {
                             valueColor: AlwaysStoppedAnimation<Color>(context.palette.textPrimary),
                           ),
                         )
-                      : const Text('Sign up'),
+                      : Text(L10n.of(context).signUp),
                 ),
                 const SizedBox(height: 12),
                 Wrap(
                   alignment: WrapAlignment.center,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Text('By signing up you agree to the ',
+                    Text(L10n.of(context).agreePrefix,
                         style: GoogleFonts.inter(color: context.palette.textMuted, fontSize: 12)),
                     InkWell(
                       onTap: () => LegalScreen.open(context, LegalScreen.terms),
-                      child: Text('Terms',
+                      child: Text(L10n.of(context).terms,
                           style: GoogleFonts.inter(color: context.palette.accent, fontSize: 12)),
                     ),
                     Text(' and ',
                         style: GoogleFonts.inter(color: context.palette.textMuted, fontSize: 12)),
                     InkWell(
                       onTap: () => LegalScreen.open(context, LegalScreen.privacy),
-                      child: Text('Privacy policy',
+                      child: Text(L10n.of(context).privacyPolicy,
                           style: GoogleFonts.inter(color: context.palette.accent, fontSize: 12)),
                     ),
                     Text('.',
@@ -281,12 +282,12 @@ class _SignupScreenState extends State<SignupScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      'Already have an account?',
+                      L10n.of(context).haveAccount,
                       style: GoogleFonts.inter(color: context.palette.textSecondary),
                     ),
                     TextButton(
                       onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
-                      child: const Text('Log in'),
+                      child: Text(L10n.of(context).logIn),
                     ),
                   ],
                 ),

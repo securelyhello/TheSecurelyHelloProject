@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/features/contacts/widgets/invite_prompt.dart';
 import 'package:securelyhello/core/invites/invites.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
@@ -286,17 +287,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           destinations: [
             NavigationDestination(
               icon: _badgeIcon(LucideIcons.messageCircle, unread),
-              label: 'Chats',
+              label: L10n.of(context).tabChats,
               tooltip: '',
             ),
             NavigationDestination(
               icon: _badgeIcon(LucideIcons.users, requests),
-              label: 'Contacts',
+              label: L10n.of(context).tabContacts,
               tooltip: '',
             ),
-            const NavigationDestination(
+            NavigationDestination(
               icon: Icon(LucideIcons.settings),
-              label: 'Settings',
+              label: L10n.of(context).tabSettings,
               tooltip: '',
             ),
           ],
@@ -347,15 +348,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     destinations: [
                       NavigationRailDestination(
                         icon: _badgeIcon(LucideIcons.messageCircle, unread),
-                        label: const Text('Chats'),
+                        label: Text(L10n.of(context).tabChats),
                       ),
                       NavigationRailDestination(
                         icon: _badgeIcon(LucideIcons.users, requests),
-                        label: const Text('Contacts'),
+                        label: Text(L10n.of(context).tabContacts),
                       ),
-                      const NavigationRailDestination(
+                      NavigationRailDestination(
                         icon: Icon(LucideIcons.settings),
-                        label: Text('Settings'),
+                        label: Text(L10n.of(context).tabSettings),
                       ),
                     ],
                   ),
@@ -472,7 +473,7 @@ class _NoChatSelected extends StatelessWidget {
                     const SizedBox(width: 6),
                     Flexible(
                       child: Text(
-                        'Your messages are end-to-end encrypted',
+                        L10n.of(context).e2eNote,
                         style: t.bodySmall?.copyWith(color: p.textMuted),
                       ),
                     ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 
 /// First launch: what makes this messenger different, then sign up or log
@@ -30,17 +31,11 @@ class _Page {
   const _Page(this.icon, this.title, this.body);
 }
 
-const _pages = [
-  _Page(LucideIcons.lock, 'Only you and them',
-      'Every message, photo, file and voice note is encrypted on your phone. Only the people '
-          "you're talking to can open it. Not us, not the server."),
-  _Page(LucideIcons.shieldCheck, "Know who you're talking to",
-      "Compare a safety number or scan a code to be sure. If someone's keys ever change, "
-          'the app tells you before sending anything.'),
-  _Page(LucideIcons.userCheck, 'Only people you choose',
-      'Strangers need your OK before they can message you. No phone number needed, no ads, '
-          'no tracking.'),
-];
+List<_Page> _pagesFor(L10n l) => [
+      _Page(LucideIcons.lock, l.welcome1Title, l.welcome1Body),
+      _Page(LucideIcons.shieldCheck, l.welcome2Title, l.welcome2Body),
+      _Page(LucideIcons.userCheck, l.welcome3Title, l.welcome3Body),
+    ];
 
 class _WelcomeScreenState extends State<WelcomeScreen> {
   final _pager = PageController();
@@ -63,7 +58,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final t = Theme.of(context).textTheme;
-    final last = _page == _pages.length - 1;
+    final l = L10n.of(context);
+    final pages = _pagesFor(l);
+    final last = _page == pages.length - 1;
     return Scaffold(
       backgroundColor: p.background,
       body: SafeArea(
@@ -79,17 +76,17 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                   child: TextButton(
                     key: const ValueKey('welcome-skip'),
                     onPressed: last ? null : () => _done('/login'),
-                    child: const Text('Skip'),
+                    child: Text(l.welcomeSkip),
                   ),
                 ),
               ),
               Expanded(
                 child: PageView.builder(
                   controller: _pager,
-                  itemCount: _pages.length,
+                  itemCount: pages.length,
                   onPageChanged: (i) => setState(() => _page = i),
                   itemBuilder: (context, i) {
-                    final page = _pages[i];
+                    final page = pages[i];
                     return Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 32),
                       child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -113,9 +110,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 ),
               ),
               Semantics(
-                label: 'Page ${_page + 1} of ${_pages.length}',
+                label: 'Page ${_page + 1} of ${pages.length}',
                 child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  for (var i = 0; i < _pages.length; i++)
+                  for (var i = 0; i < pages.length; i++)
                     AnimatedContainer(
                       duration: AppMotion.fast,
                       margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -137,14 +134,14 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                           child: ElevatedButton(
                             key: const ValueKey('welcome-signup'),
                             onPressed: () => _done('/signup'),
-                            child: const Text('Create an account'),
+                            child: Text(l.welcomeCreateAccount),
                           ),
                         ),
                         const SizedBox(height: 8),
                         TextButton(
                           key: const ValueKey('welcome-login'),
                           onPressed: () => _done('/login'),
-                          child: const Text('I already have an account'),
+                          child: Text(l.welcomeHaveAccount),
                         ),
                       ])
                     : SizedBox(
@@ -152,7 +149,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                         child: ElevatedButton(
                           key: const ValueKey('welcome-next'),
                           onPressed: () => _pager.nextPage(duration: AppMotion.medium, curve: AppMotion.curve),
-                          child: const Text('Next'),
+                          child: Text(l.welcomeNext),
                         ),
                       ),
               ),

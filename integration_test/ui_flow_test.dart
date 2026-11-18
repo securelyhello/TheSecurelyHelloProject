@@ -32,6 +32,7 @@ import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/core/storage/local_storage.dart';
 import 'package:securelyhello/core/storage/secure_key_store.dart';
 import 'package:securelyhello/main.dart';
+import 'package:securelyhello/shared/theme/locale_controller.dart';
 import 'package:securelyhello/shared/theme/theme_controller.dart';
 
 const _baseUrl =
@@ -176,6 +177,8 @@ void main() {
       // Dark for the walkthrough (the site uses these); light at the end.
       final theme = ThemeController();
       await theme.set(ThemeMode.dark);
+      final language = LocaleController();
+      await language.set(const Locale('en'));
       await tester.pumpWidget(SecurelyHelloApp(
         authProvider: me.auth,
         chatProvider: me.chatProvider,
@@ -183,6 +186,7 @@ void main() {
         connectionProvider: me.connection,
         profiles: me.chat.profiles,
         theme: theme,
+        language: language,
       ));
       await settle(800);
       await shot('01_splash');
@@ -418,6 +422,13 @@ void main() {
       setWindow(412, 892);
       await settle(900);
       await shot('21_light_chat');
+
+      // ---- Hindi -------------------------------------------------------------
+      await language.set(const Locale('hi'));
+      nav().popUntil((r) => r.isFirst);
+      await settle(1200);
+      expect(find.text('चैट'), findsWidgets, reason: 'tab labels follow the language');
+      await shot('22_hindi_chats');
 
       // ---- clean up -------------------------------------------------------
       for (final c in [me, mira]) {

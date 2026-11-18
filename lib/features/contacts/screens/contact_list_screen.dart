@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/features/contacts/widgets/contact_info_sheet.dart';
@@ -101,15 +102,15 @@ class _ContactListScreenState extends State<ContactListScreen> {
               ),
               title: Text(
                 c.displayLabel,
-                style: const TextStyle(fontWeight: FontWeight.w700),
+                style: TextStyle(fontWeight: FontWeight.w700),
               ),
               subtitle: Text('@${c.username}'),
             ),
-      items: const [
+      items: [
         ActionItem(
           value: _ContactAction.message,
           icon: LucideIcons.messageCircle,
-          label: 'Message',
+          label: L10n.of(context).message,
         ),
         ActionItem(
           value: _ContactAction.info,
@@ -119,7 +120,7 @@ class _ContactListScreenState extends State<ContactListScreen> {
         ActionItem(
           value: _ContactAction.remove,
           icon: LucideIcons.userMinus,
-          label: 'Remove contact',
+          label: L10n.of(context).removeContact,
           destructive: true,
         ),
       ],
@@ -206,7 +207,7 @@ class _ContactListScreenState extends State<ContactListScreen> {
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
           child: SearchField(
             controller: _search,
-            hint: 'Search contacts',
+            hint: L10n.of(context).searchContacts,
             onChanged: (v) => setState(() => _query = v),
           ),
         ),
@@ -218,11 +219,11 @@ class _ContactListScreenState extends State<ContactListScreen> {
             backgroundColor: p.accent,
             child: Icon(LucideIcons.userPlus, color: p.onAccent, size: 20),
           ),
-          title: const Text(
-            'Find people',
+          title: Text(
+            L10n.of(context).findPeople,
             style: TextStyle(fontWeight: FontWeight.w600),
           ),
-          subtitle: const Text('Search by username'),
+          subtitle: Text(L10n.of(context).searchByUsername),
           onTap: () => Navigator.pushNamed(context, '/add-contact'),
         ),
       ),
@@ -237,8 +238,8 @@ class _ContactListScreenState extends State<ContactListScreen> {
               size: 20,
             ),
           ),
-          title: const Text(
-            'Contact requests',
+          title: Text(
+            L10n.of(context).contactRequests,
             style: TextStyle(fontWeight: FontWeight.w600),
           ),
           subtitle: Text(
@@ -246,7 +247,7 @@ class _ContactListScreenState extends State<ContactListScreen> {
                 ? '$requests waiting for you'
                 : pendingSent > 0
                 ? '$pendingSent sent, awaiting reply'
-                : 'No pending requests',
+                : L10n.of(context).noPendingRequests,
           ),
           trailing: requests > 0
               ? UnreadBadge(count: requests)
@@ -291,7 +292,7 @@ class _ContactListScreenState extends State<ContactListScreen> {
         slivers
           ..add(
             SliverToBoxAdapter(
-              child: SectionHeader('Online — ${online.length}'),
+              child: SectionHeader(L10n.of(context).onlineCount(online.length)),
             ),
           )
           ..add(
@@ -307,8 +308,8 @@ class _ContactListScreenState extends State<ContactListScreen> {
             SliverToBoxAdapter(
               child: SectionHeader(
                 online.isEmpty
-                    ? 'Contacts — ${offline.length}'
-                    : 'Offline — ${offline.length}',
+                    ? L10n.of(context).contactsCount(offline.length)
+                    : L10n.of(context).offlineCount(offline.length),
               ),
             ),
           )
@@ -327,7 +328,7 @@ class _ContactListScreenState extends State<ContactListScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Contacts'),
+            Text(L10n.of(context).tabContacts),
             if (!loading && provider.contacts.isNotEmpty)
               Text(
                 '${provider.contactCount} '
@@ -340,7 +341,7 @@ class _ContactListScreenState extends State<ContactListScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         heroTag: 'add-contact-fab',
-        tooltip: 'Find people',
+        tooltip: L10n.of(context).findPeople,
         onPressed: () => Navigator.pushNamed(context, '/add-contact'),
         child: const Icon(LucideIcons.userPlus),
       ),

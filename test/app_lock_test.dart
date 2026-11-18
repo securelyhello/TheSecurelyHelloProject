@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/core/security/app_lock.dart';
 import 'package:securelyhello/core/storage/secure_key_store.dart';
 import 'package:securelyhello/features/security/lock_screen.dart';
@@ -149,6 +150,8 @@ void main() {
     await tester.pumpWidget(ChangeNotifierProvider.value(
       value: lock,
       child: MaterialApp(
+        localizationsDelegates: L10n.localizationsDelegates,
+        supportedLocales: L10n.supportedLocales,
         builder: (context, child) => AppLockGate(child: child!),
         home: Scaffold(
           body: Column(children: [
@@ -176,6 +179,8 @@ void main() {
     await tester.pumpWidget(ChangeNotifierProvider.value(
       value: lock,
       child: MaterialApp(
+        localizationsDelegates: L10n.localizationsDelegates,
+        supportedLocales: L10n.supportedLocales,
         builder: (context, child) => AppLockGate(child: child!),
         home: const Scaffold(body: Text('secret chat')),
       ),

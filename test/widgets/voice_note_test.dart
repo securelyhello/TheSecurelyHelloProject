@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/core/chat/attachment_service.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
 import 'package:securelyhello/core/media/voice.dart';
@@ -89,6 +90,8 @@ void main() {
     await t.pumpWidget(Provider<VoiceMedia>.value(
       value: VoiceMedia(recorder: () => rec, player: FakePlayer.new),
       child: MaterialApp(
+        localizationsDelegates: L10n.localizationsDelegates,
+        supportedLocales: L10n.supportedLocales,
         theme: AppTheme.dark,
         home: Scaffold(
           body: Composer(
@@ -156,6 +159,8 @@ void main() {
     await t.pumpWidget(Provider<VoiceMedia>.value(
       value: VoiceMedia(recorder: FakeRecorder.new, player: () => player),
       child: MaterialApp(
+        localizationsDelegates: L10n.localizationsDelegates,
+        supportedLocales: L10n.supportedLocales,
         theme: AppTheme.dark,
         home: Scaffold(body: VoiceNoteView(meta: meta, service: service, isSent: false)),
       ),

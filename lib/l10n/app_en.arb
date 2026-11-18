@@ -1,0 +1,161 @@
+{
+  "@@locale": "en",
+  "welcomeSkip": "Skip",
+  "welcomeNext": "Next",
+  "welcome1Title": "Only you and them",
+  "welcome1Body": "Every message, photo, file and voice note is encrypted on your phone. Only the people you're talking to can open it. Not us, not the server.",
+  "welcome2Title": "Know who you're talking to",
+  "welcome2Body": "Compare a safety number or scan a code to be sure. If someone's keys ever change, the app tells you before sending anything.",
+  "welcome3Title": "Only people you choose",
+  "welcome3Body": "Strangers need your OK before they can message you. No phone number needed, no ads, no tracking.",
+  "welcomeCreateAccount": "Create an account",
+  "welcomeHaveAccount": "I already have an account",
+  "loginTitle": "Welcome back",
+  "email": "Email",
+  "emailHint": "Enter your email",
+  "emailRequired": "Email is required",
+  "password": "Password",
+  "passwordHint": "Enter your password",
+  "passwordRequired": "Password is required",
+  "forgotPassword": "Forgot password?",
+  "logIn": "Log in",
+  "noAccount": "Don't have an account?",
+  "signUp": "Sign up",
+  "signupTitle": "Create your account",
+  "signupSubtitle": "Join Securely Hello and chat privately.",
+  "emailInvalid": "Valid email required",
+  "displayName": "Display Name",
+  "displayNameHint": "How others will see you",
+  "displayNameRequired": "Display name is required",
+  "username": "Username",
+  "usernameTooShort": "Min 3 characters",
+  "usernameRules": "Letters, numbers and _ only (max 30)",
+  "usernameTaken": "Username is taken",
+  "passwordCreateHint": "Create a strong password",
+  "passwordTooShort": "At least 8 characters",
+  "confirmPassword": "Confirm Password",
+  "confirmPasswordHint": "Repeat your password",
+  "passwordsDontMatch": "Passwords do not match",
+  "agreePrefix": "By signing up you agree to the ",
+  "terms": "Terms",
+  "privacyPolicy": "Privacy policy",
+  "haveAccount": "Already have an account?",
+  "tabChats": "Chats",
+  "tabContacts": "Contacts",
+  "tabSettings": "Settings",
+  "e2eNote": "Your messages are end-to-end encrypted",
+  "messageHint": "Message",
+  "attachFile": "Attach a file",
+  "recordVoice": "Record a voice message",
+  "micPermission": "Allow microphone access to record voice messages",
+  "send": "Send",
+  "lockTitle": "Securely Hello is locked",
+  "pin": "PIN",
+  "unlock": "Unlock",
+  "useBiometrics": "Use biometrics",
+  "wrongPin": "Wrong PIN",
+  "settingsAppearance": "Appearance",
+  "settingsTheme": "Theme",
+  "themeSystem": "Same as the system",
+  "themeLight": "Light",
+  "themeDark": "Dark",
+  "settingsLanguage": "Language",
+  "languageSystem": "Same as the system",
+  "settingsNotifications": "Notifications",
+  "settingsPrivacy": "Privacy & security",
+  "settingsAppLock": "App lock",
+  "settingsAccount": "Account",
+  "settingsAbout": "About",
+  "cancel": "Cancel",
+  "save": "Save",
+  "@wrongPinLeft": {
+    "placeholders": {
+      "left": {
+        "type": "int"
+      }
+    }
+  },
+  "wrongPinLeft": "Wrong PIN. {left} more and this device is erased.",
+  "@waitSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "waitSeconds": "Too many tries. Wait {seconds} s",
+  "searchChats": "Search chats",
+  "filterAll": "All",
+  "filterUnread": "Unread",
+  "filterUnreadCount": "Unread ({count})",
+  "@filterUnreadCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "contactRequests": "Contact requests",
+  "contactRequestsCount": "Contact requests ({count})",
+  "@contactRequestsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "noUnreadChats": "No unread chats.",
+  "moreOptions": "More options",
+  "findPeople": "Find people",
+  "newChat": "New chat",
+  "markAsRead": "Mark as read",
+  "contactInfo": "Contact info",
+  "clearChatHistory": "Clear chat history",
+  "deleteChat": "Delete chat",
+  "searchContacts": "Search contacts",
+  "searchByUsername": "Search by username",
+  "noPendingRequests": "No pending requests",
+  "onlineCount": "Online — {count}",
+  "@onlineCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "offlineCount": "Offline — {count}",
+  "@offlineCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "contactsCount": "Contacts — {count}",
+  "@contactsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "removeContact": "Remove contact",
+  "message": "Message",
+  "emptyContactsTitle": "No contacts yet",
+  "emptyContactsBody": "Find people by their username and send them a contact request. Once they accept, you can chat securely.",
+  "emptyChatsTitle": "No chats yet",
+  "emptyChatsBody": "Start a conversation with one of your contacts. Messages are end-to-end encrypted.",
+  "startChat": "Start a chat",
+  "noResults": "No results",
+  "tryDifferentSearch": "Try a different search term.",
+  "nothingMatches": "Nothing matches “{query}”. Check the spelling or try another term.",
+  "@nothingMatches": {
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "somethingWentWrong": "Something went wrong",
+  "tryAgain": "Try again"
+}

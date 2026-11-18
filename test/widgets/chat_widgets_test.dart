@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/features/chat/widgets/composer.dart';
 import 'package:securelyhello/features/chat/widgets/conversation_tile.dart';
 import 'package:securelyhello/shared/theme/app_palette.dart';
@@ -11,6 +12,8 @@ import 'package:securelyhello/shared/widgets/message_status_icon.dart';
 /// Plain Material theme (no Google Fonts, so no network in tests) carrying
 /// the app's palette extension.
 Widget _host(Widget child) => MaterialApp(
+  localizationsDelegates: L10n.localizationsDelegates,
+  supportedLocales: L10n.supportedLocales,
   theme: ThemeData(
     brightness: Brightness.dark,
     extensions: const [AppPalette.dark],

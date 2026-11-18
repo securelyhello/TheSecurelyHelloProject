@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/core/chat/attachment_service.dart';
 import 'package:securelyhello/features/chat/widgets/attachment_view.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
@@ -37,6 +38,8 @@ void main() {
 
     Future<List<String>> render(Map<String, dynamic> meta) async {
       await t.pumpWidget(MaterialApp(
+        localizationsDelegates: L10n.localizationsDelegates,
+        supportedLocales: L10n.supportedLocales,
         theme: AppTheme.dark,
         home: Scaffold(
             body: AttachmentView(meta: {...meta, 'size': 3200}, service: service, isSent: false)),

@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/core/notifications/notification_service.dart';
 import 'package:securelyhello/core/notifications/push_service.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
@@ -18,6 +19,7 @@ import 'package:securelyhello/features/settings/screens/edit_profile_screen.dart
 import 'package:securelyhello/features/settings/screens/legal_screen.dart';
 import 'package:securelyhello/features/settings/screens/two_factor_screen.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
+import 'package:securelyhello/shared/theme/locale_controller.dart';
 import 'package:securelyhello/shared/theme/theme_controller.dart';
 import 'package:securelyhello/shared/widgets/app_dialogs.dart';
 import 'package:securelyhello/shared/widgets/avatar_widget.dart';
@@ -424,8 +426,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
 
                   // Notifications
-                  const SectionHeader(
-                    'Appearance',
+                  SectionHeader(
+                    L10n.of(context).settingsAppearance,
                     padding: EdgeInsets.fromLTRB(28, 20, 28, 8),
                   ),
                   Builder(builder: (context) {
@@ -434,22 +436,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ListTile(
                         key: const ValueKey('settings-theme'),
                         leading: const Icon(LucideIcons.sunMoon),
-                        title: const Text('Theme'),
+                        title: Text(L10n.of(context).settingsTheme),
                         trailing: DropdownButton<ThemeMode>(
                           value: theme.mode,
                           underline: const SizedBox(),
                           items: [
                             for (final m in ThemeMode.values)
-                              DropdownMenuItem(value: m, child: Text(ThemeController.label(m))),
+                              DropdownMenuItem(
+                                value: m,
+                                child: Text(switch (m) {
+                                  ThemeMode.system => L10n.of(context).themeSystem,
+                                  ThemeMode.light => L10n.of(context).themeLight,
+                                  ThemeMode.dark => L10n.of(context).themeDark,
+                                }),
+                              ),
                           ],
                           onChanged: (m) => m == null ? null : theme.set(m),
                         ),
                       ),
+                      Builder(builder: (context) {
+                        final language = context.watch<LocaleController>();
+                        return ListTile(
+                          key: const ValueKey('settings-language'),
+                          leading: const Icon(LucideIcons.languages),
+                          title: Text(L10n.of(context).settingsLanguage),
+                          trailing: DropdownButton<String>(
+                            value: language.locale?.languageCode ?? '',
+                            underline: const SizedBox(),
+                            items: [
+                              DropdownMenuItem(value: '', child: Text(L10n.of(context).languageSystem)),
+                              for (final e in LocaleController.names.entries)
+                                DropdownMenuItem(value: e.key, child: Text(e.value)),
+                            ],
+                            onChanged: (code) =>
+                                language.set(code == null || code.isEmpty ? null : Locale(code)),
+                          ),
+                        );
+                      }),
                     ]);
                   }),
 
-                  const SectionHeader(
-                    'Notifications',
+                  SectionHeader(
+                    L10n.of(context).settingsNotifications,
                     padding: EdgeInsets.fromLTRB(28, 20, 28, 8),
                   ),
                   Builder(builder: (context) {
@@ -485,8 +513,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   }),
 
                   // Privacy & security
-                  const SectionHeader(
-                    'Privacy & security',
+                  SectionHeader(
+                    L10n.of(context).settingsPrivacy,
                     padding: EdgeInsets.fromLTRB(28, 20, 28, 8),
                   ),
                   group([
@@ -558,8 +586,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ]),
 
-                  const SectionHeader(
-                    'App lock',
+                  SectionHeader(
+                    L10n.of(context).settingsAppLock,
                     padding: EdgeInsets.fromLTRB(28, 20, 28, 8),
                   ),
                   Builder(builder: (context) {
@@ -632,8 +660,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   }),
 
                   // Account
-                  const SectionHeader(
-                    'Account',
+                  SectionHeader(
+                    L10n.of(context).settingsAccount,
                     padding: EdgeInsets.fromLTRB(28, 20, 28, 8),
                   ),
                   group([
@@ -695,8 +723,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ]),
 
                   // About
-                  const SectionHeader(
-                    'About',
+                  SectionHeader(
+                    L10n.of(context).settingsAbout,
                     padding: EdgeInsets.fromLTRB(28, 20, 28, 8),
                   ),
                   group([

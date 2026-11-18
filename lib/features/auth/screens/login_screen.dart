@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/features/auth/widgets/otp_field.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
@@ -84,7 +85,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  'Welcome back',
+                  L10n.of(context).loginTitle,
                   textAlign: TextAlign.center,
                   style: GoogleFonts.manrope(
                     fontSize: 28,
@@ -96,17 +97,17 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 48),
                 AppTextField(
                   controller: _emailController,
-                  label: 'Email',
-                  hint: 'Enter your email',
+                  label: L10n.of(context).email,
+                  hint: L10n.of(context).emailHint,
                   prefixIcon: const Icon(LucideIcons.mail),
                   keyboardType: TextInputType.emailAddress,
-                  validator: (v) => v!.isEmpty ? 'Email is required' : null,
+                  validator: (v) => v!.isEmpty ? L10n.of(context).emailRequired : null,
                 ),
                 const SizedBox(height: 20),
                 AppTextField(
                   controller: _passwordController,
-                  label: 'Password',
-                  hint: 'Enter your password',
+                  label: L10n.of(context).password,
+                  hint: L10n.of(context).passwordHint,
                   prefixIcon: const Icon(LucideIcons.lock),
                   obscureText: _obscurePassword,
                   suffixIcon: IconButton(
@@ -120,7 +121,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       });
                     },
                   ),
-                  validator: (v) => v!.isEmpty ? 'Password is required' : null,
+                  validator: (v) => v!.isEmpty ? L10n.of(context).passwordRequired : null,
                 ),
                 if (authProvider.otpRequired)
                   OtpField(controller: _otpController, onSubmitted: (_) => _login()),
@@ -131,7 +132,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     onPressed: () => Navigator.of(context).pushNamed(
                         '/forgot-password',
                         arguments: _emailController.text.trim()),
-                    child: const Text('Forgot password?'),
+                    child: Text(L10n.of(context).forgotPassword),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -168,19 +169,19 @@ class _LoginScreenState extends State<LoginScreen> {
                             valueColor: AlwaysStoppedAnimation<Color>(context.palette.textPrimary),
                           ),
                         )
-                      : const Text('Log in'),
+                      : Text(L10n.of(context).logIn),
                 ),
                 const SizedBox(height: 32),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      'Don\'t have an account?',
+                      L10n.of(context).noAccount,
                       style: GoogleFonts.inter(color: context.palette.textSecondary),
                     ),
                     TextButton(
                       onPressed: () => Navigator.pushReplacementNamed(context, '/signup'),
-                      child: const Text('Sign up'),
+                      child: Text(L10n.of(context).signUp),
                     ),
                   ],
                 ),

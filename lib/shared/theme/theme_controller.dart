@@ -25,10 +25,4 @@ class ThemeController extends ChangeNotifier {
       await (await SharedPreferences.getInstance()).setString(_key, mode.name);
     } catch (_) {}
   }
-
-  static String label(ThemeMode m) => switch (m) {
-        ThemeMode.system => 'Same as the system',
-        ThemeMode.light => 'Light',
-        ThemeMode.dark => 'Dark',
-      };
 }

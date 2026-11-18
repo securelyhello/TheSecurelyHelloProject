@@ -146,6 +146,20 @@ SH_PROFILE=bob   flutter run -d linux
 static files that load nothing from other hosts. Its screenshots and test
 results come from the real test runs. See [website/README.md](website/README.md).
 
+## Languages
+
+English and Hindi, chosen in Settings > Appearance > Language (default: the
+system's). Strings live in `lib/l10n/app_<code>.arb`; `flutter gen-l10n`
+(run automatically by `flutter pub get`/builds) generates `L10n`. To add a
+language, copy `app_en.arb` to `app_<code>.arb`, translate it, and add the
+name to `LocaleController.names`; `test/l10n_test.dart` checks every
+string and placeholder is there.
+
+Translated so far: welcome, log-in, sign-up, the main tabs, chat and
+contact lists, the message composer, the lock screen and the settings
+sections. Other screens are still English; move their strings into the
+`.arb` files as they are touched.
+
 ## Security
 
 See [SECURITY.md](SECURITY.md) for the threat model, what the server can
