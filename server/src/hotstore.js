@@ -123,6 +123,22 @@ export class HotStore {
     return this.p + parts.join(':');
   }
 
+  /**
+   * Claims "the running instance" for [ttlMs]. Returns the id of another
+   * instance holding it, or null. Realtime state lives in one process, so
+   * two instances would split sockets and presence.
+   */
+  async claimInstance(id, ttlMs) {
+    const key = this.k('instance');
+    if ((await this.redis.set(key, id, 'PX', ttlMs, 'NX')) === 'OK') return null;
+    const holder = await this.redis.get(key);
+    if (holder === id) {
+      await this.redis.pexpire(key, ttlMs);
+      return null;
+    }
+    return holder;
+  }
+
   async ping() {
     return (await this.redis.ping()) === 'PONG';
   }

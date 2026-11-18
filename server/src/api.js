@@ -182,7 +182,10 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       if (typeof body.password !== 'string' || body.password.length > 256) {
         throw bad('password is required');
       }
-      await limit('authAccount', email.toLowerCase());
+      // Per address and IP, so guessing from one place doesn't lock the owner
+      // out from another; plus a looser per-address cap for spread-out guessing.
+      await limit('authAccount', `${email.toLowerCase()}|${ip}`);
+      await limit('authAccountAll', email.toLowerCase());
 
       const { rows } = await pool.query(
         `SELECT ${USER_COLUMNS}, u.password_hash, u.suspended_at FROM users u WHERE lower(u.email) = lower($1)`,
@@ -582,6 +585,15 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
         return { id: reverse.rows[0].id, accepted: true };
       }
 
+      const recent = await client.query(
+        `SELECT 1 FROM contact_requests WHERE sender_id = $1 AND receiver_id = $2
+            AND status = 'rejected' AND updated_at > now() - interval '7 days'`,
+        [user.id, receiverId],
+      );
+      if (recent.rows[0]) {
+        throw new HttpError(429, 'request_cooldown', 'They declined recently. You can ask again in a week.');
+      }
+
       const { rows } = await client.query(
         `INSERT INTO contact_requests (sender_id, receiver_id) VALUES ($1, $2)
          ON CONFLICT (sender_id, receiver_id) DO UPDATE
@@ -661,6 +673,8 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       [id, user.id],
     );
     if (!rows[0]) throw notFound('No pending request with that id sent by you');
+    // They never saw it if they blocked us; announcing the cancel would tell.
+    if (await hasBlocked(pool, rows[0].receiver_id, user.id)) return;
     hub.sendTo(rows[0].receiver_id, {
       type: 'contact_request_update',
       request: { id, sender_user_id: user.id, receiver_user_id: rows[0].receiver_id, status: 'cancelled' },

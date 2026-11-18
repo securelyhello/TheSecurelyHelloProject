@@ -82,6 +82,9 @@ function newRecoveryCode() {
 
 /** Seals TOTP secrets at rest when a key is configured. */
 function secretBox(keyMaterial) {
+  if (keyMaterial && keyMaterial.length < 32) {
+    throw new Error('TOTP_ENCRYPTION_KEY must be at least 32 characters');
+  }
   const key = keyMaterial ? createHash('sha256').update(keyMaterial).digest() : null;
   return {
     seal(secret) {
@@ -91,6 +94,8 @@ function secretBox(keyMaterial) {
       const body = Buffer.concat([c.update(secret), c.final()]);
       return `g:${Buffer.concat([iv, c.getAuthTag(), body]).toString('base64')}`;
     },
+    /** Stored without encryption although a key is configured now. */
+    needsSealing: (stored) => key != null && stored.startsWith('p:'),
     open(stored) {
       const raw = Buffer.from(stored.slice(2), 'base64');
       if (stored.startsWith('p:')) return raw;
@@ -118,7 +123,11 @@ export function createTwoFactor({ pool, config, limits }) {
     if (typeof code !== 'string' || code.length > 32) return 'invalid';
     if (!(await limits.take('otp', userId))) throw new HttpError(429, 'rate_limited', 'Too many attempts. Try again later.');
 
-    const step = matchStep(box.open(rows[0].totp_secret), code.trim());
+    const secret = box.open(rows[0].totp_secret);
+    if (box.needsSealing(rows[0].totp_secret)) {
+      await pool.query('UPDATE users SET totp_secret = $2 WHERE id = $1', [userId, box.seal(secret)]);
+    }
+    const step = matchStep(secret, code.trim());
     if (step != null) {
       const res = await pool.query(
         `UPDATE users SET totp_last_step = $2

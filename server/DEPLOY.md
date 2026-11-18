@@ -33,7 +33,7 @@ Run **one** `app` instance: WebSocket routing is in-process.
    | `MAIL_FROM` | with SMTP | sender address, e.g. `Securely Hello <no-reply@example.com>` |
    | `EMAIL_VERIFICATION` | no | `required` (default with SMTP) or `optional` |
    | `ADMIN_TOKEN` | no | at least 32 random characters; enables `/api/admin/*` (reports, suspensions) |
-   | `TOTP_ENCRYPTION_KEY` | recommended | long random string; encrypts two-step verification secrets at rest. Keep it with your backups: changing or losing it locks out users who use two-step verification |
+   | `TOTP_ENCRYPTION_KEY` | recommended | long random string (at least 32 characters; the server refuses shorter); encrypts two-step verification secrets at rest. Keep it with your backups: changing or losing it locks out users who use two-step verification |
    | `INVITE_BASE_URL` | recommended | invite link prefix, e.g. `https://securelyhello.example/i/` (the website's invite page); default `securelyhello://invite/` |
    | `POW_BITS` | no | proof-of-work difficulty for signup and reset e-mails; default `18` (about a second on a phone), `0` turns it off |
    | `BLOCK_DISPOSABLE_EMAIL` | no | `0` allows throwaway e-mail domains at signup (refused by default) |
@@ -142,6 +142,12 @@ and refuse disposable e-mail domains.
 curl -H "Authorization: Bearer $ADMIN_TOKEN" https://api.example.com/api/admin/restricted
 curl -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" https://api.example.com/api/admin/users/<user id>/restriction
 ```
+
+## One instance
+
+Run exactly one server process per Redis. Live WebSocket state (who is
+connected, signaling) is held in that process. A second instance logs
+`another server instance uses this Redis` every 10 seconds.
 
 ## Proxy requirements
 

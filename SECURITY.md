@@ -46,6 +46,8 @@ The server relays ciphertext and can't read it. It does see metadata:
 - the size and time of each relayed message and attachment, and its sender
   and recipient devices;
 - the push token of devices that turned on push (wake-ups carry no content).
+- messages a user chooses to include when reporting someone (kept for a year
+  for moderation, then deleted).
 
 Relayed messages are deleted when delivered and after `RELAY_TTL_HOURS`
 otherwise. Attachments expire after `ATTACHMENT_TTL_DAYS`.

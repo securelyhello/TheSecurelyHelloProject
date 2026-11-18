@@ -158,6 +158,13 @@ describe('contact requests', () => {
     assert.deepEqual((await api(srv.base, 'GET', '/api/contact-requests', { token: b.token })).body, []);
     assert.deepEqual((await api(srv.base, 'GET', '/api/contacts', { token: a.token })).body, []);
 
+    // A week before asking the same person again (reviewer question 13).
+    const tooSoon = await api(srv.base, 'POST', '/api/contact-requests', { token: a.token, body: { receiver_id: b.id } });
+    assert.equal(tooSoon.body.error, 'request_cooldown');
+    await srv.pool.query(
+      "UPDATE contact_requests SET updated_at = now() - interval '8 days' WHERE sender_id = $1 AND receiver_id = $2",
+      [a.id, b.id],
+    );
     const again = await api(srv.base, 'POST', '/api/contact-requests', { token: a.token, body: { receiver_id: b.id } });
     assert.equal(again.status, 201);
     assert.equal(again.body.status, 'pending');

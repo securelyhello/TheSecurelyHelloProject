@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 
 import { registerRoutes } from './api.js';
@@ -202,6 +203,8 @@ export function createApp({
   async function sweep() {
     const sessions = await pool.query('DELETE FROM sessions WHERE expires_at <= now()');
     const codes = await pool.query('DELETE FROM email_codes WHERE expires_at <= now()');
+    // Reports (with any messages the reporter shared) are kept for a year.
+    await pool.query("DELETE FROM reports WHERE created_at < now() - interval '365 days'");
     const attachments = await pool.query('DELETE FROM attachments WHERE expires_at <= now() RETURNING id, storage');
     for (const row of attachments.rows) {
       if (row.storage !== 'postgres') {
@@ -211,6 +214,7 @@ export function createApp({
     return { sessions: sessions.rowCount, codes: codes.rowCount, attachments: attachments.rowCount };
   }
   let sweepTimer = null;
+  let instanceTimer = null;
 
   return {
     server,
@@ -224,6 +228,19 @@ export function createApp({
     limits,
     sweep,
     listen(port = config.port, host = config.host) {
+      const instanceId = randomUUID();
+      const claim = () =>
+        store
+          .claimInstance(instanceId, 30_000)
+          .then((other) => {
+            if (other) {
+              log.error('another server instance uses this Redis; run exactly one (see realtime.js)', { other });
+            }
+          })
+          .catch(() => {});
+      void claim();
+      instanceTimer = setInterval(claim, 10_000);
+      instanceTimer.unref();
       sweepTimer = setInterval(() => {
         sweep()
           .then((n) => (n.sessions || n.codes || n.attachments) && log.info('sweep', n))
@@ -235,6 +252,7 @@ export function createApp({
     /** Stops accepting, drains WebSockets, closes the listener. Pool/Redis are the caller's. */
     async close() {
       clearInterval(sweepTimer);
+      clearInterval(instanceTimer);
       const closed = new Promise((resolve) => server.close(() => resolve()));
       await hub.close();
       server.closeIdleConnections?.();

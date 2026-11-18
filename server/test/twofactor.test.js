@@ -30,15 +30,17 @@ describe('TOTP primitives', () => {
 });
 
 test('secrets are sealed with AES-GCM when a key is set', () => {
-  const sealed = createTwoFactor({ pool: null, limits: null, config: { totpKey: 'operator key' } }).box;
+  const sealed = createTwoFactor({ pool: null, limits: null, config: { totpKey: 'operator key, at least 32 characters long' } }).box;
   const secret = Buffer.from('12345678901234567890');
   const stored = sealed.seal(secret);
   assert.match(stored, /^g:/);
   assert.ok(!Buffer.from(stored.slice(2), 'base64').includes(secret));
   assert.deepEqual(sealed.open(stored), secret);
-  const otherKey = createTwoFactor({ pool: null, limits: null, config: { totpKey: 'another key' } }).box;
+  const otherKey = createTwoFactor({ pool: null, limits: null, config: { totpKey: 'another key, also 32 characters or more' } }).box;
   assert.throws(() => otherKey.open(stored));
   const plain = createTwoFactor({ pool: null, limits: null, config: {} }).box;
+  assert.throws(() => createTwoFactor({ pool: null, limits: null, config: { totpKey: 'short' } }), /32 characters/);
+  assert.equal(sealed.needsSealing(plain.seal(secret)), true, 'old plaintext rows get re-sealed on use');
   assert.deepEqual(sealed.open(plain.seal(secret)), secret, 'old unsealed secrets still readable');
 });
 

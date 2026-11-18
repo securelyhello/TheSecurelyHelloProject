@@ -42,6 +42,7 @@ const generous = { capacity: 100_000, perMs: 60_000 };
 export const GENEROUS_LIMITS = {
   authIp: generous,
   authAccount: generous,
+  authAccountAll: generous,
   publicIp: generous,
   api: generous,
   relay: generous,

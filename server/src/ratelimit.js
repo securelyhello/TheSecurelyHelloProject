@@ -9,8 +9,10 @@ const MIN = 60_000;
 export const DEFAULT_LIMITS = {
   // per client IP
   authIp: { capacity: 20, perMs: 10 * MIN },
-  // per normalized e-mail (slows password guessing against one account)
+  // per normalized e-mail and client IP (slows password guessing)
   authAccount: { capacity: 10, perMs: 15 * MIN },
+  // per normalized e-mail from anywhere (spread-out guessing)
+  authAccountAll: { capacity: 100, perMs: 60 * MIN },
   // unauthenticated username availability checks, per IP
   publicIp: { capacity: 60, perMs: MIN },
   // general authenticated API calls, per user
