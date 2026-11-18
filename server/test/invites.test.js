@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 
-import { api, connectWs, ofType, signup, startServer } from './helpers.js';
+import { api, connectWs, ofType, signup, startServer, verifyEmail } from './helpers.js';
 
 const hashOf = (email) =>
   createHash('sha256').update(`securelyhello-email|${email.toLowerCase()}`).digest('base64');
@@ -77,6 +77,10 @@ describe('discovery', () => {
     const shy = await signup(srv.base, 'shy');
     const open = await signup(srv.base, 'open');
     assert.equal((await api(srv.base, 'GET', '/api/me/discovery', { token: open.token })).body.email_discoverable, false);
+    // Unverified addresses can't be made findable (audit run 1, U3-1).
+    const early = await api(srv.base, 'PUT', '/api/me/discovery', { token: open.token, body: { email_discoverable: true } });
+    assert.equal(early.status, 403);
+    await verifyEmail(srv, open);
     await api(srv.base, 'PUT', '/api/me/discovery', { token: open.token, body: { email_discoverable: true } });
 
     const res = await api(srv.base, 'POST', '/api/discovery/match', {
@@ -92,6 +96,7 @@ describe('discovery', () => {
   test('blocked people and bad input', async () => {
     const seeker = await signup(srv.base, 'seeker_b');
     const blocker = await signup(srv.base, 'blocker_d');
+    await verifyEmail(srv, blocker);
     await api(srv.base, 'PUT', '/api/me/discovery', { token: blocker.token, body: { email_discoverable: true } });
     await api(srv.base, 'POST', '/api/blocks', { token: blocker.token, body: { user_id: seeker.id } });
     const res = await api(srv.base, 'POST', '/api/discovery/match', {

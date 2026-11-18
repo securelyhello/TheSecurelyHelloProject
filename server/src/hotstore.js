@@ -34,15 +34,53 @@ export function createRedis(url, { name = 'securelyhello' } = {}) {
   return redis;
 }
 
+// Acked messages give their bytes back to the recipient's and the
+// sender's budgets.
 const ACK_SCRIPT = `
 local n = 0
 for i, id in ipairs(ARGV) do
   if redis.call('ZREM', KEYS[1], id) == 1 then
+    local raw = redis.call('GET', KEYS[2] .. id)
+    if raw then
+      local len = string.len(raw)
+      if redis.call('DECRBY', KEYS[3], len) < 0 then redis.call('SET', KEYS[3], 0, 'KEEPTTL') end
+      local ok, msg = pcall(cjson.decode, raw)
+      if ok and msg.sender_id then
+        local s = KEYS[4] .. msg.sender_id
+        if redis.call('DECRBY', s, len) < 0 then redis.call('SET', s, 0, 'KEEPTTL') end
+      end
+    end
     redis.call('DEL', KEYS[2] .. id)
     n = n + 1
   end
 end
 return n`;
+
+// Atomic enqueue with a count cap and byte budgets per recipient device and
+// per sender, so one account can't fill Redis (audit run 1, U2-2).
+// KEYS: queue, message, sender index, device bytes, sender bytes.
+// ARGV: now, ttl ms, count cap, id, json, device byte cap, sender byte cap, sender index member.
+// Returns 1, or 0 (queue full by count), -1 (device bytes), -2 (sender bytes).
+const ENQUEUE_SCRIPT = `
+local now = tonumber(ARGV[1])
+local ttl = tonumber(ARGV[2])
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - ttl)
+local count = redis.call('ZCARD', KEYS[1])
+if count >= tonumber(ARGV[3]) then return 0 end
+if count == 0 then redis.call('DEL', KEYS[4]) end
+local size = string.len(ARGV[5])
+if (tonumber(redis.call('GET', KEYS[4])) or 0) + size > tonumber(ARGV[6]) then return -1 end
+if (tonumber(redis.call('GET', KEYS[5])) or 0) + size > tonumber(ARGV[7]) then return -2 end
+redis.call('SET', KEYS[2], ARGV[5], 'PX', ttl)
+redis.call('ZADD', KEYS[1], now, ARGV[4])
+redis.call('PEXPIRE', KEYS[1], ttl)
+redis.call('ZADD', KEYS[3], now, ARGV[8])
+redis.call('PEXPIRE', KEYS[3], ttl)
+redis.call('INCRBY', KEYS[4], size)
+redis.call('PEXPIRE', KEYS[4], ttl)
+redis.call('INCRBY', KEYS[5], size)
+redis.call('PEXPIRE', KEYS[5], ttl)
+return 1`;
 
 const RATE_SCRIPT = `
 local c = redis.call('INCR', KEYS[1])
@@ -60,6 +98,8 @@ export class HotStore {
       prefix = 'sh:',
       relayTtlSeconds = 24 * 3600,
       relayQueueCap = 2000,
+      relayDeviceBytes = 16 * 1024 * 1024,
+      relaySenderBytes = 32 * 1024 * 1024,
       sessionCacheSeconds = 300,
       contactCacheSeconds = 600,
       onlineTtlSeconds = 75,
@@ -69,10 +109,13 @@ export class HotStore {
     this.p = prefix;
     this.relayTtlMs = relayTtlSeconds * 1000;
     this.relayQueueCap = relayQueueCap;
+    this.relayDeviceBytes = relayDeviceBytes;
+    this.relaySenderBytes = relaySenderBytes;
     this.sessionCacheSeconds = sessionCacheSeconds;
     this.contactCacheSeconds = contactCacheSeconds;
     this.onlineTtlSeconds = onlineTtlSeconds;
-    redis.defineCommand('shRelayAck', { numberOfKeys: 2, lua: ACK_SCRIPT });
+    redis.defineCommand('shRelayAck', { numberOfKeys: 4, lua: ACK_SCRIPT });
+    redis.defineCommand('shRelayEnqueue', { numberOfKeys: 5, lua: ENQUEUE_SCRIPT });
     redis.defineCommand('shRateHit', { numberOfKeys: 1, lua: RATE_SCRIPT });
   }
 
@@ -219,9 +262,6 @@ export class HotStore {
   async relayEnqueue({ senderId, senderDevice, recipientId, recipientDevice, envelope }) {
     const q = this.k('relay', 'q', recipientDevice);
     const now = Date.now();
-    await this.redis.zremrangebyscore(q, '-inf', now - this.relayTtlMs);
-    if ((await this.redis.zcard(q)) >= this.relayQueueCap) return null;
-
     const id = randomUUID();
     const createdAt = new Date(now).toISOString();
     const message = {
@@ -233,17 +273,23 @@ export class HotStore {
       envelope,
       created_at: createdAt,
     };
-    const s = this.k('relay', 's', senderId);
-    const res = await this.redis
-      .multi()
-      .set(this.k('relay', 'm', id), JSON.stringify(message), 'PX', this.relayTtlMs)
-      .zadd(q, now, id)
-      .pexpire(q, this.relayTtlMs)
-      .zadd(s, now, `${recipientDevice}:${id}`)
-      .pexpire(s, this.relayTtlMs)
-      .exec();
-    const failed = res.find(([err]) => err);
-    if (failed) throw failed[0];
+    const r = await this.redis.shRelayEnqueue(
+      q,
+      this.k('relay', 'm', id),
+      this.k('relay', 's', senderId),
+      this.k('relay', 'qb', recipientDevice),
+      this.k('relay', 'sb', senderId),
+      now,
+      this.relayTtlMs,
+      this.relayQueueCap,
+      id,
+      JSON.stringify(message),
+      this.relayDeviceBytes,
+      this.relaySenderBytes,
+      `${recipientDevice}:${id}`,
+    );
+    if (r === 0 || r === -1) return { full: 'recipient' };
+    if (r === -2) return { full: 'sender' };
     return { ...message, expires_at: new Date(now + this.relayTtlMs).toISOString() };
   }
 
@@ -281,7 +327,13 @@ export class HotStore {
   /** Deletes envelopes addressed to [deviceId]; ids for anyone else are ignored. */
   async relayAck(deviceId, ids) {
     if (!ids.length) return 0;
-    return this.redis.shRelayAck(this.k('relay', 'q', deviceId), this.k('relay', 'm', ''), ...ids);
+    return this.redis.shRelayAck(
+      this.k('relay', 'q', deviceId),
+      this.k('relay', 'm', ''),
+      this.k('relay', 'qb', deviceId),
+      this.k('relay', 'sb', ''),
+      ...ids,
+    );
   }
 
   /** Device removed: drop everything still queued for it. */
@@ -290,7 +342,7 @@ export class HotStore {
     const received = await this.redis.zrange(q, 0, -1);
     const m = this.redis.multi();
     for (const id of received) m.del(this.k('relay', 'm', id));
-    m.del(q, this.k('push', deviceId));
+    m.del(q, this.k('push', deviceId), this.k('relay', 'qb', deviceId));
     await m.exec();
   }
 

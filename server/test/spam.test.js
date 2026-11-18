@@ -124,10 +124,12 @@ describe('accounts and requests', () => {
 
   test('reports from three people restrict new requests, not existing chats', async () => {
     const spammer = await signup(srv.base, 'reported');
+    await srv.pool.query("UPDATE users SET created_at = now() - interval '2 days' WHERE id = $1", [spammer.id]);
     const friend = await signup(srv.base, 'friend');
     await makeContacts(srv.base, spammer, friend);
     for (let i = 0; i < 3; i++) {
       const reporter = await signup(srv.base, `rep${i}`);
+      await request(spammer, reporter);
       const res = await api(srv.base, 'POST', '/api/reports', {
         token: reporter.token,
         body: { user_id: spammer.id, reason: 'spam' },
@@ -147,6 +149,18 @@ describe('accounts and requests', () => {
     assert.equal((await request(spammer, await signup(srv.base, 'victim2'))).status, 201);
   });
 
+  // Audit run 1, U3-3: throwaway accounts used to be able to restrict anyone.
+  test("reports and blocks from people who never dealt with the account don't count", async () => {
+    const target = await signup(srv.base, 'innocent');
+    await srv.pool.query("UPDATE users SET created_at = now() - interval '200 days' WHERE id = $1", [target.id]);
+    for (let i = 0; i < 6; i++) {
+      const sybil = await signup(srv.base, `sybil${i}`);
+      await api(srv.base, 'POST', '/api/reports', { token: sybil.token, body: { user_id: target.id, reason: 'spam' } });
+      await api(srv.base, 'POST', '/api/blocks', { token: sybil.token, body: { user_id: target.id } });
+    }
+    assert.equal((await request(target, await signup(srv.base, 'innocent_friend'))).status, 201);
+  });
+
   test('one report is not enough', async () => {
     const x = await signup(srv.base, 'onerep');
     const r = await signup(srv.base, 'onereporter');
@@ -160,6 +174,7 @@ describe('accounts and requests', () => {
     await srv.pool.query("UPDATE users SET created_at = now() - interval '2 days' WHERE id = $1", [x.id]);
     for (let i = 0; i < 5; i++) {
       const b = await signup(srv.base, `blk${i}`);
+      await request(x, b);
       await api(srv.base, 'POST', '/api/blocks', { token: b.token, body: { user_id: x.id } });
     }
     assert.equal((await request(x, await signup(srv.base, 'next'))).body.error, 'restricted');

@@ -34,6 +34,9 @@ export function loadConfig(env = process.env) {
     trustProxyHops,
     sessionTtlDays: int('SESSION_TTL_DAYS', 90),
     relayTtlHours: int('RELAY_TTL_HOURS', 24),
+    // Undelivered relay data allowed per recipient device and per sender.
+    relayDeviceMb: int('RELAY_DEVICE_MAX_MB', 16),
+    relaySenderMb: int('RELAY_SENDER_MAX_MB', 32),
     redisPrefix: env.REDIS_PREFIX || 'sh:',
     sweepIntervalMs: int('SWEEP_INTERVAL_MS', 60 * 60_000),
     logRequests: env.LOG_REQUESTS !== '0',
@@ -87,6 +90,8 @@ export function createApp({
   const store = new HotStore(redis, {
     prefix: config.redisPrefix,
     relayTtlSeconds: config.relayTtlHours * 3600,
+    relayDeviceBytes: config.relayDeviceMb * 1024 * 1024,
+    relaySenderBytes: config.relaySenderMb * 1024 * 1024,
     ...storeOptions,
   });
   const services = new Services({ pool, store });
@@ -97,7 +102,7 @@ export function createApp({
   const twoFactor = createTwoFactor({ pool, config, limits });
   const antiSpam = createAntiSpam({ pool, store, config, log });
   if (!config.totpKey) log.warn('TOTP_ENCRYPTION_KEY is not set: two-step secrets are stored unencrypted');
-  registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier, twoFactor, antiSpam });
+  registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier, twoFactor, antiSpam, blobs });
   registerTwoFactorRoutes(router, { pool, twoFactor, limits });
   registerDeviceRoutes(router, {
     pool,

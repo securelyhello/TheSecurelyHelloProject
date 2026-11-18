@@ -359,6 +359,14 @@ export class RealtimeHub {
     }
   }
 
+  /** Closes the sockets opened with these sessions ([hashes]: SHA-256 buffers). */
+  disconnectSessions(userId, hashes, code = 4001, reason = 'session ended') {
+    const wanted = new Set(hashes.map((h) => Buffer.from(h).toString('hex')));
+    for (const ws of this.sockets.get(userId) ?? []) {
+      if (wanted.has(ws.tokenHash)) ws.close(code, reason);
+    }
+  }
+
   /** Closes every socket of [userId] (account deletion). */
   disconnectUser(userId, code = 4001, reason = 'session ended') {
     for (const ws of this.sockets.get(userId) ?? []) ws.close(code, reason);

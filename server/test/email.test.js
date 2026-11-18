@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 
-import { api, connectWs, signup, startServer } from './helpers.js';
+import { api, connectWs, mailCount, nextCode, signup, startServer } from './helpers.js';
 
 describe('e-mail verification (required)', () => {
   let srv;
@@ -117,9 +117,10 @@ describe('password reset', () => {
     await ws.next((f) => f.type === 'hello');
     const closed = new Promise((resolve) => ws.ws.once('close', (code) => resolve(code)));
 
+    const before = mailCount(srv, a.email);
     const forgot = await api(srv.base, 'POST', '/api/auth/password/forgot', { body: { email: a.email.toUpperCase() } });
     assert.equal(forgot.status, 202);
-    const code = srv.mailer.lastCode(a.email);
+    const code = await nextCode(srv, a.email, before);
     assert.match(code, /^\d{6}$/);
 
     const bad = await api(srv.base, 'POST', '/api/auth/password/reset', {

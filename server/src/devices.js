@@ -572,10 +572,13 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
       return { status: 409, body: { error: 'devices_changed', message: 'The recipient\'s devices changed', devices: actual } };
     }
 
+    const seen = new Set();
     const parsed = body.messages.map((m, i) => {
       if (m === null || typeof m !== 'object') throw bad(`messages[${i}] must be an object`);
       const deviceId = v.uuid(m.device_id, `messages[${i}].device_id`);
       if (!known.has(deviceId)) throw bad(`messages[${i}].device_id is not in known_devices`);
+      if (seen.has(deviceId)) throw bad(`messages[${i}].device_id appears twice`);
+      seen.add(deviceId);
       return {
         deviceId,
         envelope: validateEnvelope(m.envelope, { senderId: user.id, senderDevice, recipientDevice: deviceId }),
@@ -591,7 +594,12 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
         recipientDevice: m.deviceId,
         envelope: m.envelope,
       });
-      if (!msg) throw new HttpError(429, 'recipient_queue_full', 'The recipient has too many undelivered messages');
+      if (msg.full === 'recipient') {
+        throw new HttpError(429, 'recipient_queue_full', 'The recipient has too many undelivered messages');
+      }
+      if (msg.full === 'sender') {
+        throw new HttpError(429, 'relay_budget', 'Too much of what you sent is still undelivered. Try again later.');
+      }
       const pushed =
         hub.sendToDevice(recipientId, m.deviceId, {
           type: 'relay',

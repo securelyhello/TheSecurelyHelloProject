@@ -32,8 +32,15 @@ export function registerInviteRoutes(router, { pool, hub, services, limits, conf
 
   const inviteUrl = (token) => `${config.inviteBaseUrl}${token}`;
 
+  async function isVerified(client, userId) {
+    const { rows } = await client.query('SELECT email_verified_at FROM users WHERE id = $1', [userId]);
+    return rows[0]?.email_verified_at != null;
+  }
+  const unverified = () => new HttpError(403, 'email_unverified', 'Verify your e-mail address first');
+
   router.add('POST', '/api/invites', async ({ user }) => {
     await limit('invite', user.id);
+    if (config.emailVerification === 'required' && !(await isVerified(pool, user.id))) throw unverified();
     await antiSpam.checkCanRequest(user.id);
     const token = randomBytes(16).toString('base64url');
     await pool.query(
@@ -91,6 +98,9 @@ export function registerInviteRoutes(router, { pool, hub, services, limits, conf
     const inviterId = await withTransaction(pool, async (client) => {
       const row = await openInvite(client, params.token, { lock: true });
       if (row.inviter_id === user.id) throw bad('This is your own invite', 'own_invite');
+      if (config.emailVerification === 'required' && !(await isVerified(client, row.inviter_id))) {
+        throw new HttpError(404, 'invite_invalid', 'This invite link has expired or was revoked');
+      }
       // Either side's block wins, silently for the inviter.
       if ((await hasBlocked(client, row.inviter_id, user.id)) || (await hasBlocked(client, user.id, row.inviter_id))) {
         throw new HttpError(404, 'invite_invalid', 'This invite link has expired or was revoked');
@@ -121,6 +131,13 @@ export function registerInviteRoutes(router, { pool, hub, services, limits, conf
   router.add('PUT', '/api/me/discovery', async ({ body, user }) => {
     v.requireObject(body);
     if (typeof body.email_discoverable !== 'boolean') throw bad('email_discoverable must be true or false');
+    if (body.email_discoverable) {
+      // Otherwise anyone could claim an address and appear under its owner's name.
+      const { rows } = await pool.query('SELECT email_verified_at FROM users WHERE id = $1', [user.id]);
+      if (!rows[0]?.email_verified_at) {
+        throw new HttpError(403, 'email_unverified', 'Verify your e-mail address before letting people find you by it');
+      }
+    }
     await pool.query('UPDATE users SET email_discoverable = $2 WHERE id = $1', [user.id, body.email_discoverable]);
     return { email_discoverable: body.email_discoverable };
   });
@@ -152,7 +169,8 @@ export function registerInviteRoutes(router, { pool, hub, services, limits, conf
       `SELECT u.id, u.username, u.display_name, u.email_hash,
               EXISTS (SELECT 1 FROM contacts c WHERE c.owner_id = $2 AND c.contact_id = u.id) AS is_contact
          FROM users u
-        WHERE u.email_discoverable AND u.email_hash = ANY($1::bytea[]) AND u.id <> $2
+        WHERE u.email_discoverable AND u.email_verified_at IS NOT NULL
+          AND u.email_hash = ANY($1::bytea[]) AND u.id <> $2
           AND u.suspended_at IS NULL
           AND NOT EXISTS (SELECT 1 FROM blocks b
                            WHERE (b.blocker_id = u.id AND b.blocked_id = $2) OR (b.blocker_id = $2 AND b.blocked_id = u.id))

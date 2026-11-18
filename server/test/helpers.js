@@ -322,3 +322,18 @@ export async function connectWs(wsUrl, token) {
 }
 
 export const ofType = (type, extra = () => true) => (f) => f.type === type && extra(f);
+
+/** Waits for a message to [to] newer than the [before]-th one; returns its code. */
+export async function nextCode(srv, to, before) {
+  const count = () => srv.mailer.sent.filter((m) => m.to.toLowerCase() === to.toLowerCase()).length;
+  for (let i = 0; i < 100 && count() <= before; i++) await new Promise((r) => setTimeout(r, 20));
+  return srv.mailer.lastCode(to);
+}
+
+/** How many messages [to] has been sent so far. */
+export const mailCount = (srv, to) => srv.mailer.sent.filter((m) => m.to.toLowerCase() === to.toLowerCase()).length;
+
+/** Marks [user]'s e-mail as verified (tests that aren't about verification). */
+export async function verifyEmail(srv, user) {
+  await srv.pool.query('UPDATE users SET email_verified_at = now() WHERE id = $1', [user.id]);
+}

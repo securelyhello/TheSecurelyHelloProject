@@ -27,7 +27,7 @@ const USER_COLUMNS =
  * @param {import('./services.js').Services} deps.services
  * @param {import('./ratelimit.js').RateLimits} deps.limits
  */
-export function registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier, twoFactor, antiSpam }) {
+export function registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier, twoFactor, antiSpam, blobs }) {
   const verificationRequired = config.emailVerification === 'required';
   // ---------------------------------------------------------------------------
   // Serialization
@@ -205,10 +205,11 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
   );
 
   // The client closes its own WebSocket; a revoked token cannot open another.
-  router.add('POST', '/api/auth/signout', async ({ token }) => {
+  router.add('POST', '/api/auth/signout', async ({ token, user }) => {
     const hash = hashToken(token);
     await pool.query('DELETE FROM sessions WHERE token_hash = $1', [hash]);
     await services.revokeCachedSessions([hash]);
+    hub.disconnectSessions(user.id, [hash]);
   });
 
   router.add('POST', '/api/auth/change-password', async ({ body, user, token }) => {
@@ -233,6 +234,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       return res.rows.map((r) => r.token_hash);
     });
     await services.revokeCachedSessions(revoked);
+    hub.disconnectSessions(user.id, revoked);
   });
 
   // ---- e-mail verification ----
@@ -289,7 +291,8 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       await limit('emailSend', `reset:${email.toLowerCase()}`);
       const { rows } = await pool.query('SELECT id, email FROM users WHERE lower(email) = lower($1)', [email]);
       if (rows[0]) {
-        await issueCode(rows[0].id, rows[0].email, 'reset').catch((err) =>
+        // Not awaited: the answer must take as long whether or not the address exists.
+        issueCode(rows[0].id, rows[0].email, 'reset').catch((err) =>
           log.warn('reset e-mail failed', { user: rows[0].id, error: err.message }),
         );
       }
@@ -314,10 +317,11 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       await limit('authAccount', email.toLowerCase());
       const found = await pool.query('SELECT id, suspended_at FROM users WHERE lower(email) = lower($1)', [email]);
       const userId = found.rows[0]?.id;
-      if (found.rows[0]?.suspended_at) throw new HttpError(403, 'suspended', 'This account is suspended');
       if (!userId || !(await consumeCode(userId, 'reset', body.code, { keep: true }))) {
         throw new HttpError(400, 'invalid_code', 'That code is wrong or has expired');
       }
+      // Only after the code, so this can't reveal which addresses are suspended.
+      if (found.rows[0].suspended_at) throw new HttpError(403, 'suspended', 'This account is suspended');
       // The inbox alone isn't enough when two-step verification is on.
       await twoFactor.require(userId, body.otp);
       if (!(await consumeCode(userId, 'reset', body.code))) {
@@ -398,6 +402,14 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
   });
 
   router.add('DELETE', '/api/me', async ({ user }) => {
+    // Blobs outside Postgres aren't removed by the cascade (audit run 1, U3-4).
+    const { rows: files } = await pool.query(
+      "SELECT id FROM attachments WHERE uploader_id = $1 AND storage <> 'postgres'",
+      [user.id],
+    );
+    for (const f of files) {
+      await blobs.delete(f.id).catch((err) => log.warn('blob delete failed', { id: f.id, error: err.message }));
+    }
     const contacts = await services.contactIds(user.id);
     const devices = await services.deviceIds(user.id);
     // ON DELETE CASCADE removes sessions, requests and contacts.

@@ -22,6 +22,13 @@ export async function isBlocked(pool, a, b) {
 }
 
 /** Did [blocker] block [blocked]? */
+/**
+ * SQL: had the account $2 dealt with $1 (a contact, or a request from $2)?
+ * Only such reports and blocks count towards automatic restrictions.
+ */
+const RELATED_SQL = `(EXISTS (SELECT 1 FROM contacts WHERE owner_id = $1 AND contact_id = $2)
+  OR EXISTS (SELECT 1 FROM contact_requests WHERE sender_id = $2 AND receiver_id = $1))`;
+
 export async function hasBlocked(pool, blocker, blocked) {
   const { rows } = await pool.query('SELECT 1 FROM blocks WHERE blocker_id = $1 AND blocked_id = $2', [
     blocker,
@@ -48,10 +55,11 @@ export function registerSafetyRoutes(router, { pool, hub, services, limits, conf
     const hadContact = await withTransaction(pool, async (client) => {
       const exists = await client.query('SELECT 1 FROM users WHERE id = $1', [target]);
       if (!exists.rows[0]) throw new HttpError(404, 'not_found', 'No such user');
-      await client.query('INSERT INTO blocks (blocker_id, blocked_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [
-        user.id,
-        target,
-      ]);
+      await client.query(
+        `INSERT INTO blocks (blocker_id, blocked_id, related) VALUES ($1, $2, ${RELATED_SQL})
+         ON CONFLICT DO NOTHING`,
+        [user.id, target],
+      );
       const removed = await client.query(
         `DELETE FROM contacts WHERE (owner_id = $1 AND contact_id = $2) OR (owner_id = $2 AND contact_id = $1)`,
         [user.id, target],
@@ -114,8 +122,8 @@ export function registerSafetyRoutes(router, { pool, hub, services, limits, conf
       };
     });
     const { rows } = await pool.query(
-      `INSERT INTO reports (reporter_id, reported_id, reason, details, evidence)
-       SELECT $1, u.id, $3, $4, $5 FROM users u WHERE u.id = $2 RETURNING id`,
+      `INSERT INTO reports (reporter_id, reported_id, reason, details, evidence, related)
+       SELECT $1, u.id, $3, $4, $5, ${RELATED_SQL} FROM users u WHERE u.id = $2 RETURNING id`,
       [user.id, target, body.reason, details, JSON.stringify(clean)],
     );
     if (!rows[0]) throw new HttpError(404, 'not_found', 'No such user');

@@ -115,9 +115,9 @@ export function createAntiSpam({ pool, store, config, log }) {
     const { rows } = await pool.query(
       `SELECT
          (SELECT count(DISTINCT reporter_id)::int FROM reports
-           WHERE reported_id = $1 AND created_at > now() - interval '7 days') AS reporters,
+           WHERE reported_id = $1 AND related AND created_at > now() - interval '7 days') AS reporters,
          (SELECT count(*)::int FROM blocks
-           WHERE blocked_id = $1 AND created_at > now() - interval '7 days') AS blockers,
+           WHERE blocked_id = $1 AND related AND created_at > now() - interval '7 days') AS blockers,
          (SELECT count(*) FILTER (WHERE status = 'rejected')::int FROM contact_requests
            WHERE sender_id = $1 AND updated_at > now() - interval '1 day') AS rejected,
          (SELECT count(*) FILTER (WHERE status IN ('rejected', 'accepted'))::int FROM contact_requests

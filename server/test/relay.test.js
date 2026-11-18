@@ -208,6 +208,46 @@ describe('relay queue', () => {
     assert.equal((await send(a, b)).status, 403);
   });
 
+  // Audit run 1, U2-2: undelivered bytes are budgeted per device and per
+  // sender, so one account can't fill Redis.
+  test('undelivered bytes are capped per recipient device and per sender, and acks give them back', async () => {
+    const [a, b] = await pair('bytes');
+    const c = await signup(srv.base, 'bytes_c');
+    await makeContacts(srv.base, b, c);
+    const saved = [srv.store.relayDeviceBytes, srv.store.relaySenderBytes];
+    srv.store.relayDeviceBytes = 2000;
+    srv.store.relaySenderBytes = 3000;
+    try {
+      assert.equal((await send(b, a)).status, 201);
+      assert.equal((await send(b, a)).status, 201);
+      const full = await send(b, a);
+      assert.equal(full.body.error, 'recipient_queue_full', 'about 2 KB queued for one device');
+      assert.equal((await send(b, c)).status, 201);
+      const over = await send(b, c);
+      assert.equal(over.body.error, 'relay_budget', "the sender's own budget");
+
+      const queued = await api(srv.base, 'GET', '/api/relay', { token: a.token });
+      await api(srv.base, 'POST', '/api/relay/ack', { token: a.token, body: { ids: queued.body.map((m) => m.id) } });
+      assert.equal((await send(b, a)).status, 201, 'acked bytes are free again');
+    } finally {
+      [srv.store.relayDeviceBytes, srv.store.relaySenderBytes] = saved;
+    }
+  });
+
+  test('the same device can only appear once per request', async () => {
+    const [a, b] = await pair('dupe');
+    const env = envelopeFrom(a, b.deviceId);
+    const res = await api(srv.base, 'POST', '/api/relay', {
+      token: a.token,
+      body: {
+        recipient_id: b.id,
+        known_devices: [b.deviceId],
+        messages: [{ device_id: b.deviceId, envelope: env }, { device_id: b.deviceId, envelope: env }],
+      },
+    });
+    assert.equal(res.status, 400);
+  });
+
   test('a full recipient queue is refused instead of dropping messages', async () => {
     const [a, b] = await pair('full');
     const small = srv.store.relayQueueCap;

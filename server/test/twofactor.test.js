@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 
 import { base32Decode, base32Encode, createTwoFactor, hotp, matchStep, stepAt } from '../src/twofactor.js';
-import { addDevice, api, registerDevice, signup, startServer } from './helpers.js';
+import { addDevice, api, mailCount, nextCode, registerDevice, signup, startServer } from './helpers.js';
 
 describe('TOTP primitives', () => {
   test('RFC 6238 SHA-1 vectors (last six digits)', () => {
@@ -113,8 +113,9 @@ describe('two-step verification', () => {
   test('password reset by e-mail also needs the second factor', async () => {
     const a = await signup(srv.base, 'tf_reset');
     const { recovery } = await enable(a);
+    const before = mailCount(srv, a.email);
     await api(srv.base, 'POST', '/api/auth/password/forgot', { body: { email: a.email } });
-    const code = srv.mailer.lastCode(a.email);
+    const code = await nextCode(srv, a.email, before);
     const body = { email: a.email, code, new_password: 'a brand new password' };
 
     const noOtp = await api(srv.base, 'POST', '/api/auth/password/reset', { body });

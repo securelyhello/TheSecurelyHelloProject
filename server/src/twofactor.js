@@ -230,6 +230,8 @@ export function registerTwoFactorRoutes(router, { pool, twoFactor, limits }) {
   router.add('POST', '/api/me/2fa/recovery-codes', async ({ body, user }) => {
     await checkPassword(user.id, body?.password);
     if (!(await twoFactor.enabled(user.id))) throw new HttpError(409, 'not_enabled', 'Two-step verification is off');
+    // New codes are as good as the authenticator, so they need it (audit run 1, U1-1).
+    await twoFactor.require(user.id, body?.code);
     return { recovery_codes: await withTransaction(pool, (client) => twoFactor.newRecoveryCodes(client, user.id)) };
   });
 }
