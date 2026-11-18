@@ -69,6 +69,22 @@ class DeviceManager {
           String userId, String deviceId, String signingKey, String identityKey) =>
       'securelyhello-approve-v1|$userId|$deviceId|$signingKey|$identityKey';
 
+  /// What a device signs to take itself back in a new session (matches
+  /// server/src/devices.js, deviceProofMessage).
+  static String proofMessage(String userId, String deviceId, String tokenHash,
+          String signingKey, String identityKey) =>
+      'securelyhello-device-proof-v1|$userId|$deviceId|$tokenHash|$signingKey|$identityKey';
+
+  String? _proof(CryptoIdentity identity, String deviceId) {
+    final userId = _directory.myUserId;
+    final tokenHash = _directory.sessionTokenHash;
+    if (userId == null || tokenHash == null) return null;
+    final msg = proofMessage(userId, deviceId, tokenHash, identity.publicSigningKeyBase64,
+        identity.publicEncryptionKeyBase64);
+    final signed = identity.signingKey.sign(Uint8List.fromList(utf8.encode(msg)));
+    return base64Encode(Uint8List.fromList(signed.signature));
+  }
+
   /// Our device's signature approving another device of the account.
   static String signApproval(CryptoIdentity me, String userId, String deviceId,
       String signingKey, String identityKey) {
@@ -91,6 +107,7 @@ class DeviceManager {
     final fresh = stored == null;
     var res = await _directory.registerDevice(
       deviceId: stored,
+      proof: stored == null ? null : _proof(identity, stored),
       name: name ?? defaultName(),
       signingKey: identity.publicSigningKeyBase64,
       identityKey: identity.publicEncryptionKeyBase64,

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:crypto/crypto.dart' as hash;
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
@@ -229,6 +230,13 @@ class DirectoryService {
   StoredSession? get session => _session;
   String? get myUserId => _session?.userId;
 
+  /// SHA-256 of the session token, hex: what a device proof is bound to
+  /// (server/src/devices.js, deviceProofMessage).
+  String? get sessionTokenHash {
+    final token = _session?.token;
+    return token == null ? null : hash.sha256.convert(utf8.encode(token)).toString();
+  }
+
   // ===========================================================================
   // Auth
   // ===========================================================================
@@ -387,10 +395,12 @@ class DirectoryService {
     required String identityKey,
     required Map<String, dynamic> signedPreKey,
     List<Map<String, dynamic>> oneTimePreKeys = const [],
+    String? proof,
   }) async =>
       Map<String, dynamic>.from(await _request('PUT', '/api/devices/current',
           body: {
             if (deviceId != null) 'device_id': deviceId,
+            if (proof != null) 'proof': proof,
             'name': name,
             'signing_public_key': signingKey,
             'identity_public_key': identityKey,

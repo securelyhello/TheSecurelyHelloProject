@@ -12,7 +12,8 @@ import { createApp, loadConfig } from '../src/app.js';
 import { createPool } from '../src/db.js';
 import { createRedis } from '../src/hotstore.js';
 import { silentLogger } from '../src/log.js';
-import { approvalMessage, signedPreKeyMessage } from '../src/devices.js';
+import { approvalMessage, deviceProofMessage, signedPreKeyMessage } from '../src/devices.js';
+import { hashToken } from '../src/security.js';
 import { captureMailer } from '../src/mail.js';
 import { migrate } from '../src/migrate.js';
 
@@ -152,12 +153,26 @@ export function signSpk(privateKey, id, key) {
 }
 
 /** Registers a device for [token]; returns {deviceId, keys}. */
+/**
+ * Registers a device for [token]. opts.keys reuses existing keys (same
+ * install); opts.proveWith signs the device proof with that private key, as
+ * a client must when taking its device back or changing its keys.
+ */
 export async function registerDevice(base, token, opts = {}) {
-  const keys = newDeviceKeys(opts);
-  const res = await api(base, 'PUT', '/api/devices/current', {
-    token,
-    body: { ...keys.body, name: opts.name ?? 'test device', ...(opts.deviceId ? { device_id: opts.deviceId } : {}) },
-  });
+  const keys = opts.keys ?? newDeviceKeys(opts);
+  const body = { ...keys.body, name: opts.name ?? 'test device', ...(opts.deviceId ? { device_id: opts.deviceId } : {}) };
+  if (opts.proveWith && opts.deviceId) {
+    const me = await api(base, 'GET', '/api/me', { token });
+    const msg = deviceProofMessage(
+      me.body.user_id,
+      opts.deviceId,
+      hashToken(token).toString('hex'),
+      body.signing_public_key,
+      body.identity_public_key,
+    );
+    body.proof = sign(null, msg, opts.proveWith).toString('base64');
+  }
+  const res = await api(base, 'PUT', '/api/devices/current', { token, body });
   if (res.status !== 201 && res.status !== 200) {
     throw new Error(`device registration failed: ${res.status} ${JSON.stringify(res.body)}`);
   }

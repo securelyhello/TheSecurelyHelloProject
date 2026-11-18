@@ -144,7 +144,11 @@ describe('devices', () => {
     const a = await signup(srv.base, 'reinstall');
     await api(srv.base, 'POST', '/api/auth/signout', { token: a.token });
     const signin = await api(srv.base, 'POST', '/api/auth/signin', { body: { email: a.email, password: a.password } });
-    const again = await registerDevice(srv.base, signin.body.token, { deviceId: a.deviceId });
+    const again = await registerDevice(srv.base, signin.body.token, {
+      deviceId: a.deviceId,
+      keys: a.deviceKeys,
+      proveWith: a.deviceKeys.privateKey,
+    });
     assert.equal(again.deviceId, a.deviceId);
     const list = await api(srv.base, 'GET', '/api/devices', { token: signin.body.token });
     assert.equal(list.body.length, 1);

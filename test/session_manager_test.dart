@@ -43,6 +43,7 @@ class FakeDirectory extends DirectoryService {
     required String identityKey,
     required Map<String, dynamic> signedPreKey,
     List<Map<String, dynamic>> oneTimePreKeys = const [],
+    String? proof,
   }) async {
     final mine = server.devices.putIfAbsent(userId, () => {});
     final id = this.deviceId ??

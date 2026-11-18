@@ -108,12 +108,45 @@ describe('new-device approval', () => {
     assert.deepEqual(devices.body.map((d) => [d.device_id, d.approved]), [[fresh.deviceId, true]]);
   });
 
-  test('re-registering a device with new keys needs approval again', async () => {
+  test("changing a device's keys needs its current key, which keeps it approved", async () => {
     const a = await signup(srv.base, 'rekey_a');
     const laptop = await addDevice(srv.base, a);
     const { registerDevice } = await import('./helpers.js');
-    const again = await registerDevice(srv.base, laptop.token, { deviceId: laptop.deviceId });
+    await assert.rejects(registerDevice(srv.base, laptop.token, { deviceId: laptop.deviceId }), /device_proof_required/);
+    const again = await registerDevice(srv.base, laptop.token, {
+      deviceId: laptop.deviceId,
+      proveWith: laptop.deviceKeys.privateKey,
+    });
     assert.equal(again.deviceId, laptop.deviceId);
-    assert.equal((await api(srv.base, 'GET', '/api/devices/current', { token: laptop.token })).body.approved, false);
+    assert.equal((await api(srv.base, 'GET', '/api/devices/current', { token: laptop.token })).body.approved, true);
+  });
+
+  // Audit run 1, U2-1: the password alone used to be enough to replace a
+  // single-device account's device with an approved one.
+  test('the password alone cannot take over or replace the only device', async () => {
+    const { registerDevice } = await import('./helpers.js');
+    const victim = await signup(srv.base, 'takeover_v');
+    const signin = await api(srv.base, 'POST', '/api/auth/signin', {
+      body: { email: victim.email, password: victim.password },
+    });
+    const attacker = signin.body.token;
+    // Claiming the victim's device id with new keys, or with the same public
+    // keys but no proof, is refused.
+    await assert.rejects(registerDevice(srv.base, attacker, { deviceId: victim.deviceId }), /device_proof_required/);
+    await assert.rejects(
+      registerDevice(srv.base, attacker, { deviceId: victim.deviceId, keys: victim.deviceKeys }),
+      /device_proof_required/,
+    );
+    // A new device waits for approval, and can't delete the approved one to
+    // become "first".
+    const fresh = await registerDevice(srv.base, attacker);
+    assert.equal((await api(srv.base, 'GET', '/api/devices/current', { token: attacker })).body.approved, false);
+    const del = await api(srv.base, 'DELETE', `/api/devices/${victim.deviceId}`, { token: attacker });
+    assert.equal(del.status, 403);
+    // It may remove itself.
+    assert.equal((await api(srv.base, 'DELETE', `/api/devices/${fresh.deviceId}`, { token: attacker })).status, 204);
+    const after = await signup(srv.base, 'takeover_check');
+    assert.ok(after.deviceId, 'first devices of new accounts are still approved on their own');
+    assert.equal((await api(srv.base, 'GET', '/api/devices/current', { token: after.token })).body.approved, true);
   });
 });

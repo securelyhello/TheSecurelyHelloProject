@@ -86,6 +86,15 @@ const deviceJson = (row, { withName }) => ({
  * @param {import('./http.js').Router} router
  */
 /** What an approving device signs: the new device's identity, for one account. */
+/**
+ * What a client signs, with its device's CURRENT signing key, to take its
+ * device back in a new session or to change that device's keys. Binding the
+ * session (SHA-256 of its token) stops the signature being reused elsewhere.
+ */
+export function deviceProofMessage(userId, deviceId, tokenHashHex, signingKey, identityKey) {
+  return Buffer.from(`securelyhello-device-proof-v1|${userId}|${deviceId}|${tokenHashHex}|${signingKey}|${identityKey}`);
+}
+
 export function approvalMessage(userId, deviceId, signingKey, identityKey) {
   return Buffer.from(`securelyhello-approve-v1|${userId}|${deviceId}|${signingKey}|${identityKey}`, 'utf8');
 }
@@ -172,16 +181,21 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
       }
       let created = false;
       let keysChanged = false;
-      // The first approved device of an account is trusted on its own; any
-      // later one waits for approval.
-      const { rows: approvedRows } = await client.query(
-        'SELECT count(*)::int AS n FROM devices WHERE user_id = $1 AND approved_at IS NOT NULL AND id <> $2',
-        [user.id, deviceId ?? '00000000-0000-0000-0000-000000000000'],
-      );
-      const autoApprove = approvedRows[0].n === 0;
       if (existing) {
         keysChanged =
           existing.signing_public_key !== signingKey || existing.identity_public_key !== identityKey;
+        // Taking a device back in a new session, or changing its keys, needs
+        // its current signing key: knowing the password or holding a token
+        // is not proof of being that device.
+        if (!user.deviceId || keysChanged) {
+          const proof = typeof body.proof === 'string' && SIG_RE.test(body.proof) ? body.proof : null;
+          const message = deviceProofMessage(
+            user.id, deviceId, hashToken(token).toString('hex'), signingKey, identityKey,
+          );
+          if (!proof || !ed25519Verify(existing.signing_public_key, message, proof)) {
+            throw new HttpError(403, 'device_proof_required', "This device's key is needed to use it again");
+          }
+        }
         if (keysChanged) await client.query('DELETE FROM one_time_prekeys WHERE device_id = $1', [deviceId]);
         await client.query(
           `UPDATE devices SET name = COALESCE(NULLIF($2, ''), name), signing_public_key = $3, identity_public_key = $4,
@@ -190,14 +204,8 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
             WHERE id = $1`,
           [deviceId, name, signingKey, identityKey, spk.id, spk.key, spk.signature],
         );
-        // New keys on a known device id (reinstall) need approving again.
-        if (keysChanged) {
-          await client.query(
-            `UPDATE devices SET approved_at = CASE WHEN $2 THEN now() END, approved_by = NULL,
-                    approval_signature = NULL WHERE id = $1`,
-            [deviceId, autoApprove],
-          );
-        }
+        // A key change was signed by the old key, so the device keeps its
+        // approval; contacts are told its keys changed.
       } else {
         const { rows: count } = await client.query('SELECT count(*)::int AS n FROM devices WHERE user_id = $1', [
           user.id,
@@ -205,6 +213,15 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
         if (count[0].n >= MAX_DEVICES_PER_USER) {
           throw new HttpError(409, 'too_many_devices', `Remove a device first (limit ${MAX_DEVICES_PER_USER})`);
         }
+        // Only an account's very first device is trusted on its own; any
+        // later one waits for approval by an existing device or recovery.
+        const { rows: first } = await client.query(
+          `UPDATE users u SET first_device_at = COALESCE(u.first_device_at, now())
+             FROM (SELECT first_device_at AS before FROM users WHERE id = $1) old
+            WHERE u.id = $1 RETURNING old.before`,
+          [user.id],
+        );
+        const autoApprove = first[0].before == null;
         const { rows } = await client.query(
           `INSERT INTO devices (user_id, name, signing_public_key, identity_public_key,
                                 signed_prekey_id, signed_prekey, signed_prekey_signature, approved_at)
@@ -402,6 +419,8 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
   /** Unlinks a device: its sessions end and its queue is dropped. */
   router.add('DELETE', '/api/devices/:id', async ({ params, user }) => {
     const id = v.uuid(params.id);
+    // A device waiting for approval may remove itself, not the others.
+    if (id !== user.deviceId) await requireApprovedDevice(user);
     const revoked = await withTransaction(pool, async (client) => {
       const sessions = await client.query('SELECT token_hash FROM sessions WHERE device_id = $1', [id]);
       const { rowCount } = await client.query('DELETE FROM devices WHERE id = $1 AND user_id = $2', [id, user.id]);
