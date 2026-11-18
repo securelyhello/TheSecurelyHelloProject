@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:securelyhello/core/chat/attachment_service.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
+import 'package:securelyhello/core/media/voice.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
 import 'package:securelyhello/core/crypto/crypto_core.dart';
 
@@ -246,6 +247,25 @@ class ChatProvider extends ChangeNotifier {
   AttachmentService get attachments => _chatService.attachments;
 
   /// Encrypts, uploads and sends a file.
+  /// Sends a voice note; false (with [errorMessage]) if it couldn't.
+  Future<bool> sendVoiceNote(String contactId, VoiceClip clip) async {
+    _errorMessage = null;
+    _uploading.add(contactId);
+    notifyListeners();
+    try {
+      await _chatService.sendVoiceNote(contactId, clip);
+      return true;
+    } catch (e) {
+      _errorMessage = e is AttachmentTooLargeException || e is ApiException || e is NetworkException
+          ? e.toString()
+          : 'Failed to send the voice message: $e';
+      return false;
+    } finally {
+      _uploading.remove(contactId);
+      notifyListeners();
+    }
+  }
+
   Future<bool> sendAttachment(
     String contactId, {
     required Uint8List bytes,

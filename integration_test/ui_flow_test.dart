@@ -20,6 +20,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:securelyhello/features/chat/widgets/voice_note.dart';
+import 'package:securelyhello/core/media/voice.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
 import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
@@ -320,6 +322,14 @@ void main() {
       }
       await settle(1500);
       await shot('12b_chat_attachments');
+
+      // ---- a voice note ----------------------------------------------------
+      final wave = [for (var i = 0; i < 48; i++) 6 + ((i * 7) % 23)];
+      await mira.chat.sendVoiceNote(me.auth.myUserId!,
+          VoiceClip(Uint8List.fromList(List.generate(20000, (i) => i % 251)), const Duration(seconds: 14), wave));
+      await waitFor(find.byType(VoiceNoteView), 'voice note bubble');
+      await settle(1200);
+      await shot('12d_voice_note');
 
       mira.chat.sendTyping(me.auth.myUserId!, true);
       await tester.enterText(find.byType(EditableText).last, 'Want to verify our safety number?');

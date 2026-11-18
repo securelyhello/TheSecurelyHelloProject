@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/features/chat/widgets/voice_note.dart';
+import 'package:securelyhello/core/media/voice.dart';
 import 'package:securelyhello/core/chat/chat_service.dart' show ChatService, Message, Verification;
 import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
 import 'package:securelyhello/core/notifications/notification_service.dart';
@@ -301,6 +303,11 @@ class _ChatScreenState extends State<ChatScreen> {
     } else if (choice == 'me') {
       await _chat.deleteForMe(_id, m.id);
     }
+  }
+
+  Future<void> _sendVoice(VoiceClip clip) async {
+    final ok = await _chat.sendVoiceNote(_id, clip);
+    if (!ok && mounted) showAppSnackBar(context, friendlyError(_chat.errorMessage), error: true);
   }
 
   /// Picks a file and sends it, encrypted, with whatever is typed as the
@@ -612,6 +619,7 @@ class _ChatScreenState extends State<ChatScreen> {
               focusNode: _focus,
               onSend: _send,
               onAttach: _editing == null ? _attach : null,
+              onVoice: _editing == null ? _sendVoice : null,
               header: _editing != null
                   ? _quote({'id': _editing!.id, 'from': _chat.myUserId, 'preview': 'Editing: ${_editing!.content}'},
                       contact, onClose: () {
@@ -712,6 +720,13 @@ class _ChatScreenState extends State<ChatScreen> {
           onReactionsTap: () => _pickReaction(m),
           attachment: m.attachment == null
               ? null
+              : VoiceNote.isVoice(m.attachment)
+              ? VoiceNoteView(
+                  key: ValueKey('voice-${m.id}'),
+                  meta: m.attachment!,
+                  service: _chat.attachments,
+                  isSent: m.isFromMe,
+                )
               : AttachmentView(
                   key: ValueKey('att-${m.id}'),
                   meta: m.attachment!,

@@ -20,6 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:securelyhello/core/chat/chat_service.dart';
 import 'package:securelyhello/core/invites/invites.dart';
+import 'package:securelyhello/core/media/voice.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
 import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
@@ -441,6 +442,21 @@ void main() {
           what: "Bob receives Alice's photo");
       expect(bob.chat.profiles.aboutOf(alice.id), 'Hello from Alice');
       expect(img.decodeJpg(bob.chat.profiles.photoOf(alice.id)!)!.width, 256);
+
+      // A voice note: an encrypted audio attachment with duration and waveform.
+      final audio = Uint8List.fromList(List.generate(90000, (i) => (i * 7) % 256));
+      final voice = await alice.chat.sendVoiceNote(
+          bob.id, VoiceClip(audio, const Duration(seconds: 6), List.filled(48, 20)));
+      late Message heard;
+      await until(() async {
+        final got = (await bob.messagesWith(alice)).where((m) => m.id == voice.id);
+        if (got.isEmpty) return false;
+        heard = got.single;
+        return true;
+      }, what: 'Bob receives the voice note');
+      expect(VoiceNote.isVoice(heard.attachment), isTrue);
+      expect(VoiceNote.durationOf(heard.attachment!), const Duration(seconds: 6));
+      expect(await bob.chat.attachments.load(heard.attachment!), audio);
 
       // ---- Bob verifies Alice ------------------------------------------------
       expect(await bob.chat.verificationOf(alice.id), Verification.unverified);

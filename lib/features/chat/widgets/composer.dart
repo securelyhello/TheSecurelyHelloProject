@@ -1,6 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'package:securelyhello/shared/widgets/app_dialogs.dart';
+import 'package:securelyhello/features/chat/widgets/voice_note.dart';
+import 'package:securelyhello/core/media/voice.dart';
 import 'package:securelyhello/core/security/app_lock.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -20,6 +23,7 @@ class Composer extends StatefulWidget {
     required this.onSend,
     this.onChanged,
     this.onAttach,
+    this.onVoice,
     this.uploading = false,
     this.header,
     this.enabled = true,
@@ -34,6 +38,9 @@ class Composer extends StatefulWidget {
   /// Pick and send a file. The button is hidden when null.
   final VoidCallback? onAttach;
 
+  /// Sends a recorded voice note; the mic shows when there is no text.
+  final Future<void> Function(VoiceClip clip)? onVoice;
+
   /// An attachment is being encrypted and uploaded.
   final bool uploading;
 
@@ -46,9 +53,7 @@ class Composer extends StatefulWidget {
   static bool get enterSends {
     if (kIsWeb) return true;
     return switch (defaultTargetPlatform) {
-      TargetPlatform.linux ||
-      TargetPlatform.macOS ||
-      TargetPlatform.windows => true,
+      TargetPlatform.linux || TargetPlatform.macOS || TargetPlatform.windows => true,
       _ => false,
     };
   }
@@ -58,6 +63,32 @@ class Composer extends StatefulWidget {
 }
 
 class _ComposerState extends State<Composer> {
+  VoiceRecorder? _recorder;
+
+  Future<void> _startRecording() async {
+    final rec = VoiceMedia.of(context).recorder();
+    if (!await rec.hasPermission()) {
+      await rec.dispose();
+      if (mounted) {
+        showAppSnackBar(context, 'Allow microphone access to record voice messages', error: true);
+      }
+      return;
+    }
+    await rec.start();
+    if (!mounted) {
+      await rec.cancel();
+      await rec.dispose();
+      return;
+    }
+    setState(() => _recorder = rec);
+  }
+
+  void _stopRecording() {
+    final rec = _recorder;
+    if (mounted) setState(() => _recorder = null);
+    rec?.dispose();
+  }
+
   bool _hasText = false;
 
   @override
@@ -131,94 +162,100 @@ class _ComposerState extends State<Composer> {
             border: Border(top: BorderSide(color: p.divider)),
           ),
           padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (widget.header != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: widget.header,
-                ),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  if (widget.onAttach != null)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 4),
-                      child: SizedBox(
-                        width: 46,
-                        height: 46,
-                        child: widget.uploading
-                            ? Padding(
-                                padding: const EdgeInsets.all(13),
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: p.accent,
-                                ),
-                              )
-                            : IconButton(
-                                key: const ValueKey('composer-attach'),
-                                tooltip: 'Attach a file',
-                                icon: Icon(
-                                  LucideIcons.paperclip,
-                                  color: p.textMuted,
-                                ),
-                                onPressed: widget.enabled
-                                    ? widget.onAttach
-                                    : null,
-                              ),
-                      ),
-                    ),
-                  Expanded(
-                    child: TextField(
-                      controller: widget.controller,
-                      enableIMEPersonalizedLearning: !incognitoKeyboard(context),
-                      focusNode: widget.focusNode,
-                      enabled: widget.enabled,
-                      minLines: 1,
-                      maxLines: 6,
-                      keyboardType: TextInputType.multiline,
-                      textInputAction: TextInputAction.newline,
-                      textCapitalization: TextCapitalization.sentences,
-                      onChanged: widget.onChanged,
-                      style: t.bodyLarge?.copyWith(
-                        fontSize: 15.5,
-                        height: 1.35,
-                      ),
-                      cursorColor: p.accent,
-                      decoration: InputDecoration(
-                        hintText: widget.hint,
-                        filled: true,
-                        fillColor: p.inputFill,
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 12,
-                        ),
-                        border: border,
-                        enabledBorder: border,
-                        focusedBorder: border,
-                        disabledBorder: border,
-                      ),
-                    ),
-                  ),
-                  AnimatedSize(
-                    duration: AppMotion.medium,
-                    curve: AppMotion.curve,
-                    alignment: Alignment.centerLeft,
-                    child: _hasText
-                        ? Padding(
-                            padding: const EdgeInsets.only(left: 8),
-                            child: _SendButton(
-                              onPressed: widget.enabled ? widget.onSend : null,
+          child: _recorder != null
+              ? RecordingBar(
+                  key: const ValueKey('recording-bar'),
+                  recorder: _recorder!,
+                  onSend: widget.onVoice!,
+                  onDone: _stopRecording,
+                )
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (widget.header != null)
+                      Padding(padding: const EdgeInsets.only(bottom: 6), child: widget.header),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        if (widget.onAttach != null)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 4),
+                            child: SizedBox(
+                              width: 46,
+                              height: 46,
+                              child: widget.uploading
+                                  ? Padding(
+                                      padding: const EdgeInsets.all(13),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: p.accent,
+                                      ),
+                                    )
+                                  : IconButton(
+                                      key: const ValueKey('composer-attach'),
+                                      tooltip: 'Attach a file',
+                                      icon: Icon(LucideIcons.paperclip, color: p.textMuted),
+                                      onPressed: widget.enabled ? widget.onAttach : null,
+                                    ),
                             ),
-                          )
-                        : const SizedBox(height: 46),
-                  ),
-                ],
-              ),
-            ],
-          ),
+                          ),
+                        Expanded(
+                          child: TextField(
+                            controller: widget.controller,
+                            enableIMEPersonalizedLearning: !incognitoKeyboard(context),
+                            focusNode: widget.focusNode,
+                            enabled: widget.enabled,
+                            minLines: 1,
+                            maxLines: 6,
+                            keyboardType: TextInputType.multiline,
+                            textInputAction: TextInputAction.newline,
+                            textCapitalization: TextCapitalization.sentences,
+                            onChanged: widget.onChanged,
+                            style: t.bodyLarge?.copyWith(fontSize: 15.5, height: 1.35),
+                            cursorColor: p.accent,
+                            decoration: InputDecoration(
+                              hintText: widget.hint,
+                              filled: true,
+                              fillColor: p.inputFill,
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 18,
+                                vertical: 12,
+                              ),
+                              border: border,
+                              enabledBorder: border,
+                              focusedBorder: border,
+                              disabledBorder: border,
+                            ),
+                          ),
+                        ),
+                        AnimatedSize(
+                          duration: AppMotion.medium,
+                          curve: AppMotion.curve,
+                          alignment: Alignment.centerLeft,
+                          child: _hasText
+                              ? Padding(
+                                  padding: const EdgeInsets.only(left: 8),
+                                  child: _SendButton(
+                                    onPressed: widget.enabled ? widget.onSend : null,
+                                  ),
+                                )
+                              : widget.onVoice != null
+                              ? Padding(
+                                  padding: const EdgeInsets.only(left: 4),
+                                  child: IconButton(
+                                    key: const ValueKey('composer-mic'),
+                                    tooltip: 'Record a voice message',
+                                    icon: Icon(LucideIcons.mic, color: p.textMuted),
+                                    onPressed: widget.enabled ? _startRecording : null,
+                                  ),
+                                )
+                              : const SizedBox(height: 46),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
         ),
       ),
     );
@@ -234,12 +271,9 @@ class _SendButton extends StatefulWidget {
   State<_SendButton> createState() => _SendButtonState();
 }
 
-class _SendButtonState extends State<_SendButton>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: AppMotion.medium,
-  )..forward();
+class _SendButtonState extends State<_SendButton> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: AppMotion.medium)
+    ..forward();
 
   @override
   void dispose() {

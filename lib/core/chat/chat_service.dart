@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:securelyhello/core/chat/attachment_service.dart';
 import 'package:securelyhello/core/chat/profile_service.dart';
+import 'package:securelyhello/core/media/voice.dart';
 import 'package:securelyhello/core/chat/wire_protocol.dart';
 import 'package:securelyhello/core/crypto/crypto_core.dart';
 import 'package:securelyhello/core/crypto/device_manager.dart';
@@ -854,14 +855,22 @@ class ChatService {
     required String name,
     String? mime,
     String caption = '',
+    Map<String, dynamic> extra = const {},
   }) async {
     final meta = await attachments.upload(bytes, name: name, mime: mime);
-    return sendMessage(contactId, caption, attachment: meta);
+    return sendMessage(contactId, caption, attachment: {...meta, ...extra});
   }
+
+  /// Sends a recorded voice note (an encrypted audio attachment).
+  Future<Message> sendVoiceNote(String contactId, VoiceClip clip) => sendAttachment(contactId,
+      bytes: clip.bytes, name: VoiceNote.fileName, mime: VoiceNote.mime, extra: VoiceNote.meta(clip));
 
   /// One-line preview for the conversation list.
   static String previewText(String text, Map<String, dynamic>? attachment) {
     if (attachment == null) return text;
+    if (VoiceNote.isVoice(attachment)) {
+      return '🎤 Voice message ${VoiceNote.clock(VoiceNote.durationOf(attachment))}';
+    }
     final isImage = (attachment['mime'] as String? ?? '').startsWith('image/');
     final label = isImage ? '📷 Photo' : '📎 ${attachment['name'] ?? 'File'}';
     return text.isEmpty ? label : '$label · $text';
