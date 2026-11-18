@@ -32,6 +32,7 @@ import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/core/storage/local_storage.dart';
 import 'package:securelyhello/core/storage/secure_key_store.dart';
 import 'package:securelyhello/main.dart';
+import 'package:securelyhello/shared/theme/theme_controller.dart';
 
 const _baseUrl =
     String.fromEnvironment('API_BASE_URL', defaultValue: 'http://127.0.0.1:8787');
@@ -172,11 +173,16 @@ void main() {
         ..addSignOutHook(me.contacts.reset)
         ..addSignOutHook(() async => me.connection.reset());
       unawaited(me.auth.init());
+      // Dark for the walkthrough (the site uses these); light at the end.
+      final theme = ThemeController();
+      await theme.set(ThemeMode.dark);
       await tester.pumpWidget(SecurelyHelloApp(
         authProvider: me.auth,
         chatProvider: me.chatProvider,
         contactsProvider: me.contacts,
         connectionProvider: me.connection,
+        profiles: me.chat.profiles,
+        theme: theme,
       ));
       await settle(800);
       await shot('01_splash');
@@ -391,6 +397,14 @@ void main() {
       await tester.tap(find.text('Mira Kapoor').first);
       await settle(1500);
       await shot('19_wide_chat_open');
+
+      // ---- the light theme -------------------------------------------------
+      await theme.set(ThemeMode.light);
+      await settle(900);
+      await shot('20_light_wide_chat');
+      setWindow(412, 892);
+      await settle(900);
+      await shot('21_light_chat');
 
       // ---- clean up -------------------------------------------------------
       for (final c in [me, mira]) {

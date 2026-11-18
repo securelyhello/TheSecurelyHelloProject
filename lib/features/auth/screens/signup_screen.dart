@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/features/settings/screens/legal_screen.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
@@ -88,12 +89,12 @@ class _SignupScreenState extends State<SignupScreen> {
     final authProvider = context.watch<AuthProvider>();
     
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0F),
+      backgroundColor: context.palette.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(LucideIcons.arrowLeft, color: Colors.white),
+          icon: Icon(LucideIcons.arrowLeft, color: context.palette.textPrimary),
           onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
         ),
       ),
@@ -110,7 +111,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   style: GoogleFonts.manrope(
                     fontSize: 32,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: context.palette.textPrimary,
                     letterSpacing: -0.5,
                   ),
                 ),
@@ -119,7 +120,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   'Join Securely Hello and chat privately.',
                   style: GoogleFonts.inter(
                     fontSize: 16,
-                    color: const Color(0xFFB8B8CC),
+                    color: context.palette.textSecondary,
                   ),
                 ),
                 const SizedBox(height: 32),
@@ -157,7 +158,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     : _isUsernameAvailable != null 
                         ? Icon(
                             _isUsernameAvailable! ? LucideIcons.check : LucideIcons.x,
-                            color: _isUsernameAvailable! ? const Color(0xFF34D399) : const Color(0xFFEF4444),
+                            color: _isUsernameAvailable! ? context.palette.success : context.palette.danger,
                           )
                         : null,
                   validator: (v) {
@@ -179,7 +180,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   suffixIcon: IconButton(
                     icon: Icon(
                       _obscurePassword ? LucideIcons.eye : LucideIcons.eyeOff,
-                      color: const Color(0xFF6B6B80),
+                      color: context.palette.textMuted,
                     ),
                     onPressed: () {
                       setState(() {
@@ -200,7 +201,7 @@ class _SignupScreenState extends State<SignupScreen> {
                         height: 4,
                         margin: const EdgeInsets.only(right: 4),
                         decoration: BoxDecoration(
-                          color: active ? const Color(0xFF00E5CC) : const Color(0xFF2A2A3E),
+                          color: active ? context.palette.accent : context.palette.border,
                           borderRadius: BorderRadius.circular(2),
                         ),
                       ),
@@ -222,18 +223,18 @@ class _SignupScreenState extends State<SignupScreen> {
                     padding: const EdgeInsets.all(12),
                     margin: const EdgeInsets.only(bottom: 24),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFEF4444).withValues(alpha: 0.1),
+                      color: context.palette.danger.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
+                      border: Border.all(color: context.palette.danger.withValues(alpha: 0.3)),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.error_outline, color: Color(0xFFEF4444), size: 20),
+                        Icon(Icons.error_outline, color: context.palette.danger, size: 20),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
                             authProvider.errorMessage!,
-                            style: GoogleFonts.inter(color: const Color(0xFFEF4444), fontSize: 14),
+                            style: GoogleFonts.inter(color: context.palette.danger, fontSize: 14),
                           ),
                         ),
                       ],
@@ -242,12 +243,12 @@ class _SignupScreenState extends State<SignupScreen> {
                 ElevatedButton(
                   onPressed: authProvider.isLoading ? null : _signup,
                   child: authProvider.isLoading
-                      ? const SizedBox(
+                      ? SizedBox(
                           height: 24,
                           width: 24,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            valueColor: AlwaysStoppedAnimation<Color>(context.palette.textPrimary),
                           ),
                         )
                       : const Text('Sign up'),
@@ -258,21 +259,21 @@ class _SignupScreenState extends State<SignupScreen> {
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text('By signing up you agree to the ',
-                        style: GoogleFonts.inter(color: const Color(0xFF6B6B80), fontSize: 12)),
+                        style: GoogleFonts.inter(color: context.palette.textMuted, fontSize: 12)),
                     InkWell(
                       onTap: () => LegalScreen.open(context, LegalScreen.terms),
                       child: Text('Terms',
-                          style: GoogleFonts.inter(color: const Color(0xFF00E5CC), fontSize: 12)),
+                          style: GoogleFonts.inter(color: context.palette.accent, fontSize: 12)),
                     ),
                     Text(' and ',
-                        style: GoogleFonts.inter(color: const Color(0xFF6B6B80), fontSize: 12)),
+                        style: GoogleFonts.inter(color: context.palette.textMuted, fontSize: 12)),
                     InkWell(
                       onTap: () => LegalScreen.open(context, LegalScreen.privacy),
                       child: Text('Privacy policy',
-                          style: GoogleFonts.inter(color: const Color(0xFF00E5CC), fontSize: 12)),
+                          style: GoogleFonts.inter(color: context.palette.accent, fontSize: 12)),
                     ),
                     Text('.',
-                        style: GoogleFonts.inter(color: const Color(0xFF6B6B80), fontSize: 12)),
+                        style: GoogleFonts.inter(color: context.palette.textMuted, fontSize: 12)),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -281,7 +282,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   children: [
                     Text(
                       'Already have an account?',
-                      style: GoogleFonts.inter(color: const Color(0xFFB8B8CC)),
+                      style: GoogleFonts.inter(color: context.palette.textSecondary),
                     ),
                     TextButton(
                       onPressed: () => Navigator.pushReplacementNamed(context, '/login'),

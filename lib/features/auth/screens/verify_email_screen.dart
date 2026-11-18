@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/shared/widgets/app_text_field.dart';
 
@@ -96,7 +97,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
     final required = auth.emailVerificationRequired;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0F),
+      backgroundColor: context.palette.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -126,10 +127,10 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: const Color(0xFF00E5CC).withValues(alpha: 0.1),
+                        color: context.palette.accent.withValues(alpha: 0.1),
                       ),
-                      child: const Icon(LucideIcons.mailCheck,
-                          size: 44, color: Color(0xFF00E5CC)),
+                      child: Icon(LucideIcons.mailCheck,
+                          size: 44, color: context.palette.accent),
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -139,7 +140,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                     style: GoogleFonts.manrope(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                      color: context.palette.textPrimary,
                       letterSpacing: -0.5,
                     ),
                   ),
@@ -148,7 +149,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                     'Enter the 6-digit code we sent to\n${auth.email ?? 'your e-mail address'}.',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.inter(
-                        fontSize: 15, color: const Color(0xFFB8B8CC), height: 1.4),
+                        fontSize: 15, color: context.palette.textSecondary, height: 1.4),
                   ),
                   if (required) ...[
                     const SizedBox(height: 8),
@@ -156,7 +157,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                       'You need a verified address before you can add contacts.',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.inter(
-                          fontSize: 13, color: const Color(0xFF6B6B80)),
+                          fontSize: 13, color: context.palette.textMuted),
                     ),
                   ],
                   const SizedBox(height: 32),
@@ -231,7 +232,7 @@ class AuthBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = error ? const Color(0xFFEF4444) : const Color(0xFF00E5CC);
+    final color = error ? context.palette.danger : context.palette.accent;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(

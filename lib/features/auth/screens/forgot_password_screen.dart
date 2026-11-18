@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/features/auth/widgets/otp_field.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/features/auth/screens/verify_email_screen.dart';
@@ -83,12 +84,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0F),
+      backgroundColor: context.palette.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(LucideIcons.arrowLeft, color: Colors.white),
+          icon: Icon(LucideIcons.arrowLeft, color: context.palette.textPrimary),
           onPressed: () => _codeSent
               ? setState(() => _codeSent = false)
               : Navigator.of(context).maybePop(),
@@ -108,7 +109,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     style: GoogleFonts.manrope(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                      color: context.palette.textPrimary,
                       letterSpacing: -0.5,
                     ),
                   ),
@@ -118,7 +119,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                         ? 'If ${_emailController.text.trim()} has an account, a 6-digit code is on its way. It expires in 15 minutes.'
                         : "We'll e-mail you a code. Your chats and keys on this device are not affected.",
                     style: GoogleFonts.inter(
-                        fontSize: 15, color: const Color(0xFFB8B8CC), height: 1.4),
+                        fontSize: 15, color: context.palette.textSecondary, height: 1.4),
                   ),
                   const SizedBox(height: 32),
                   if (_available == false)
@@ -206,7 +207,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               autofillHints: const [AutofillHints.newPassword],
               suffixIcon: IconButton(
                 icon: Icon(_obscure ? LucideIcons.eye : LucideIcons.eyeOff,
-                    color: const Color(0xFF6B6B80)),
+                    color: context.palette.textMuted),
                 onPressed: () => setState(() => _obscure = !_obscure),
               ),
               validator: (v) => (v?.length ?? 0) < 8

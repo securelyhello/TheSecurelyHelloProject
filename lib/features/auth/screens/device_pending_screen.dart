@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/features/auth/widgets/otp_field.dart';
 import 'package:securelyhello/features/auth/screens/verify_email_screen.dart' show AuthBanner;
@@ -66,9 +67,9 @@ class _DevicePendingScreenState extends State<DevicePendingScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    const muted = Color(0xFFB8B8CC);
+    final muted = context.palette.textSecondary;
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0F),
+      backgroundColor: context.palette.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -89,13 +90,13 @@ class _DevicePendingScreenState extends State<DevicePendingScreen> {
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               children: [
-                const Icon(LucideIcons.monitorSmartphone, size: 44, color: Color(0xFF00E5CC)),
+                Icon(LucideIcons.monitorSmartphone, size: 44, color: context.palette.accent),
                 const SizedBox(height: 20),
                 Text(
                   _recovering ? 'Recover your account' : 'Approve this device',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.manrope(
-                      fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white),
+                      fontSize: 26, fontWeight: FontWeight.bold, color: context.palette.textPrimary),
                 ),
                 const SizedBox(height: 12),
                 Text(
@@ -113,9 +114,9 @@ class _DevicePendingScreenState extends State<DevicePendingScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(vertical: 18),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF12121A),
+                      color: context.palette.surface,
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: const Color(0xFF2A2A3E)),
+                      border: Border.all(color: context.palette.border),
                     ),
                     child: Column(children: [
                       Text('This device', style: GoogleFonts.inter(color: muted, fontSize: 13)),
@@ -124,12 +125,12 @@ class _DevicePendingScreenState extends State<DevicePendingScreen> {
                         auth.deviceFingerprint,
                         key: const ValueKey('pending-fingerprint'),
                         style: GoogleFonts.sourceCodePro(
-                            fontSize: 22, color: Colors.white, letterSpacing: 1.5),
+                            fontSize: 22, color: context.palette.textPrimary, letterSpacing: 1.5),
                       ),
                     ]),
                   ),
                   const SizedBox(height: 24),
-                  const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                     SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
                     SizedBox(width: 10),
                     Text('Waiting for approval…', style: TextStyle(color: muted)),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -92,7 +93,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0F),
+      backgroundColor: context.palette.background,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -103,19 +104,19 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: const Color(0xFF00E5CC).withValues(alpha: 0.1),
+                  color: context.palette.accent.withValues(alpha: 0.1),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF00E5CC).withValues(alpha: 0.2),
+                      color: context.palette.accent.withValues(alpha: 0.2),
                       blurRadius: 40,
                       spreadRadius: 10,
                     ),
                   ],
                 ),
-                child: const Icon(
+                child: Icon(
                   LucideIcons.shieldCheck,
                   size: 80,
-                  color: Color(0xFF00E5CC),
+                  color: context.palette.accent,
                 ),
               ),
             ),
@@ -127,7 +128,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                 style: GoogleFonts.manrope(
                   fontSize: 32,
                   fontWeight: FontWeight.w700,
-                  color: Colors.white,
+                  color: context.palette.textPrimary,
                   letterSpacing: -0.5,
                 ),
               ),

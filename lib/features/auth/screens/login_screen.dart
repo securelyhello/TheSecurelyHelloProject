@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/features/auth/widgets/otp_field.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/shared/widgets/app_text_field.dart';
@@ -57,7 +58,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final authProvider = context.watch<AuthProvider>();
     
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0F),
+      backgroundColor: context.palette.background,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
@@ -72,12 +73,12 @@ class _LoginScreenState extends State<LoginScreen> {
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: const Color(0xFF00E5CC).withValues(alpha: 0.1),
+                      color: context.palette.accent.withValues(alpha: 0.1),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       LucideIcons.shieldCheck,
                       size: 48,
-                      color: Color(0xFF00E5CC),
+                      color: context.palette.accent,
                     ),
                   ),
                 ),
@@ -88,7 +89,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: GoogleFonts.manrope(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: context.palette.textPrimary,
                     letterSpacing: -0.5,
                   ),
                 ),
@@ -111,7 +112,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   suffixIcon: IconButton(
                     icon: Icon(
                       _obscurePassword ? LucideIcons.eye : LucideIcons.eyeOff,
-                      color: const Color(0xFF6B6B80),
+                      color: context.palette.textMuted,
                     ),
                     onPressed: () {
                       setState(() {
@@ -139,18 +140,18 @@ class _LoginScreenState extends State<LoginScreen> {
                     padding: const EdgeInsets.all(12),
                     margin: const EdgeInsets.only(bottom: 24),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFEF4444).withValues(alpha: 0.1),
+                      color: context.palette.danger.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
+                      border: Border.all(color: context.palette.danger.withValues(alpha: 0.3)),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.error_outline, color: Color(0xFFEF4444), size: 20),
+                        Icon(Icons.error_outline, color: context.palette.danger, size: 20),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
                             authProvider.errorMessage!,
-                            style: GoogleFonts.inter(color: const Color(0xFFEF4444), fontSize: 14),
+                            style: GoogleFonts.inter(color: context.palette.danger, fontSize: 14),
                           ),
                         ),
                       ],
@@ -159,12 +160,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 ElevatedButton(
                   onPressed: authProvider.isLoading ? null : _login,
                   child: authProvider.isLoading
-                      ? const SizedBox(
+                      ? SizedBox(
                           height: 24,
                           width: 24,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            valueColor: AlwaysStoppedAnimation<Color>(context.palette.textPrimary),
                           ),
                         )
                       : const Text('Log in'),
@@ -175,7 +176,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   children: [
                     Text(
                       'Don\'t have an account?',
-                      style: GoogleFonts.inter(color: const Color(0xFFB8B8CC)),
+                      style: GoogleFonts.inter(color: context.palette.textSecondary),
                     ),
                     TextButton(
                       onPressed: () => Navigator.pushReplacementNamed(context, '/signup'),

@@ -18,6 +18,7 @@ import 'package:securelyhello/features/settings/screens/edit_profile_screen.dart
 import 'package:securelyhello/features/settings/screens/legal_screen.dart';
 import 'package:securelyhello/features/settings/screens/two_factor_screen.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
+import 'package:securelyhello/shared/theme/theme_controller.dart';
 import 'package:securelyhello/shared/widgets/app_dialogs.dart';
 import 'package:securelyhello/shared/widgets/avatar_widget.dart';
 import 'package:securelyhello/shared/widgets/search_field.dart';
@@ -423,6 +424,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
 
                   // Notifications
+                  const SectionHeader(
+                    'Appearance',
+                    padding: EdgeInsets.fromLTRB(28, 20, 28, 8),
+                  ),
+                  Builder(builder: (context) {
+                    final theme = context.watch<ThemeController>();
+                    return group([
+                      ListTile(
+                        key: const ValueKey('settings-theme'),
+                        leading: const Icon(LucideIcons.sunMoon),
+                        title: const Text('Theme'),
+                        trailing: DropdownButton<ThemeMode>(
+                          value: theme.mode,
+                          underline: const SizedBox(),
+                          items: [
+                            for (final m in ThemeMode.values)
+                              DropdownMenuItem(value: m, child: Text(ThemeController.label(m))),
+                          ],
+                          onChanged: (m) => m == null ? null : theme.set(m),
+                        ),
+                      ),
+                    ]);
+                  }),
+
                   const SectionHeader(
                     'Notifications',
                     padding: EdgeInsets.fromLTRB(28, 20, 28, 8),

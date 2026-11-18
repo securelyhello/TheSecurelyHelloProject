@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:securelyhello/core/invites/invites.dart';
 import 'package:securelyhello/core/config/app_config.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
+import 'package:securelyhello/shared/theme/theme_controller.dart';
 import 'package:securelyhello/core/storage/local_storage.dart';
 import 'package:securelyhello/core/storage/secure_key_store.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
@@ -44,13 +45,6 @@ Future<void> main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-  // Set system UI overlay style for dark theme
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-    systemNavigationBarColor: Color(0xFF0A0A0F),
-    systemNavigationBarIconBrightness: Brightness.light,
-  ));
 
   // Load environment variables gracefully
   try {
@@ -115,6 +109,8 @@ Future<void> main() async {
     ..addSignOutHook(chatProvider.reset)
     ..addSignOutHook(contactsProvider.reset)
     ..addSignOutHook(() async => connectionProvider.reset());
+  final theme = ThemeController();
+  await theme.load();
   final appLock = AppLockService(store: keyStore)
     ..onWipe = authProvider.wipeThisDevice;
   await appLock.init();
@@ -133,6 +129,7 @@ Future<void> main() async {
     appLock: appLock,
     invites: invites,
     profiles: chatService.profiles,
+    theme: theme,
   ));
 }
 
@@ -171,6 +168,7 @@ class SecurelyHelloApp extends StatelessWidget {
   final AppLockService? appLock;
   final PendingInvites? invites;
   final ProfileService? profiles;
+  final ThemeController? theme;
 
   const SecurelyHelloApp({
     super.key,
@@ -183,6 +181,7 @@ class SecurelyHelloApp extends StatelessWidget {
     this.appLock,
     this.invites,
     this.profiles,
+    this.theme,
   });
 
   @override
@@ -197,6 +196,7 @@ class SecurelyHelloApp extends StatelessWidget {
             value: notifications ?? NotificationService()),
         Provider<PushService?>.value(value: push),
         ChangeNotifierProvider<PendingInvites?>.value(value: invites),
+        ChangeNotifierProvider<ThemeController>.value(value: theme ?? ThemeController()),
         if (profiles != null) ChangeNotifierProvider<ProfileService>.value(value: profiles!),
         ChangeNotifierProvider<AppLockService>.value(
             value: appLock ?? AppLockService(store: SecureKeyStore(storage: MemorySecretStorage()))),
@@ -204,7 +204,9 @@ class SecurelyHelloApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Securely Hello',
         debugShowCheckedModeBanner: false,
-        theme: AppTheme.dark,
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: context.select<ThemeController?, ThemeMode>((t) => t?.mode ?? ThemeMode.system),
         builder: (context, child) => AppLockGate(child: child ?? const SizedBox()),
         initialRoute: '/splash',
         routes: {

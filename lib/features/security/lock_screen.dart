@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/core/security/app_lock.dart';
 
 /// Wraps the whole app: covers it while locked, and while the app is in the
@@ -64,9 +65,9 @@ class _PrivacyCover extends StatelessWidget {
   const _PrivacyCover();
 
   @override
-  Widget build(BuildContext context) => const ColoredBox(
-    color: Color(0xFF0A0A0F),
-    child: Center(child: Icon(LucideIcons.shieldCheck, size: 56, color: Color(0xFF00E5CC))),
+  Widget build(BuildContext context) => ColoredBox(
+    color: context.palette.background,
+    child: Center(child: Icon(LucideIcons.shieldCheck, size: 56, color: context.palette.accent)),
   );
 }
 
@@ -127,7 +128,7 @@ class _LockScreenState extends State<LockScreen> {
     final lock = context.watch<AppLockService>();
     final wait = lock.retryIn;
     return Material(
-      color: const Color(0xFF0A0A0F),
+      color: context.palette.background,
       child: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -137,7 +138,7 @@ class _LockScreenState extends State<LockScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(LucideIcons.lock, size: 44, color: Color(0xFF00E5CC)),
+                  Icon(LucideIcons.lock, size: 44, color: context.palette.accent),
                   const SizedBox(height: 20),
                   Text(
                     'Securely Hello is locked',
@@ -155,7 +156,7 @@ class _LockScreenState extends State<LockScreen> {
                     keyboardType: TextInputType.visiblePassword,
                     textAlign: TextAlign.center,
                     enabled: wait == Duration.zero && !_checking,
-                    style: const TextStyle(fontSize: 22, letterSpacing: 8, color: Colors.white),
+                    style: TextStyle(fontSize: 22, letterSpacing: 8, color: context.palette.textPrimary),
                     decoration: InputDecoration(
                       hintText: 'PIN',
                       errorText: wait > Duration.zero
