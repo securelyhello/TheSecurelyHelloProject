@@ -135,8 +135,9 @@ send new contact requests while its existing chats keep working, when:
   it got an answer to (1 day).
 
 Accounts less than a day old can send 10 contact requests per day. Signups
-need a solved proof-of-work challenge, are capped at 10 per IP per day,
-and refuse disposable e-mail domains.
+need a solved proof-of-work challenge, are capped at 10 per IP per day
+(`SIGNUPS_PER_IP_PER_DAY`; raise it if many users share an address, as
+behind carrier-grade NAT), and refuse disposable e-mail domains.
 
 ```
 curl -H "Authorization: Bearer $ADMIN_TOKEN" https://api.example.com/api/admin/restricted

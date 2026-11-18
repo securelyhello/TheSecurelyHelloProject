@@ -64,6 +64,9 @@ export function loadConfig(env = process.env) {
     attachmentMaxBytes: int('ATTACHMENT_MAX_MB', 16) * 1024 * 1024,
     attachmentTtlDays: int('ATTACHMENT_TTL_DAYS', 30),
     attachmentQuotaBytes: int('ATTACHMENT_QUOTA_MB', 512) * 1024 * 1024,
+    // New accounts per client IP a day (raise it behind carrier-grade NAT,
+    // where many people share an address).
+    signupsPerIp: int('SIGNUPS_PER_IP_PER_DAY', 0),
     // Prometheus scrape token for GET /metrics; unset turns the route off.
     metricsToken: env.METRICS_TOKEN || '',
     // TURN relay for calls and direct links (see turn.js and DEPLOY.md).
@@ -106,7 +109,10 @@ export function createApp({
     ...storeOptions,
   });
   const services = new Services({ pool, store });
-  const limits = new RateLimits(store, limitOverrides);
+  const limits = new RateLimits(store, {
+    ...(config.signupsPerIp ? { signupIp: { capacity: config.signupsPerIp, perMs: 24 * 60 * 60_000 } } : {}),
+    ...limitOverrides,
+  });
   const instanceId = randomUUID();
   const bus = new Bus({ redis, instanceId, prefix: config.redisPrefix, log });
   const metrics = new Metrics();

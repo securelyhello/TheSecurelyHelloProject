@@ -78,6 +78,8 @@ jobs:
       # E-mails (verification codes) land here; the UI test reads them.
       MAIL_TRANSPORT: file
       MAIL_FILE_DIR: /tmp/sh_mail
+      # Both integration suites sign up from this one address.
+      SIGNUPS_PER_IP_PER_DAY: '100'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

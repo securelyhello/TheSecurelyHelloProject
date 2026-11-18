@@ -33,7 +33,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.21.2 git /repo --redact --no-banner
+      # --config: `gitleaks git` doesn't pick up the repository's
+      # .gitleaks.toml (its allowlist) on its own. --verbose names the rule,
+      # file and line of a finding; --redact still hides the value.
+      - run: >-
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.21.2 git /repo
+          --config /repo/.gitleaks.toml --redact --verbose --no-banner
 
   codeql:
     name: CodeQL (server)
@@ -41,6 +46,7 @@ jobs:
     permissions:
       security-events: write
       contents: read
+      actions: read # the analyze step reads its own workflow run
     steps:
       - uses: actions/checkout@v4
       - uses: github/codeql-action/init@v3

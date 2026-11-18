@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 
+import { loadConfig } from '../src/app.js';
 import { api, signup, startServer } from './helpers.js';
 
 const TOKEN = 'm'.repeat(40);
@@ -46,6 +47,11 @@ describe('operations', () => {
     assert.equal(body.credential, createHmac('sha1', 'shared-secret').update(body.username).digest('base64'));
     const again = await api(srv.base, 'GET', '/api/turn', { token: a.token });
     assert.notEqual(again.body.username, body.username, 'a fresh one each time');
+  });
+
+  test('the sign-up cap per address can be raised', () => {
+    assert.equal(loadConfig({}).signupsPerIp, 0, 'unset: the built-in 10 a day');
+    assert.equal(loadConfig({ SIGNUPS_PER_IP_PER_DAY: '100' }).signupsPerIp, 100);
   });
 
   test('without the settings, metrics and TURN are off', async () => {
