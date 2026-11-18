@@ -335,8 +335,8 @@ class ChatProvider extends ChangeNotifier {
   Future<Verification> verificationOf(String contactId) =>
       _chatService.verificationOf(contactId);
 
-  Future<void> markVerified(String contactId) async {
-    await _chatService.markVerified(contactId);
+  Future<void> markVerified(String contactId, {required String comparedNumber}) async {
+    await _chatService.markVerified(contactId, comparedNumber: comparedNumber);
     notifyListeners();
   }
 

@@ -4,7 +4,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import 'package:securelyhello/core/chat/chat_service.dart' show Verification;
+import 'package:securelyhello/core/chat/chat_service.dart'
+    show SafetyNumberChangedException, Verification;
 import 'package:securelyhello/core/crypto/verify_code.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
@@ -339,7 +340,14 @@ class _SafetyNumberCard extends StatelessWidget {
     if (code == null || !context.mounted) return;
     final result = VerifyCode.check(code,
         me: chat.myUserId ?? '', contact: contactId, safetyNumber: number);
-    if (result == VerifyResult.match) await chat.markVerified(contactId);
+    if (result == VerifyResult.match) {
+      try {
+        await chat.markVerified(contactId, comparedNumber: number);
+      } on SafetyNumberChangedException catch (e) {
+        if (context.mounted) showAppSnackBar(context, e.toString(), error: true);
+        return;
+      }
+    }
     if (!context.mounted) return;
     showAppSnackBar(context, verifyResultText(result, name),
         error: result != VerifyResult.match);
@@ -457,7 +465,7 @@ class _SafetyNumberCard extends StatelessWidget {
                         ),
                     ],
                   ),
-                  _VerificationRow(contactId: contactId, name: name),
+                  _VerificationRow(contactId: contactId, name: name, number: number),
                 ],
               );
             },
@@ -515,9 +523,12 @@ class _DeviceCoverage extends StatelessWidget {
 
 /// Verified state and the button to change it.
 class _VerificationRow extends StatelessWidget {
-  const _VerificationRow({required this.contactId, required this.name});
+  const _VerificationRow({required this.contactId, required this.name, required this.number});
   final String contactId;
   final String name;
+
+  /// The number shown above: what the user compares.
+  final String number;
 
   @override
   Widget build(BuildContext context) {
@@ -563,7 +574,12 @@ class _VerificationRow extends StatelessWidget {
                         'compared in person or on a call you trust.',
                     confirmLabel: 'They match',
                   );
-                  if (ok) await chat.markVerified(contactId);
+                  if (!ok) return;
+                  try {
+                    await chat.markVerified(contactId, comparedNumber: number);
+                  } on SafetyNumberChangedException catch (e) {
+                    if (context.mounted) showAppSnackBar(context, e.toString(), error: true);
+                  }
                 },
                 child: Text(v == Verification.changed ? 'Verify again' : 'Mark verified'),
               ),

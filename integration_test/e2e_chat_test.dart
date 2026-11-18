@@ -29,6 +29,23 @@ import 'package:securelyhello/core/storage/secure_key_store.dart';
 const _baseUrl =
     String.fromEnvironment('API_BASE_URL', defaultValue: 'http://127.0.0.1:8787');
 
+/// Where the server writes e-mails (MAIL_TRANSPORT=file, MAIL_FILE_DIR).
+const _mailDir = String.fromEnvironment('MAIL_DIR', defaultValue: '/tmp/sh_mail');
+
+/// The newest 6-digit code e-mailed to [to].
+String? latestCode(String to) {
+  final dir = Directory(_mailDir);
+  if (!dir.existsSync()) return null;
+  final files = dir.listSync().whereType<File>().toList()..sort((a, b) => b.path.compareTo(a.path));
+  for (final f in files) {
+    final mail = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+    if ((mail['to'] as String).toLowerCase() == to.toLowerCase()) {
+      return RegExp(r'\b(\d{6})\b').firstMatch(mail['text'] as String)?.group(1);
+    }
+  }
+  return null;
+}
+
 class Stack {
   final String name;
   final Directory dir;
@@ -418,8 +435,12 @@ void main() {
 
       // ---- Bob verifies Alice ------------------------------------------------
       expect(await bob.chat.verificationOf(alice.id), Verification.unverified);
-      await bob.chat.markVerified(alice.id);
+      await bob.chat.markVerified(alice.id,
+          comparedNumber: (await bob.chat.safetyNumberFor(alice.id))!);
       expect(await bob.chat.verificationOf(alice.id), Verification.verified);
+      await expectLater(bob.chat.markVerified(alice.id, comparedNumber: '1' * 60),
+          throwsA(isA<SafetyNumberChangedException>()),
+          reason: 'only the number actually compared can be pinned');
 
       // ---- a second device for Alice ----------------------------------------
       final laptop = Stack('alice_laptop');
@@ -459,7 +480,8 @@ void main() {
       expect(held.status, 'failed', reason: 'not encrypted to unverified keys');
       await Future<void>.delayed(const Duration(seconds: 1));
       expect((await alice.messagesWith(bob)).any((m) => m.id == held.id), isFalse);
-      await bob.chat.markVerified(alice.id);
+      await bob.chat.markVerified(alice.id,
+          comparedNumber: (await bob.chat.safetyNumberFor(alice.id))!);
       expect(await bob.chat.verificationOf(alice.id), Verification.verified);
       await until(
           () async => (await laptop.messagesWith(bob)).any((m) => m.id == held.id),
@@ -597,6 +619,11 @@ void main() {
 
       // Discovery is off by default; once Erin opts in, Dan's address book finds her.
       expect(await dan.contacts.matchAddressBook({erin.email: 'Erin from work'}), isEmpty);
+      // Only a verified address can be found (audit run 1, U3-1).
+      await expectLater(erin.contacts.setEmailDiscoverable(true), throwsA(isA<ApiException>()));
+      final code = latestCode(erin.email);
+      expect(code, isNotNull, reason: 'server must run with MAIL_TRANSPORT=file');
+      expect(await erin.auth.verifyEmail(code!), isTrue, reason: erin.auth.errorMessage);
       await erin.contacts.setEmailDiscoverable(true);
       final found = await dan.contacts.matchAddressBook({erin.email.toUpperCase(): 'Erin from work'});
       expect(found.single.user.userId, erin.id);

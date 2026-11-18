@@ -111,7 +111,7 @@ jobs:
           sed -i 's#^API_BASE_URL=.*#API_BASE_URL=http://127.0.0.1:8787#' .env
           flutter pub get
       - name: End-to-end chat (P2P, receipts, relay)
-        run: xvfb-run -a dbus-run-session -- flutter test integration_test/e2e_chat_test.dart -d linux
+        run: xvfb-run -a dbus-run-session -- flutter test integration_test/e2e_chat_test.dart -d linux --dart-define=MAIL_DIR=/tmp/sh_mail
       - name: UI walkthrough
         run: xvfb-run -a -s "-screen 0 1600x1000x24" dbus-run-session -- flutter test integration_test/ui_flow_test.dart -d linux
       - name: Upload screenshots and server log

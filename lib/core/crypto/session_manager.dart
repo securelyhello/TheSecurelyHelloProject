@@ -300,6 +300,14 @@ class SessionManager {
       throw const UndecryptableException('sender identity does not match');
     }
 
+    // A base key starts one session, once. Without this, a relay could
+    // replay a first message after a session reset and have it decrypt again
+    // (audit run 1, U4-1).
+    final usedKey = 'basekey:${env.senderAddress}:${pk.baseKey}';
+    if (await _storage.kvGet(usedKey) != null) {
+      throw const UndecryptableException('replayed session start');
+    }
+
     final spk = await _storage.getPreKey('spk', pk.signedPreKeyId);
     if (spk == null) throw const UndecryptableException('signed prekey is gone');
     DhKeyPair? opk;
@@ -325,6 +333,7 @@ class SessionManager {
       throw UndecryptableException(e.message);
     }
     record.promote(state);
+    await _storage.kvSet(usedKey, '${DateTime.now().millisecondsSinceEpoch}');
     if (pk.oneTimePreKeyId != null) {
       await _storage.deletePreKey('otpk', pk.oneTimePreKeyId!);
     }

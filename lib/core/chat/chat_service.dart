@@ -510,9 +510,19 @@ class ChatService {
 
   /// Pins [contactId]'s current keys after the user compared safety numbers
   /// (or scanned the QR code).
-  Future<void> markVerified(String contactId) async {
+  ///
+  /// [comparedNumber] is the safety number the user compared or scanned.
+  /// The keys are fetched again and must still give that number; otherwise
+  /// something changed in between and the user has to compare again
+  /// (audit run 1, U4-2).
+  Future<void> markVerified(String contactId, {required String comparedNumber}) async {
     final current = await devicesOf(contactId, refresh: true);
     if (current.isEmpty) throw StateError('No keys for $contactId');
+    final now = await safetyNumberFor(contactId);
+    String digits(String s) => s.replaceAll(RegExp(r'\D'), '');
+    if (now == null || digits(now) != digits(comparedNumber)) {
+      throw const SafetyNumberChangedException();
+    }
     await _storage.kvSet('verified:$contactId', keySetDigest(current));
     _changed(contactId);
     unawaited(resendUnsent());
@@ -792,7 +802,9 @@ class ChatService {
       case PayloadKind.delete:
         // Only the author, and only within the window (+ a little skew).
         final authored = actor == _myUserId ? m.isFromMe : m.senderId == actor && !m.isFromMe;
-        final age = DateTime.fromMillisecondsSinceEpoch(p.timestampMs).difference(m.timestamp);
+        final age = DateTime.fromMillisecondsSinceEpoch(
+                m.isFromMe ? p.timestampMs : arrivalTime(p.timestampMs))
+            .difference(m.timestamp);
         if (!authored || age > editWindow + const Duration(minutes: 5)) return;
         if (p.kind == PayloadKind.edit) {
           await _storage.editMessage(m.id, p.body!, p.timestampMs);
@@ -1141,9 +1153,19 @@ class ChatService {
     await _storage.markEnvelopeSeen(seenKey);
   }
 
+  /// A contact's timestamp, kept within what delivery allows: no more than
+  /// the relay lifetime in the past, a few minutes in the future. The edit
+  /// window is measured with these (audit run 1, U4-3).
+  static int arrivalTime(int sentMs, {DateTime? now}) {
+    final n = (now ?? DateTime.now()).millisecondsSinceEpoch;
+    return sentMs.clamp(n - const Duration(hours: 25).inMilliseconds,
+        n + const Duration(minutes: 5).inMilliseconds);
+  }
+
   Future<void> _storeIncomingMessage(
       String contactId, WirePayload payload) async {
     final id = payload.messageId!;
+    final sentAt = arrivalTime(payload.timestampMs);
     final existing = await _storage.getMessage(id);
     final isActive = _activeConversationId == contactId;
 
@@ -1154,7 +1176,7 @@ class ChatService {
         conversationId: contactId,
         senderId: contactId,
         content: payload.body!,
-        timestamp: payload.timestampMs,
+        timestamp: sentAt,
         status: status,
         isFromMe: false,
         attachment:
@@ -1166,7 +1188,7 @@ class ChatService {
         id: contactId,
         contactUserId: contactId,
         lastMessage: previewText(payload.body!, payload.attachment),
-        lastMessageTime: payload.timestampMs,
+        lastMessageTime: sentAt,
       );
       if (!isActive) await _storage.incrementUnreadCount(contactId);
 
@@ -1176,7 +1198,7 @@ class ChatService {
           conversationId: contactId,
           senderId: contactId,
           content: payload.body!,
-          timestamp: DateTime.fromMillisecondsSinceEpoch(payload.timestampMs),
+          timestamp: DateTime.fromMillisecondsSinceEpoch(sentAt),
           status: status,
           isFromMe: false,
           attachment: payload.attachment,
@@ -1682,4 +1704,12 @@ enum Verification {
 
   /// Verified before, but their keys have changed since. Sending is paused.
   changed,
+}
+
+/// The safety number changed between showing it and marking it verified.
+class SafetyNumberChangedException implements Exception {
+  const SafetyNumberChangedException();
+
+  @override
+  String toString() => 'The safety number just changed. Compare the new number before verifying.';
 }

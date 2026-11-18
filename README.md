@@ -159,9 +159,10 @@ flutter test integration_test/ui_flow_test.dart -d linux    # drives the UI, sav
 ```
 
 `flutter test` needs a `.env` file (it is bundled as an asset), so run
-`cp .env.example .env` first on a fresh clone. The UI test reads the
-verification code the server e-mails, so start the server with
-`MAIL_TRANSPORT=file MAIL_FILE_DIR=/tmp/sh_mail`.
+`cp .env.example .env` first on a fresh clone. Both integration tests read
+the codes the server e-mails, so start the server with
+`MAIL_TRANSPORT=file MAIL_FILE_DIR=/tmp/sh_mail` (or pass
+`--dart-define=MAIL_DIR=<dir>`).
 
 On a headless Linux machine (CI, containers) run the integration tests under
 `xvfb-run -a dbus-run-session -- …` and provide an audio device: libwebrtc

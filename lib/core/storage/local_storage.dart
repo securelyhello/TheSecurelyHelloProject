@@ -366,7 +366,6 @@ class LocalStorage {
   // ---------------------------------------------------------------------------
 
   String _seal(String plaintext) {
-    if (plaintext.startsWith(_sealedPrefix)) return plaintext;
     final key = _key!;
     final sealed = CryptoCore.secretEncrypt(
         Uint8List.fromList(utf8.encode(plaintext)), key);

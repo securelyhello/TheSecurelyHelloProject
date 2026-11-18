@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:collection';
 import 'dart:io';
 import 'dart:typed_data';
@@ -102,7 +103,7 @@ class AttachmentService {
         // A local id only (keys the UI and the memory cache); nothing is
         // uploaded, so no server ever holds this file.
         final id = _localId();
-        _remember(id, bytes);
+        _remember(_memKey({'id': id, 'inline': fts}), bytes);
         return {
           'id': id,
           'inline': fts,
@@ -117,29 +118,41 @@ class AttachmentService {
     final digest = hash.sha256.convert(sealed).bytes;
     final id = await _directory.uploadAttachment(sealed);
     await _writeCache(id, sealed);
-    _remember(id, bytes);
+    final sha = CryptoCore.toBase64(Uint8List.fromList(digest));
+    _remember(_memKey({'id': id, 'sha256': sha}), bytes);
     return {
       'id': id,
       'key': CryptoCore.toBase64(key),
-      'sha256': CryptoCore.toBase64(Uint8List.fromList(digest)),
+      'sha256': sha,
       'name': cleanName,
       'mime': type,
       'size': bytes.length,
     };
   }
 
+  /// Memory cache key: the id together with what the content must be, so a
+  /// contact reusing someone else's attachment id can't swap or evict those
+  /// bytes (audit run 1, U4-4).
+  static String _memKey(Map<String, dynamic> meta) {
+    final inline = meta['inline'];
+    final what = inline is String
+        ? CryptoCore.toBase64(Uint8List.fromList(hash.sha256.convert(utf8.encode(inline)).bytes))
+        : meta['sha256'] as String? ?? '';
+    return '${meta['id']}|$what';
+  }
+
   /// The decrypted bytes for [meta], from memory, disk or the server.
   Future<Uint8List> load(Map<String, dynamic> meta) {
-    final id = meta['id'] as String;
-    final hit = _memory.remove(id);
+    final key = _memKey(meta);
+    final hit = _memory.remove(key);
     if (hit != null) {
-      _memory[id] = hit; // most recently used
+      _memory[key] = hit; // most recently used
       return Future.value(hit);
     }
     // (Block body: returning the removed future would make whenComplete
     // wait for itself.)
-    return _inFlight[id] ??= _load(meta).whenComplete(() {
-      _inFlight.remove(id);
+    return _inFlight[key] ??= _load(meta).whenComplete(() {
+      _inFlight.remove(key);
     });
   }
 
@@ -147,7 +160,7 @@ class AttachmentService {
   Future<bool> isAvailableOffline(Map<String, dynamic> meta) async {
     if (isInline(meta)) return true;
     final id = meta['id'] as String;
-    if (_memory.containsKey(id)) return true;
+    if (_memory.containsKey(_memKey(meta))) return true;
     final f = await _cacheFile(id);
     return f != null && f.existsSync();
   }
@@ -160,7 +173,7 @@ class AttachmentService {
       // already authenticated end to end.
       try {
         final decoded = FileStringCodec.decode(inline, maxBytes: maxBytes);
-        _remember(id, decoded.bytes);
+        _remember(_memKey(meta), decoded.bytes);
         return decoded.bytes;
       } on FileStringException {
         throw const AttachmentCorruptException();
@@ -183,7 +196,7 @@ class AttachmentService {
     } catch (_) {
       throw const AttachmentCorruptException();
     }
-    _remember(id, plain);
+    _remember(_memKey(meta), plain);
     return plain;
   }
 
@@ -222,14 +235,18 @@ class AttachmentService {
     await f.writeAsBytes(sealed, flush: true);
   }
 
-  /// The message is gone (expired / deleted): drop every local copy.
+  /// The message is gone (expired / deleted): drop every local copy. The
+  /// disk copy only if it is this attachment's content.
   Future<void> forget(Map<String, dynamic> meta) async {
     final id = meta['id'] as String?;
     if (id == null) return;
-    final bytes = _memory.remove(id);
+    final bytes = _memory.remove(_memKey(meta));
     if (bytes != null) _memoryBytes -= bytes.length;
+    final expected = meta['sha256'] as String?;
     final f = await _cacheFile(id);
-    if (f != null && f.existsSync()) await f.delete();
+    if (expected != null && f != null && f.existsSync() && _digest(await f.readAsBytes()) == expected) {
+      await f.delete();
+    }
   }
 
   /// Sign-out: forget decrypted bytes held in memory.

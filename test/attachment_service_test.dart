@@ -72,6 +72,20 @@ void main() {
     expect(server.downloads, 1, reason: 'served from the disk cache');
   });
 
+  // Audit run 1, U4-4: a contact reusing an attachment's id could replace
+  // our cached bytes or delete our cached file.
+  test("another attachment with the same id can't swap or evict the cached one", () async {
+    final mine = await sender.upload(file, name: 'mine.bin');
+    expect(await sender.load(mine), file);
+    final spoof = await receiver.upload(utf8.encode('spoofed by a contact'), name: 'x.txt');
+    final forged = {...spoof, 'id': mine['id']};
+    expect(utf8.decode(await sender.load(forged)), 'spoofed by a contact');
+    expect(await sender.load(mine), file, reason: 'the original bytes are untouched');
+    await sender.forget(forged);
+    expect(File('${senderDir.path}/${mine['id']}.bin').existsSync(), isTrue,
+        reason: "forgetting the forged one keeps our file");
+  });
+
   test('small files travel inside the message: nothing is uploaded', () async {
     final meta = await sender.upload(small, name: 'notes/plans.txt');
     expect(AttachmentService.isInline(meta), isTrue);

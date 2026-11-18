@@ -195,6 +195,19 @@ void main() {
     await expectLater(bob.receive(env), throwsA(isA<UndecryptableException>()));
   });
 
+  // Audit run 1, U4-1: without a one-time prekey, a replayed first message
+  // used to decrypt again once a failure had reset the session.
+  test('a replayed session start never decrypts again, even after a reset', () async {
+    final alice = await Install.create(server, 'alice');
+    final bob = await Install.create(server, 'bob');
+    (server.devices['bob']![bob.deviceId]!['otpks'] as List).clear(); // relay withholds them
+    final env = (await alice.send('bob', 'first'))[bob.deviceId]!;
+    expect(await bob.receive(env), 'first');
+    await expectLater(bob.receive(env), throwsA(isA<UndecryptableException>()));
+    await bob.sessions.resetSession(env.senderAddress);
+    await expectLater(bob.receive(env), throwsA(isA<UndecryptableException>()));
+  });
+
   test('a prekey message claiming someone else\'s identity is refused', () async {
     final alice = await Install.create(server, 'alice');
     final bob = await Install.create(server, 'bob');
