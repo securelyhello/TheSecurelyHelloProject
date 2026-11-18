@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'">
+  <!-- The invite token is in the URL: never send it to other sites. -->
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex">
+  <title>You're invited · Securely Hello</title>
+  <link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="page">
+    <div class="wrap invite">
+      <img src="/assets/logo.svg" alt="" width="72" height="72" class="invite-logo">
+      <h1>You're invited to chat</h1>
+      <p class="lead invite-lead">Someone sent you a private invite to Securely Hello, an end-to-end encrypted messenger. Open it in the app to add them.</p>
+
+      <div id="valid" hidden>
+        <div class="cta center-row">
+          <a class="btn" id="open" href="#">Open in Securely Hello</a>
+        </div>
+        <div class="card">
+          <h3>Don't have the app yet?</h3>
+          <p>Install it, sign up, then come back and tap <b>Open in Securely Hello</b>. The app remembers the invite while you sign up.</p>
+          <div class="cta invite-downloads" id="downloads">
+            <a class="btn btn-ghost btn-small" data-link="playStore" href="#">Android</a>
+            <a class="btn btn-ghost btn-small" data-link="appStore" href="#">iPhone</a>
+            <a class="btn btn-ghost btn-small" data-link="desktop" href="#">Desktop</a>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Button doesn't open the app?</h3>
+          <p>Copy this link, then in the app go to <b>Find people → Invite friends</b> and paste it under <b>Got an invite?</b></p>
+          <p class="token" id="link"></p>
+          <button class="btn btn-small" id="copy" type="button">Copy link</button>
+        </div>
+      </div>
+
+      <div id="invalid" class="card" hidden>
+        <h3>This link looks incomplete</h3>
+        <p>Ask the person who sent it to share it again.</p>
+      </div>
+
+      <p class="note invite-more"><a href="/" class="link">What is Securely Hello?</a></p>
+    </div>
+  </main>
+  <script src="/config.js"></script>
+  <script src="/i/invite.js"></script>
+</body>
+</html>

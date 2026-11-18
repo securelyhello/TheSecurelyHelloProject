@@ -1,0 +1,30 @@
+{
+  "generated_at": "2026-11-18T03:35:22+00:00",
+  "commit": "099835d",
+  "suites": [
+    {
+      "name": "server tests",
+      "passed": 120,
+      "failed": 0,
+      "what": "API, devices, relay, 2FA, spam, invites, fuzzing"
+    },
+    {
+      "name": "app tests",
+      "passed": 100,
+      "failed": 0,
+      "what": "ratchet, sessions, wire format, app lock, widgets, fuzzing"
+    },
+    {
+      "name": "end-to-end runs",
+      "passed": 3,
+      "failed": 0,
+      "what": "real apps messaging through a real server"
+    },
+    {
+      "name": "UI walkthrough",
+      "passed": 1,
+      "failed": 0,
+      "what": "drives every screen, takes these screenshots"
+    }
+  ]
+}

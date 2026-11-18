@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Securely Hello</title>
+  <meta name="description" content="An end-to-end encrypted messenger. Messages go device to device when they can, the server never holds anything it can read, and you can run that server yourself.">
+  <meta property="og:title" content="Securely Hello">
+  <meta property="og:description" content="End-to-end encrypted messaging that stays private, from people you choose.">
+  <meta property="og:image" content="assets/screens/19_wide_chat_open.png">
+  <meta name="theme-color" content="#0A0A0F">
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#top" aria-label="Securely Hello home">
+        <img src="assets/logo.svg" alt="" width="32" height="32">
+        <span>Securely Hello</span>
+      </a>
+      <nav aria-label="Sections">
+        <a href="#features">Features</a>
+        <a href="#security">Security</a>
+        <a href="#screens">Screens</a>
+        <a href="#tested">Tested</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <a class="btn btn-small" href="#get">Get the app</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow">End-to-end encrypted messenger</p>
+          <h1>Say hello. <span class="accent">Only they can read it.</span></h1>
+          <p class="lead">
+            Securely Hello encrypts every message, photo and file on your device before it leaves.
+            Messages go straight to the other person's phone when they can. When they can't, the
+            server holds a sealed envelope it has no key for, then deletes it.
+          </p>
+          <div class="cta">
+            <a class="btn" href="#get">Get the app</a>
+            <a class="btn btn-ghost" href="#security">How it protects you</a>
+          </div>
+          <ul class="ticks" aria-label="Highlights">
+            <li>No ads, no trackers</li>
+            <li>Only contacts can message you</li>
+            <li>Run your own server</li>
+          </ul>
+        </div>
+        <div class="hero-phones" aria-hidden="true">
+          <figure class="phone phone-back"><img src="assets/screens/14_contact_info.png" alt="" width="412" height="892"></figure>
+          <figure class="phone phone-front"><img src="assets/screens/12c_reply_react_edit_delete.png" alt="" width="412" height="892"></figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="features">
+      <div class="wrap">
+        <h2>Everything a messenger needs, nothing it shouldn't know</h2>
+        <p class="section-lead">The features you expect, built so that none of them needs the server to read your messages.</p>
+        <div class="grid features">
+          <article class="card">
+            <h3>Encrypted by default</h3>
+            <p>Every chat uses the Double Ratchet with X3DH key agreement. Each message gets a fresh key, so a key stolen today can't open yesterday's messages.</p>
+          </article>
+          <article class="card">
+            <h3>Device to device</h3>
+            <p>When both of you are online, messages travel over a direct encrypted connection. Otherwise the server queues the ciphertext for up to a day.</p>
+          </article>
+          <article class="card">
+            <h3>Photos and files</h3>
+            <p>Attachments are encrypted with a one-time key. Small files ride inside the message itself; larger ones are uploaded as ciphertext only.</p>
+          </article>
+          <article class="card">
+            <h3>Reply, react, edit, delete</h3>
+            <p>Quote a message, add a reaction, fix a typo or delete for everyone. Only the author can edit or delete their messages; anything else is rejected.</p>
+          </article>
+          <article class="card">
+            <h3>Disappearing messages</h3>
+            <p>Set a timer per chat, from 5 minutes to a week. Messages are removed from every device in the conversation when it runs out.</p>
+          </article>
+          <article class="card">
+            <h3>All your devices</h3>
+            <p>Phone, laptop, desktop. A new device has to be approved by one you already use, and your contacts see the change.</p>
+          </article>
+          <article class="card">
+            <h3>Verify who you talk to</h3>
+            <p>Compare a 60-digit safety number or scan a QR code. If a verified contact's keys ever change, sending pauses until you check again.</p>
+          </article>
+          <article class="card">
+            <h3>App lock</h3>
+            <p>PIN or fingerprint, auto-lock when you leave, screenshots blocked, and an optional wipe after ten wrong guesses.</p>
+          </article>
+          <article class="card">
+            <h3>Two-step verification</h3>
+            <p>Add an authenticator app. Signing in, resetting your password or recovering your account then needs a code, so access to your e-mail alone isn't enough.</p>
+          </article>
+          <article class="card">
+            <h3>Invite links and QR codes</h3>
+            <p>Share a link or show your code, and people can add you in one tap. Links expire, have a use limit, and you can turn them off.</p>
+          </article>
+          <article class="card">
+            <h3>Find friends privately</h3>
+            <p>Check your phone contacts for people you know. Only hashed addresses leave your phone, and only people who chose to be findable show up.</p>
+          </article>
+          <article class="card">
+            <h3>Spam stays out</h3>
+            <p>Strangers need an accepted request before they can message you. New accounts are flagged, and accounts that many people report are limited, all without reading anything.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt" id="security">
+      <div class="wrap">
+        <h2>How your message travels</h2>
+        <p class="section-lead">Encryption happens on your phone. Whatever path the message takes, only the recipient's devices hold the key.</p>
+
+        <figure class="flow" aria-labelledby="flow-cap">
+          <svg viewBox="0 55 900 205" role="img" aria-labelledby="flow-title flow-desc">
+            <title id="flow-title">Message path</title>
+            <desc id="flow-desc">Your phone encrypts the message. It goes directly to your contact's phone, or through the server as ciphertext the server cannot read.</desc>
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <path d="M0 0 10 5 0 10z" class="flow-arrowhead"/>
+              </marker>
+            </defs>
+            <g class="flow-node">
+              <rect x="20" y="70" width="190" height="120" rx="18"/>
+              <text x="115" y="118" text-anchor="middle" class="flow-title">Your phone</text>
+              <text x="115" y="146" text-anchor="middle" class="flow-sub">encrypts with</text>
+              <text x="115" y="166" text-anchor="middle" class="flow-sub">their keys</text>
+            </g>
+            <g class="flow-node">
+              <rect x="690" y="70" width="190" height="120" rx="18"/>
+              <text x="785" y="118" text-anchor="middle" class="flow-title">Their phone</text>
+              <text x="785" y="146" text-anchor="middle" class="flow-sub">the only place it</text>
+              <text x="785" y="166" text-anchor="middle" class="flow-sub">can be decrypted</text>
+            </g>
+            <g class="flow-node flow-server">
+              <rect x="355" y="160" width="190" height="84" rx="18"/>
+              <text x="450" y="196" text-anchor="middle" class="flow-title">Server</text>
+              <text x="450" y="222" text-anchor="middle" class="flow-sub">sees a sealed envelope</text>
+            </g>
+            <path d="M215 100 H685" class="flow-line" marker-end="url(#arrow)"/>
+            <text x="450" y="88" text-anchor="middle" class="flow-label">direct, when both are online</text>
+            <path d="M215 160 C280 160 300 202 350 202" class="flow-line flow-dashed" marker-end="url(#arrow)"/>
+            <path d="M550 202 C600 202 620 160 685 160" class="flow-line flow-dashed" marker-end="url(#arrow)"/>
+            <text x="270" y="232" text-anchor="middle" class="flow-label">otherwise, queued</text>
+          </svg>
+          <figcaption id="flow-cap">Either way the content is end-to-end encrypted. The server introduces devices and delivers envelopes; it never has a key.</figcaption>
+        </figure>
+
+        <div class="grid two">
+          <article class="card">
+            <h3>What the server never sees</h3>
+            <ul class="list">
+              <li>Message text, photos, files, reactions and edits</li>
+              <li>Your private keys or your chat history</li>
+              <li>The contents of your phone's address book</li>
+              <li>Your PIN, which never leaves your device</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>What it does see</h3>
+            <ul class="list">
+              <li>Your e-mail, username and display name</li>
+              <li>Who your contacts are, and who you blocked</li>
+              <li>When your devices connect, and from which IP address</li>
+              <li>The size and time of envelopes it relays</li>
+            </ul>
+            <p class="note">We'd rather tell you than pretend. This metadata is needed to deliver messages; it is kept to a minimum and deleted on a schedule.</p>
+          </article>
+        </div>
+
+        <div class="grid three tech">
+          <div><h4>Key agreement</h4><p>X3DH with signed and one-time prekeys, per device</p></div>
+          <div><h4>Messages</h4><p>Double Ratchet: X25519, HKDF-SHA256, XSalsa20-Poly1305</p></div>
+          <div><h4>Identity</h4><p>Ed25519 device keys, 60-digit safety numbers, QR verification</p></div>
+          <div><h4>Transport</h4><p>TLS to the server (optional certificate pinning), DTLS between devices</p></div>
+          <div><h4>On the device</h4><p>Encrypted local database, key in the platform keystore</p></div>
+          <div><h4>Accounts</h4><p>scrypt passwords, TOTP two-step verification, device approval</p></div>
+        </div>
+
+        <details class="limits">
+          <summary>Known limitations</summary>
+          <ul class="list">
+            <li>A malicious server could add a device to your account and claim it was recovered by e-mail. Verified contacts are protected: their app stops sending until they check the new safety number. Unverified contacts only see a notice.</li>
+            <li>No sealed sender yet: the server knows who sends to whom.</li>
+            <li>No post-quantum key agreement yet, and no group chats yet.</li>
+            <li>Disappearing messages can't stop someone photographing their screen.</li>
+            <li>Screenshot blocking is enforced on Android. Other platforms hide the app in the app switcher.</li>
+          </ul>
+        </details>
+      </div>
+    </section>
+
+    <section class="section" id="screens">
+      <div class="wrap">
+        <h2>The real app</h2>
+        <p class="section-lead">These screenshots aren't mock-ups. Our UI test drives the app against a real server and captures them, and this page shows the latest run.</p>
+        <div class="gallery" role="list">
+          <figure role="listitem"><div class="phone"><img loading="lazy" src="assets/screens/10_chats_unread.png" alt="Chat list with an unread conversation" width="412" height="892"></div><figcaption>Your chats</figcaption></figure>
+          <figure role="listitem"><div class="phone"><img loading="lazy" src="assets/screens/12b_chat_attachments.png" alt="Chat with an encrypted photo and PDF" width="412" height="892"></div><figcaption>Encrypted photos and files</figcaption></figure>
+          <figure role="listitem"><div class="phone"><img loading="lazy" src="assets/screens/14_contact_info.png" alt="Contact info with the safety number" width="412" height="892"></div><figcaption>Safety number</figcaption></figure>
+          <figure role="listitem"><div class="phone"><img loading="lazy" src="assets/screens/06b_invite.png" alt="Invite screen with QR code and share button" width="412" height="892"></div><figcaption>Invite with a link or QR</figcaption></figure>
+          <figure role="listitem"><div class="phone"><img loading="lazy" src="assets/screens/17c_settings_security.png" alt="Settings with app lock and screen security" width="412" height="892"></div><figcaption>App lock and screen security</figcaption></figure>
+          <figure role="listitem"><div class="phone"><img loading="lazy" src="assets/screens/17b_linked_devices.png" alt="Linked devices list" width="412" height="892"></div><figcaption>Linked devices</figcaption></figure>
+        </div>
+        <figure class="desktop">
+          <img loading="lazy" src="assets/screens/19_wide_chat_open.png" alt="Desktop app with chat list and an open conversation" width="1280" height="800">
+          <figcaption>On the desktop: Windows, macOS and Linux</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section alt" id="tested">
+      <div class="wrap">
+        <h2>Tested on every change</h2>
+        <p class="section-lead">Every push runs the full suite: cryptography, the server API, real clients messaging each other, and fuzzing of everything that reads untrusted input.</p>
+        <div class="stats" id="stats" aria-live="polite">
+          <noscript><p>Test results load with JavaScript. They're also in <code>assets/report.json</code>.</p></noscript>
+        </div>
+        <p class="note" id="stats-meta"></p>
+        <div class="grid three">
+          <article class="card"><h3>End to end</h3><p>Two complete apps sign up, become contacts, chat directly and through the relay, add a second device, verify each other, block, and recover.</p></article>
+          <article class="card"><h3>Fuzzed</h3><p>Random and mutated input is thrown at every API route and every decoder. Neither may crash, and nothing may answer with a server error.</p></article>
+          <article class="card"><h3>Scanned</h3><p>Dependency audits, CodeQL and a secret scan run in CI. Dependabot keeps libraries current.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="selfhost">
+      <div class="wrap grid two center">
+        <div>
+          <h2>Run your own server</h2>
+          <p>The server is a single Node.js service with Postgres and Redis. Point the app at it and you control where every envelope goes. Attachments can live on your own disk or any S3-compatible storage.</p>
+          <p><a class="link" href="#faq-selfhost">What it takes</a></p>
+        </div>
+        <pre class="code" aria-label="Start a server"><code>git clone &lt;repository&gt;
+cd server
+cp .env.example .env   # set DATABASE_URL, SMTP_URL, keys
+docker compose up -d
+curl https://your-domain/healthz</code></pre>
+      </div>
+    </section>
+
+    <section class="section alt" id="faq">
+      <div class="wrap narrow">
+        <h2>Questions</h2>
+        <details><summary>Can you read my messages?</summary><p>No. They're encrypted on your device with keys only you and the people you talk to have. Our server stores, at most, ciphertext it can't open, and deletes it after delivery.</p></details>
+        <details><summary>Do I need a phone number?</summary><p>No. You sign up with an e-mail address and pick a username. Other people find you by username, by an invite link you share, or, if you turn it on, by your e-mail address in their contacts.</p></details>
+        <details><summary>Who can message me?</summary><p>Only your contacts. Anyone else needs you to accept their request or to open your invite link. Requests from brand-new accounts are clearly marked.</p></details>
+        <details><summary>What if I lose my phone?</summary><p>Sign in on a new device and approve it from another device you use. If you have none left, recover by e-mail, plus your authenticator code if two-step verification is on. Old devices are signed out, and your contacts see that your safety number changed.</p></details>
+        <details><summary>Are disappearing messages really gone?</summary><p>They're deleted from every device in the chat when the timer ends. Nothing can stop someone taking a photo of their screen, so share accordingly.</p></details>
+        <details id="faq-selfhost"><summary>What does running my own server take?</summary><p>A small VPS with Docker, a Postgres database, Redis, and an SMTP account for sign-up codes. <code>server/DEPLOY.md</code> walks through every setting.</p></details>
+        <details><summary>How do I report a security problem?</summary><p>Privately, through the repository's security advisories, or <span class="contact-email">the contact address</span>. <code>SECURITY.md</code> explains how we handle reports.</p></details>
+      </div>
+    </section>
+
+    <section class="section" id="get">
+      <div class="wrap get">
+        <img src="assets/logo.svg" alt="" width="64" height="64">
+        <h2>Get Securely Hello</h2>
+        <p class="section-lead">Free, with no ads and no trackers.</p>
+        <div class="cta center-row" id="downloads">
+          <a class="btn" data-link="playStore" href="#">Android</a>
+          <a class="btn" data-link="appStore" href="#">iPhone</a>
+          <a class="btn btn-ghost" data-link="desktop" href="#">Windows, macOS, Linux</a>
+          <a class="btn btn-ghost" data-link="source" href="#">Source code</a>
+        </div>
+        <p class="note" id="downloads-soon" hidden>Downloads are coming soon.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <span>© <span id="year">2026</span> Securely Hello</span>
+      <nav aria-label="Legal">
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+        <a data-link="source" href="#">Source</a>
+      </nav>
+      <span class="muted">This site loads nothing from anyone else.</span>
+    </div>
+  </footer>
+
+  <script src="config.js"></script>
+  <script src="site.js"></script>
+</body>
+</html>

@@ -28,6 +28,10 @@ and why. The short version: **we cannot read your messages, calls or files.**
 | Blocks and reports you make | To stop unwanted contact and handle abuse | Blocks until you lift them; reports up to 1 year |
 | Encrypted messages waiting for a device that is offline | Delivery | Deleted on delivery, at most 24 hours |
 | Encrypted files too large to travel inside a message | Delivery | Deleted after [30] days |
+| A one-way hash of your e-mail address | Lets people who have your address in their phone contacts find you, but only if you turn on "Findable by e-mail" (off by default). Address books you check are compared and discarded, never stored | Until you delete your account |
+| Two-step verification secret (encrypted) and hashed recovery codes, if you turn it on | Asking for a code at sign-in | Until you turn it off |
+| Invite links you create (hashed) and how often each was used | So the people you invite can add you | Until they expire (30 days) |
+| Whether your account is temporarily limited for spam, and why | Protecting other users. Based on reports, blocks and rejected requests, never on message content | Up to 7 days per limit |
 | Session tokens (hashed) | Keeping you signed in | Up to 90 days of inactivity |
 | Push-notification token (if enabled) | Waking your phone when something arrives | Until you sign out or disable notifications |
 | Online status and last-seen time | Shown to your contacts | Online: while connected; last seen: 90 days |

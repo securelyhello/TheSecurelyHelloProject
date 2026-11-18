@@ -233,6 +233,12 @@ void main() {
       unawaited(nav().pushNamed('/add-contact'));
       await waitFor(find.text('Search by username'), 'add-contact screen');
       await shot('06_find_people_empty');
+      await tester.tap(find.byKey(const ValueKey('find-invite')));
+      await waitFor(find.byKey(const ValueKey('invite-qr')), 'invite screen with QR code');
+      await settle(800);
+      await shot('06b_invite');
+      nav().pop();
+      await settle(600);
       await tester.enterText(find.byType(EditableText).first, 'mira_$tag');
       await waitFor(find.text('Mira Kapoor'), 'search result');
       await shot('07_find_people_result');
@@ -347,6 +353,18 @@ void main() {
       await tester.tap(find.text('Settings').last);
       await settle(900);
       await shot('17_settings');
+      await tester.dragUntilVisible(find.byKey(const ValueKey('settings-app-lock')),
+          find.byType(ListView).last, const Offset(0, -250));
+      await settle(600);
+      await shot('17c_settings_security');
+      await tester.dragUntilVisible(find.byKey(const ValueKey('settings-2fa')),
+          find.byType(ListView).last, const Offset(0, -250));
+      await tester.tap(find.byKey(const ValueKey('settings-2fa')));
+      await waitFor(find.byKey(const ValueKey('2fa-start')), 'two-step verification screen');
+      await settle(600);
+      await shot('17d_two_step');
+      nav().pop();
+      await settle(600);
       unawaited(nav().pushNamed('/devices'));
       await waitFor(find.text('This device'), 'linked devices screen');
       await settle(800);

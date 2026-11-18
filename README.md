@@ -138,6 +138,12 @@ SH_PROFILE=alice flutter run -d linux
 SH_PROFILE=bob   flutter run -d linux
 ```
 
+## Website
+
+`website/` is the product page and the invite landing page (`/i/<token>`):
+static files that load nothing from other hosts. Its screenshots and test
+results come from the real test runs. See [website/README.md](website/README.md).
+
 ## Security
 
 See [SECURITY.md](SECURITY.md) for the threat model, what the server can
