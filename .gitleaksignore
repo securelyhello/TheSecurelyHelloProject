@@ -1,0 +1,5 @@
+# Exact findings checked by hand and known not to be secrets. Each line is
+# one finding (commit:file:rule:line), so anything new is still reported.
+
+# The fake S3 server that server/test/blobstore.test.js starts in-process.
+50b8a11ed93e3e2842a1f266f4122babd77315f8:server/test/blobstore.test.js:generic-api-key:152

@@ -33,18 +33,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      # --config: `gitleaks git` doesn't pick up the repository's
-      # .gitleaks.toml (its allowlist) on its own. --verbose names the rule,
-      # file and line of a finding; --redact still hides the value.
+      # The repository's config and ignore list are passed explicitly: the
+      # container's working directory isn't the repository. --verbose names
+      # the rule, file and line of a finding; --redact hides the value.
       - run: >-
           docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.21.2 git /repo
-          --config /repo/.gitleaks.toml --redact --verbose --no-banner
+          --config /repo/.gitleaks.toml --gitleaks-ignore-path /repo/.gitleaksignore
+          --redact --verbose --no-banner
 
   codeql:
     name: CodeQL (server)
     runs-on: ubuntu-24.04
     permissions:
-      security-events: write
       contents: read
       actions: read # the analyze step reads its own workflow run
     steps:
@@ -55,7 +55,18 @@ jobs:
           queries: security-extended
           config: |
             paths: [server/src]
+      # Uploading to code scanning needs GitHub Advanced Security, which
+      # this repository doesn't have; keep the results here and fail on any.
       - uses: github/codeql-action/analyze@v3
+        with:
+          upload: never
+          output: codeql-results
+      - name: Fail on CodeQL findings
+        run: |
+          n=$(jq '[.runs[].results[]] | length' codeql-results/*.sarif)
+          jq -r '.runs[].results[] | "\(.ruleId): \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine) \(.message.text)"' codeql-results/*.sarif
+          echo "CodeQL findings: $n"
+          test "$n" -eq 0
 
   fuzz:
     name: Long fuzz run
