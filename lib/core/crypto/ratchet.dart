@@ -7,9 +7,7 @@ import 'package:pinenacl/x25519.dart' show PrivateKey, SecretBox, EncryptedMessa
 
 import 'package:securelyhello/core/crypto/crypto_core.dart';
 
-// =============================================================================
 // Forward-secret sessions: X3DH + Double Ratchet
-// =============================================================================
 //
 // Every device has an identity (Ed25519 signing key + X25519 key, see
 // [CryptoIdentity]), a signed prekey (SPK) and a stock of one-time prekeys
@@ -47,9 +45,7 @@ class RatchetException implements Exception {
   String toString() => 'RatchetException: $message';
 }
 
-// -----------------------------------------------------------------------------
 // Primitives
-// -----------------------------------------------------------------------------
 
 class Kdf {
   Kdf._();
@@ -111,9 +107,7 @@ class DhKeyPair {
       base64Decode(j['priv'] as String), base64Decode(j['pub'] as String));
 }
 
-// -----------------------------------------------------------------------------
 // Signed prekeys
-// -----------------------------------------------------------------------------
 
 /// The bytes a signed prekey signature covers (the server checks the same).
 Uint8List signedPreKeyMessage(int id, Uint8List publicKey) {
@@ -143,9 +137,7 @@ bool verifyPreKey(String signingKeyB64, int id, String preKeyB64, String sigB64)
   }
 }
 
-// -----------------------------------------------------------------------------
 // X3DH
-// -----------------------------------------------------------------------------
 
 /// Public keys of one remote device, as published on the server.
 class DeviceKeys {
@@ -334,9 +326,7 @@ class X3dh {
   }
 }
 
-// -----------------------------------------------------------------------------
 // Double Ratchet
-// -----------------------------------------------------------------------------
 
 /// One message's ratchet header. Serialized as compact JSON; the exact
 /// string is authenticated (see [DoubleRatchet.encrypt]).
@@ -646,9 +636,7 @@ class DoubleRatchet {
   }
 }
 
-// -----------------------------------------------------------------------------
 // Session records
-// -----------------------------------------------------------------------------
 
 /// All sessions with one remote device: the one we send with, plus a few
 /// older ones kept for decrypting messages still in flight (for example

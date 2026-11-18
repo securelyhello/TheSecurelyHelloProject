@@ -29,9 +29,7 @@ const USER_COLUMNS =
  */
 export function registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier, twoFactor, antiSpam, blobs }) {
   const verificationRequired = config.emailVerification === 'required';
-  // ---------------------------------------------------------------------------
   // Serialization
-  // ---------------------------------------------------------------------------
 
   /** Public profile. Presence is only revealed to contacts (and yourself). */
   const profile = (row, presence = null) => ({
@@ -61,9 +59,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     };
   }
 
-  // ---------------------------------------------------------------------------
   // E-mail codes (verification, password reset)
-  // ---------------------------------------------------------------------------
 
   const { issueCode, consumeCode } = createCodes({ pool, mailer });
 
@@ -90,9 +86,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     if (!(await limits.take(name, key))) throw tooMany();
   }
 
-  // ---------------------------------------------------------------------------
   // Health
-  // ---------------------------------------------------------------------------
 
   const health = async () => {
     const timeout = (ms) => new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms).unref());
@@ -110,9 +104,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
   router.add('GET', '/healthz', health, { auth: false });
   router.add('GET', '/api/healthz', health, { auth: false });
 
-  // ---------------------------------------------------------------------------
   // Auth
-  // ---------------------------------------------------------------------------
 
   /** A proof-of-work challenge for signing up or asking for a reset e-mail. */
   router.add(
@@ -367,9 +359,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     { auth: false },
   );
 
-  // ---------------------------------------------------------------------------
   // Me
-  // ---------------------------------------------------------------------------
 
   router.add('GET', '/api/me', async ({ user }) => {
     const { rows } = await pool.query(`SELECT ${USER_COLUMNS} FROM users u WHERE u.id = $1`, [user.id]);
@@ -433,9 +423,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     hub.disconnectUser(user.id, 4003, 'account deleted');
   });
 
-  // ---------------------------------------------------------------------------
   // Directory
-  // ---------------------------------------------------------------------------
 
   router.add('GET', '/api/users/search', async ({ query, user }) => {
     const q = (query.get('q') ?? '').trim().toLowerCase().replace(/^@/, '');
@@ -472,9 +460,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
 
   router.add('GET', '/api/users/:id', ({ params, user }) => lookup(user, 'u.id = $1', v.uuid(params.id)));
 
-  // ---------------------------------------------------------------------------
   // Contact requests
-  // ---------------------------------------------------------------------------
 
   const requestSelect = `
     SELECT r.id, r.sender_id, r.receiver_id, r.status, r.created_at, r.updated_at,
@@ -684,9 +670,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Contacts
-  // ---------------------------------------------------------------------------
 
   router.add('GET', '/api/contacts', async ({ user }) => {
     const { rows } = await pool.query(

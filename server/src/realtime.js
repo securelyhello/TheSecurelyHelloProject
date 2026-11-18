@@ -58,9 +58,7 @@ export class RealtimeHub {
     this.heartbeat.unref();
   }
 
-  // ---------------------------------------------------------------------------
   // Connection lifecycle
-  // ---------------------------------------------------------------------------
 
   async handleUpgrade(req, socket, head) {
     const reject = (status, text) => {
@@ -170,9 +168,7 @@ export class RealtimeHub {
     this.store.markOnline(online).catch((err) => this.log.warn('presence refresh failed', { error: err.message }));
   }
 
-  // ---------------------------------------------------------------------------
   // Frames
-  // ---------------------------------------------------------------------------
 
   async #onFrame(ws, data, isBinary) {
     const err = (code, extra = {}) => this.#send(ws, { type: 'error', code, ...extra });
@@ -284,9 +280,7 @@ export class RealtimeHub {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Helpers used by the HTTP routes
-  // ---------------------------------------------------------------------------
 
   /** A user is online while at least one of their sockets is not "away". */
   isOnline(userId) {

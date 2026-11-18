@@ -71,9 +71,7 @@ class SessionManager {
     });
   }
 
-  // ===========================================================================
   // Device lists
-  // ===========================================================================
 
   /// [userId]'s devices, from the cache unless it is stale or [refresh].
   /// For ourselves, this device is left out (it is never a recipient).
@@ -156,9 +154,7 @@ class SessionManager {
     ];
   }
 
-  // ===========================================================================
   // Sending
-  // ===========================================================================
 
   /// Seals [payload] once for each of [targets] (all devices of [userId]).
   /// Starts sessions (X3DH) with devices we have none with yet.
@@ -222,9 +218,7 @@ class SessionManager {
     }
   }
 
-  // ===========================================================================
   // Receiving
-  // ===========================================================================
 
   /// Decrypts [env] (addressed to this device) and returns its payload.
   /// Throws [UndecryptableException]; network errors propagate (retry later).
@@ -344,9 +338,7 @@ class SessionManager {
   Future<void> resetSession(String address) =>
       _serial(address, () => _storage.deleteSessionRecord(address));
 
-  // ===========================================================================
   // Persistence
-  // ===========================================================================
 
   Future<SessionRecord?> _load(String address) async {
     final raw = await _storage.getSessionRecord(address);

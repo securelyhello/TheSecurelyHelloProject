@@ -271,9 +271,7 @@ class AuthProvider extends ChangeNotifier {
     _signingOut = false;
   }
 
-  // ---------------------------------------------------------------------------
   // E-mail verification and password reset
-  // ---------------------------------------------------------------------------
 
   /// E-mails a new verification code.
   Future<bool> resendVerificationEmail() async {
@@ -349,9 +347,7 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Linked devices
-  // ---------------------------------------------------------------------------
 
   /// This account's devices (`device_id`, `name`, `created_at`,
   /// `last_seen_at`, `current`, public keys).
@@ -383,9 +379,7 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // New-device approval
-  // ---------------------------------------------------------------------------
 
   /// Sign-in alerts and approvals pushed by the server.
   Stream<Map<String, dynamic>> get deviceEvents => _directoryService.deviceEvents;
@@ -598,9 +592,7 @@ class AuthProvider extends ChangeNotifier {
     if (online) _directoryService.nudgeRealtime();
   }
 
-  // ---------------------------------------------------------------------------
   // Session bootstrap
-  // ---------------------------------------------------------------------------
 
   Future<bool> _bootstrap(
     String userId, {
@@ -715,9 +707,7 @@ class AuthProvider extends ChangeNotifier {
     _setStatus(AuthStatus.unauthenticated);
   }
 
-  // ---------------------------------------------------------------------------
   // Profile caching (offline start)
-  // ---------------------------------------------------------------------------
 
   static String _profileCacheKey(String authId) => 'sh_profile_$authId';
   Future<void> _cacheProfile(String authId, Map<String, dynamic> profile) async {

@@ -1,9 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-// =============================================================================
 // Wire protocol v3
-// =============================================================================
 //
 // Everything that leaves the device, over a WebRTC data channel or through
 // the server's relay queue, is a [WireEnvelope] addressed to ONE device:

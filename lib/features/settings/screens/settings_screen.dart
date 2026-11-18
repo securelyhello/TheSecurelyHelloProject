@@ -356,7 +356,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: ListView(
                 padding: const EdgeInsets.only(top: 16, bottom: 32),
                 children: [
-                  // ── Profile ─────────────────────────────────────────
+                  // Profile
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     child: Material(
@@ -443,7 +443,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
 
-                  // ── Notifications ───────────────────────────────────
+                  // Notifications
                   const SectionHeader(
                     'Notifications',
                     padding: EdgeInsets.fromLTRB(28, 20, 28, 8),
@@ -480,7 +480,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ]);
                   }),
 
-                  // ── Privacy & security ──────────────────────────────
+                  // Privacy & security
                   const SectionHeader(
                     'Privacy & security',
                     padding: EdgeInsets.fromLTRB(28, 20, 28, 8),
@@ -627,7 +627,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ]);
                   }),
 
-                  // ── Account ─────────────────────────────────────────
+                  // Account
                   const SectionHeader(
                     'Account',
                     padding: EdgeInsets.fromLTRB(28, 20, 28, 8),
@@ -690,7 +690,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ]),
 
-                  // ── About ───────────────────────────────────────────
+                  // About
                   const SectionHeader(
                     'About',
                     padding: EdgeInsets.fromLTRB(28, 20, 28, 8),

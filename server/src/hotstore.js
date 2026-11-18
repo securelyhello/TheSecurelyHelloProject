@@ -143,9 +143,7 @@ export class HotStore {
     return (await this.redis.ping()) === 'PONG';
   }
 
-  // ---------------------------------------------------------------------------
   // Rate limits: fixed window counters
-  // ---------------------------------------------------------------------------
 
   /** Hits counted so far in the current window. */
   async rateCount(bucket, key) {
@@ -158,9 +156,7 @@ export class HotStore {
     return n <= capacity;
   }
 
-  // ---------------------------------------------------------------------------
   // Session cache
-  // ---------------------------------------------------------------------------
 
   /** {id, deviceId} or null. */
   async getCachedSession(hashHex) {
@@ -179,9 +175,7 @@ export class HotStore {
     if (hashHexes.length) await this.redis.del(...hashHexes.map((h) => this.k('sess', h)));
   }
 
-  // ---------------------------------------------------------------------------
   // Contact-list cache
-  // ---------------------------------------------------------------------------
 
   async getCachedContacts(userId) {
     const raw = await this.redis.get(this.k('contacts', userId));
@@ -196,9 +190,7 @@ export class HotStore {
     if (userIds.length) await this.redis.del(...userIds.map((id) => this.k('contacts', id)));
   }
 
-  // ---------------------------------------------------------------------------
   // Device-list cache
-  // ---------------------------------------------------------------------------
 
   async getCachedDevices(userId) {
     const raw = await this.redis.get(this.k('devices', userId));
@@ -213,9 +205,7 @@ export class HotStore {
     if (userIds.length) await this.redis.del(...userIds.map((id) => this.k('devices', id)));
   }
 
-  // ---------------------------------------------------------------------------
   // Push throttle
-  // ---------------------------------------------------------------------------
 
   /** True if a wake-up may be sent to [deviceId] now (at most one per window). */
   /** Stores a proof-of-work challenge for [ttlSeconds]. */
@@ -236,9 +226,7 @@ export class HotStore {
     await this.redis.del(this.k('push', deviceId));
   }
 
-  // ---------------------------------------------------------------------------
   // Presence
-  // ---------------------------------------------------------------------------
 
   async markOnline(userIds) {
     if (!userIds.length) return;
@@ -272,9 +260,7 @@ export class HotStore {
     await this.redis.del(this.k('online', userId), this.k('lastseen', userId));
   }
 
-  // ---------------------------------------------------------------------------
   // Relay queue (ciphertext envelopes only)
-  // ---------------------------------------------------------------------------
 
   /**
    * Stores one envelope for one device; returns the stored message, or null

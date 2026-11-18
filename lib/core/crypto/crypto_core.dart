@@ -36,9 +36,7 @@ class CryptoIdentity {
   Uint8List sign(Uint8List message) =>
       Uint8List.fromList(signingKey.sign(message).toList());
 
-  // ---------------------------------------------------------------------------
   // Public key export (safe to publish)
-  // ---------------------------------------------------------------------------
 
   /// Returns only the public signing key as Base64 (safe to publish).
   String get publicSigningKeyBase64 =>
@@ -48,9 +46,7 @@ class CryptoIdentity {
   String get publicEncryptionKeyBase64 =>
       base64Encode(Uint8List.fromList(encryptionPublicKey));
 
-  // ---------------------------------------------------------------------------
   // Full serialization (for LOCAL storage only — includes private keys)
-  // ---------------------------------------------------------------------------
 
   /// Serializes the full identity (including private keys) to a map of
   /// Base64-encoded strings. **Store only in the local SQLite database.**
@@ -105,9 +101,7 @@ class CryptoIdentity {
 class CryptoCore {
   CryptoCore._(); // prevent instantiation
 
-  // ---------------------------------------------------------------------------
   // Identity generation
-  // ---------------------------------------------------------------------------
 
   /// Generates a fresh Ed25519 signing keypair **and** X25519 encryption
   /// keypair.  The returned [CryptoIdentity] should be persisted to local
@@ -124,9 +118,7 @@ class CryptoCore {
     );
   }
 
-  // ---------------------------------------------------------------------------
   // NaCl Box encryption (X25519 + XSalsa20-Poly1305)
-  // ---------------------------------------------------------------------------
 
   /// Encrypts [plaintext] using NaCl box (authenticated encryption).
   ///
@@ -174,9 +166,7 @@ class CryptoCore {
     return Uint8List.fromList(decrypted);
   }
 
-  // ---------------------------------------------------------------------------
   // Ed25519 signing / verification
-  // ---------------------------------------------------------------------------
 
   /// Signs [message] with the Ed25519 [signingPrivateKey] (seed, 32 bytes).
   ///
@@ -216,9 +206,7 @@ class CryptoCore {
     return Uint8List.fromList(signedMessage.sublist(64));
   }
 
-  // ---------------------------------------------------------------------------
   // Local at-rest encryption (XSalsa20-Poly1305 SecretBox)
-  // ---------------------------------------------------------------------------
 
   /// Cryptographically secure random bytes.
   static Uint8List randomBytes(int length) {
@@ -243,9 +231,7 @@ class CryptoCore {
     return Uint8List.fromList(decrypted);
   }
 
-  // ---------------------------------------------------------------------------
   // Safety numbers
-  // ---------------------------------------------------------------------------
 
   /// Computes a 60-digit safety number for two people.
   ///
@@ -281,9 +267,7 @@ class CryptoCore {
     return groups.join(' ');
   }
 
-  // ---------------------------------------------------------------------------
   // Base64 helpers
-  // ---------------------------------------------------------------------------
 
   /// Encodes raw bytes to a URL-safe, unpadded Base64 string.
   static String toBase64(Uint8List bytes) => base64Encode(bytes);

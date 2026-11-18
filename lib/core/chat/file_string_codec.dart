@@ -5,9 +5,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as hash;
 
-// =============================================================================
 // File <-> string codec ("FTS1")
-// =============================================================================
 //
 // Dart port of tools/file_to_string.py (the reference implementation), wire
 // compatible in both directions:
@@ -56,9 +54,7 @@ class DecodedFile {
 class FileStringCodec {
   FileStringCodec._();
 
-  // ---------------------------------------------------------------------------
   // Base45 (RFC 9285)
-  // ---------------------------------------------------------------------------
 
   static const _b45 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ \$%*+-./:';
   static final Map<int, int> _b45Index = {
@@ -121,9 +117,7 @@ class FileStringCodec {
     return out.takeBytes();
   }
 
-  // ---------------------------------------------------------------------------
   // Encode: bytes -> string
-  // ---------------------------------------------------------------------------
 
   /// Encodes [bytes] (a file called [filename]) into one self-describing
   /// string. Matches `encode_file()` in the Python reference.
@@ -183,9 +177,7 @@ class FileStringCodec {
     return out.toString();
   }
 
-  // ---------------------------------------------------------------------------
   // Decode: string -> bytes
-  // ---------------------------------------------------------------------------
 
   /// Reverses [encode]: checks the size and SHA-256, returns the file.
   /// Throws [FileStringException] on anything malformed or tampered.
@@ -293,9 +285,7 @@ class FileStringCodec {
     return name.length > 255 ? name.substring(name.length - 255) : name;
   }
 
-  // ---------------------------------------------------------------------------
   // Chunking
-  // ---------------------------------------------------------------------------
 
   /// Splits an encoded string into self-describing chunks of [chunkSize]
   /// characters (matches `chunk_string()`).

@@ -131,9 +131,7 @@ export function registerSafetyRoutes(router, { pool, hub, services, limits, conf
     return { status: 201, body: { id: rows[0].id } };
   });
 
-  // ---------------------------------------------------------------------------
   // Operator: review reports with ADMIN_TOKEN (Authorization: Bearer <token>)
-  // ---------------------------------------------------------------------------
 
   function requireAdmin(req) {
     const expected = config.adminToken;

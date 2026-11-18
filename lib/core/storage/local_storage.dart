@@ -86,9 +86,7 @@ class LocalStorage {
   /// The auth id whose database is currently open.
   String? get openAuthId => _authId;
 
-  // ---------------------------------------------------------------------------
   // Lifecycle
-  // ---------------------------------------------------------------------------
 
   Future<String> _pathFor(String fileName) async =>
       p.join(await _baseDir(), fileName);
@@ -361,9 +359,7 @@ class LocalStorage {
     return p.join(await _baseDir(), 'attachments', id);
   }
 
-  // ---------------------------------------------------------------------------
   // At-rest encryption helpers
-  // ---------------------------------------------------------------------------
 
   String _seal(String plaintext) {
     final key = _key!;
@@ -398,9 +394,7 @@ class LocalStorage {
     return {...row, 'last_message': last == null ? null : _unseal(last)};
   }
 
-  // ---------------------------------------------------------------------------
   // Legacy identity migration
-  // ---------------------------------------------------------------------------
 
   static Future<CryptoIdentity?> _readIdentityRows(Database db) async {
     final tables = await db.query('sqlite_master',
@@ -425,9 +419,7 @@ class LocalStorage {
     return identity;
   }
 
-  // ---------------------------------------------------------------------------
   // Messages
-  // ---------------------------------------------------------------------------
 
   /// Inserts a new message row.
   Future<void> insertMessage({
@@ -592,9 +584,7 @@ class LocalStorage {
     );
   }
 
-  // ---------------------------------------------------------------------------
   // Conversations
-  // ---------------------------------------------------------------------------
 
   /// Returns all conversations ordered by most-recent message.
   Future<List<Map<String, dynamic>>> getConversations() async {
@@ -691,9 +681,7 @@ class LocalStorage {
     await batch.commit(noResult: true);
   }
 
-  // ---------------------------------------------------------------------------
   // Contact cache
-  // ---------------------------------------------------------------------------
 
   /// Caches a user's public profile locally for offline access and fast
   /// encryption-key lookup.
@@ -769,9 +757,7 @@ class LocalStorage {
         where: 'id = ?', whereArgs: [messageId]);
   }
 
-  // ---------------------------------------------------------------------------
   // Key/value settings (device id, prekey counters)
-  // ---------------------------------------------------------------------------
 
   Future<String?> kvGet(String key) async {
     final rows = await db.query('kv', where: 'key = ?', whereArgs: [key], limit: 1);
@@ -787,9 +773,7 @@ class LocalStorage {
     await db.delete('kv', where: 'key = ?', whereArgs: [key]);
   }
 
-  // ---------------------------------------------------------------------------
   // Ratchet sessions (sealed at rest)
-  // ---------------------------------------------------------------------------
 
   Future<String?> getSessionRecord(String address) async {
     final rows = await db.query('ratchet_sessions',
@@ -829,9 +813,7 @@ class LocalStorage {
     await batch.commit(noResult: true);
   }
 
-  // ---------------------------------------------------------------------------
   // Our prekeys (private halves sealed at rest)
-  // ---------------------------------------------------------------------------
 
   Future<void> insertPreKeys(
       String kind, List<({int id, String private, String public})> keys) async {
@@ -885,9 +867,7 @@ class LocalStorage {
         whereArgs: [kind, beforeMs, keep ?? -1]);
   }
 
-  // ---------------------------------------------------------------------------
   // Peer devices (public keys of contacts' and our own other devices)
-  // ---------------------------------------------------------------------------
 
   Future<List<Map<String, dynamic>>> getPeerDevices(String userId) =>
       db.query('peer_devices',
@@ -943,9 +923,7 @@ class LocalStorage {
         where: 'user_id = ?', whereArgs: [userId]);
   }
 
-  // ---------------------------------------------------------------------------
   // Envelope de-duplication
-  // ---------------------------------------------------------------------------
 
   /// Records [envelopeId]; returns false if it was already processed.
   Future<bool> markEnvelopeSeen(String envelopeId) async {
@@ -968,9 +946,7 @@ class LocalStorage {
     await db.delete('seen_envelopes', where: 'seen_at < ?', whereArgs: [beforeMs]);
   }
 
-  // ---------------------------------------------------------------------------
   // Edits, deletions, reactions
-  // ---------------------------------------------------------------------------
 
   Future<void> editMessage(String messageId, String content, int editedAt) async {
     await db.update('messages', {'content': _seal(content), 'edited_at': editedAt},
@@ -1033,9 +1009,7 @@ class LocalStorage {
         where: 'id = ?', whereArgs: [conversationId]);
   }
 
-  // ---------------------------------------------------------------------------
   // Disappearing messages
-  // ---------------------------------------------------------------------------
 
   /// Seconds after which new messages in [conversationId] disappear (0 = off).
   Future<int> disappearAfter(String conversationId) async {

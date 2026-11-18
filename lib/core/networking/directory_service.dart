@@ -197,9 +197,7 @@ class DirectoryService {
         (b[0] == 192 && b[1] == 168);
   }
 
-  // ===========================================================================
   // Streams
-  // ===========================================================================
 
   /// Offers, answers, ICE candidates and hang-ups from contacts.
   Stream<SignalEvent> get signals => _signals.stream;
@@ -237,9 +235,7 @@ class DirectoryService {
     return token == null ? null : hash.sha256.convert(utf8.encode(token)).toString();
   }
 
-  // ===========================================================================
   // Auth
-  // ===========================================================================
 
   /// Loads the saved session token, if any.
   Future<StoredSession?> restoreSession() async {
@@ -375,16 +371,12 @@ class DirectoryService {
     await _tokenStore.clearSession();
   }
 
-  // ===========================================================================
   // Directory
-  // ===========================================================================
 
   Future<Map<String, dynamic>> getMyProfile() async =>
       Map<String, dynamic>.from(await _request('GET', '/api/me') as Map);
 
-  // ===========================================================================
   // Devices and prekeys (only public keys are ever sent)
-  // ===========================================================================
 
   /// Registers (or re-registers) this device and binds the session to it.
   /// Returns `{device_id, prekeys_remaining}`.
@@ -567,9 +559,7 @@ class DirectoryService {
     return res['available'] == true;
   }
 
-  // ===========================================================================
   // Contact requests & contacts
-  // ===========================================================================
 
   /// Returns the request; its `status` is `accepted` straight away when the
   /// other person had already asked us.
@@ -623,9 +613,7 @@ class DirectoryService {
   Future<void> removeContact(String contactUserId) => _request(
       'DELETE', '/api/contacts/${Uri.encodeComponent(contactUserId)}');
 
-  // ===========================================================================
   // Attachments (ciphertext only)
-  // ===========================================================================
 
   /// Uploads an encrypted blob; returns its id.
   Future<String> uploadAttachment(Uint8List ciphertext) async {
@@ -672,9 +660,7 @@ class DirectoryService {
     );
   }
 
-  // ===========================================================================
   // Relay queue (ciphertext only)
-  // ===========================================================================
 
   /// Parks one envelope per device of [recipientId] (ourselves for sync).
   /// [knownDevices] is our view of all their devices; the server refuses a
@@ -718,9 +704,7 @@ class DirectoryService {
     }
   }
 
-  // ===========================================================================
   // Realtime
-  // ===========================================================================
 
   /// Opens (and keeps open) the WebSocket. Idempotent.
   Future<void> startRealtime() async {
@@ -960,9 +944,7 @@ class DirectoryService {
     }
   }
 
-  // ===========================================================================
   // HTTP
-  // ===========================================================================
 
   static List<Map<String, dynamic>> _list(dynamic value) => (value as List)
       .map((e) => Map<String, dynamic>.from(e as Map))

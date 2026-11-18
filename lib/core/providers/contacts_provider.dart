@@ -323,9 +323,7 @@ class ContactsProvider extends ChangeNotifier {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Blocking and reporting
-  // ---------------------------------------------------------------------------
 
   List<Map<String, dynamic>> _blocked = [];
   List<Map<String, dynamic>> get blockedUsers => List.unmodifiable(_blocked);

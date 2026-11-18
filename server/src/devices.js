@@ -149,9 +149,7 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
     hub.sendTo(userId, frame);
   }
 
-  // ---------------------------------------------------------------------------
   // Registration
-  // ---------------------------------------------------------------------------
 
   /**
    * Registers this session's device, or updates it. A client that kept its
@@ -434,9 +432,7 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
     await announceDevices(user.id);
   });
 
-  // ---------------------------------------------------------------------------
   // Directory of devices and prekey bundles
-  // ---------------------------------------------------------------------------
 
   /** Public device keys of any user (names only for yourself). */
   router.add('GET', '/api/users/:id/devices', async ({ params, user }) => {
@@ -499,9 +495,7 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
     return bundles;
   });
 
-  // ---------------------------------------------------------------------------
   // Relay queue (ciphertext only, one queue per device, Redis with a TTL)
-  // ---------------------------------------------------------------------------
 
   const ENVELOPE_KEYS = 'c,h,id,rd,s,sd,t,v';
   const B64_RE = /^[A-Za-z0-9+/]+={0,2}$/;

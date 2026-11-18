@@ -14,9 +14,7 @@ import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
 import 'package:securelyhello/core/storage/local_storage.dart';
 
-// =============================================================================
 // Domain models
-// =============================================================================
 
 /// Local representation of a chat message.
 class Message {
@@ -191,9 +189,7 @@ class _Negotiation {
   return (userId: address.substring(0, i), deviceId: address.substring(i + 1));
 }
 
-// =============================================================================
 // ChatService
-// =============================================================================
 
 /// Orchestrates end-to-end encrypted messaging between devices.
 ///
@@ -282,9 +278,7 @@ class ChatService {
   CryptoIdentity? get identity => _identity;
   DeviceManager get deviceManager => _devices;
 
-  // ===========================================================================
   // Lifecycle
-  // ===========================================================================
 
   /// Starts messaging for the signed-in user on this device.  Idempotent
   /// per user.  [deviceId] is the id the device registered with.
@@ -418,9 +412,7 @@ class ChatService {
     _activeConversationId = contactId;
   }
 
-  // ===========================================================================
   // Queries
-  // ===========================================================================
 
   Future<List<Conversation>> fetchConversations() async {
     final rows = await _storage.getConversations();
@@ -536,9 +528,7 @@ class ChatService {
     unawaited(resendUnsent());
   }
 
-  // ===========================================================================
   // Sending
-  // ===========================================================================
 
   /// Stores a message locally and delivers it to [contactId]'s devices (and
   /// a copy to our own other devices).
@@ -619,9 +609,7 @@ class ChatService {
     };
   }
 
-  // ===========================================================================
   // Reactions, edits, deletion
-  // ===========================================================================
 
   /// Own messages can be edited or deleted for everyone this long after
   /// sending (enforced by every receiving device).
@@ -675,9 +663,7 @@ class ChatService {
     _changed(contactId);
   }
 
-  // ===========================================================================
   // Disappearing messages
-  // ===========================================================================
 
   static const disappearChoices = [0, 300, 3600, 86400, 604800];
 
@@ -1015,9 +1001,7 @@ class ChatService {
     return pinned == null || pinned == keySetDigest(devices);
   }
 
-  // ===========================================================================
   // Receipts
-  // ===========================================================================
 
   void _queueReceipt(String contactId, String messageId, ReceiptStatus status) {
     _pendingReceipts
@@ -1078,9 +1062,7 @@ class ChatService {
     _changed(contactId);
   }
 
-  // ===========================================================================
   // Receiving
-  // ===========================================================================
 
   Future<void> _handleIncomingBytes(String address, Uint8List raw) async {
     try {
@@ -1262,9 +1244,7 @@ class ChatService {
     _changed(contactId);
   }
 
-  // ===========================================================================
   // Relay queue
-  // ===========================================================================
 
   /// Downloads and processes every relay-queue envelope waiting for us.
   Future<void> drainRelayQueue() async {
@@ -1342,9 +1322,7 @@ class ChatService {
     }
   }
 
-  // ===========================================================================
   // P2P signaling (one WebRTC connection per remote device)
-  // ===========================================================================
 
   /// Starts WebRTC handshakes with every device of [contactId] that has no
   /// open or pending link.  Messages keep flowing via the relay meanwhile;
@@ -1635,9 +1613,7 @@ class ChatService {
     }
   }
 
-  // ===========================================================================
   // Notices
-  // ===========================================================================
 
   Future<void> _noteDevicesChanged(
       String contactId, DeviceListChange change) async {
@@ -1672,9 +1648,7 @@ class ChatService {
     _changed(contactId);
   }
 
-  // ===========================================================================
   // Helpers
-  // ===========================================================================
 
   String _requireUserId() {
     final uid = _myUserId;

@@ -64,9 +64,7 @@ export function filesystemStore(dir) {
   };
 }
 
-// ---------------------------------------------------------------------------
 // AWS Signature Version 4 (no SDK)
-// ---------------------------------------------------------------------------
 
 const sha256Hex = (data) => createHash('sha256').update(data).digest('hex');
 const hmac = (key, data) => createHmac('sha256', key).update(data).digest();

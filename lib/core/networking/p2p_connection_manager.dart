@@ -82,9 +82,7 @@ class P2PConnectionManager {
   Stream<DataChannelMessageEvent> get onDataChannelMessage =>
       _dataMessageController.stream;
 
-  // ---------------------------------------------------------------------------
   // Lifecycle
-  // ---------------------------------------------------------------------------
 
   /// Sets the ICE servers.  Pass TURN entries here so peers behind symmetric
   /// NAT (most mobile carriers) can still connect.
@@ -94,9 +92,7 @@ class P2PConnectionManager {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Offer / Answer
-  // ---------------------------------------------------------------------------
 
   /// Creates a new [RTCPeerConnection] for [contactId], opens a data channel
   /// named `"chat"`, generates an SDP offer, and returns it.
@@ -174,9 +170,7 @@ class P2PConnectionManager {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Messaging
-  // ---------------------------------------------------------------------------
 
   /// Sends [data] over the open data channel to [contactId].
   ///
@@ -237,9 +231,7 @@ class P2PConnectionManager {
   /// `true` if any peer connection object exists for [contactId].
   bool hasPeer(String contactId) => _peerConnections.containsKey(contactId);
 
-  // ---------------------------------------------------------------------------
   // Cleanup
-  // ---------------------------------------------------------------------------
 
   /// Tears down only the connection for [contactId].
   Future<void> closeConnection(String contactId) async {
@@ -263,9 +255,7 @@ class P2PConnectionManager {
     await _dataMessageController.close();
   }
 
-  // ---------------------------------------------------------------------------
   // Internals
-  // ---------------------------------------------------------------------------
 
   Future<RTCPeerConnection> _createPeerConnection(String contactId) async {
     if (_peerConnections.containsKey(contactId)) {

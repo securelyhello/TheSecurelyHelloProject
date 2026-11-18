@@ -91,9 +91,7 @@ class SecureKeyStore implements SessionTokenStore {
   String _dbKey(String userId) => 'sh_${_ns}localdb_key_$userId';
   String get _sessionKey => 'sh_${_ns}session';
 
-  // ---------------------------------------------------------------------------
   // Identity (Ed25519 + X25519 private keys)
-  // ---------------------------------------------------------------------------
 
   Future<CryptoIdentity?> loadIdentity(String userId) async {
     final raw = await _storage.read(_identityKey(userId));
@@ -110,9 +108,7 @@ class SecureKeyStore implements SessionTokenStore {
   Future<void> saveIdentity(String userId, CryptoIdentity identity) =>
       _storage.write(_identityKey(userId), jsonEncode(identity.toMap()));
 
-  // ---------------------------------------------------------------------------
   // Local database encryption key
-  // ---------------------------------------------------------------------------
 
   /// Returns the 32-byte key that encrypts message bodies in SQLite,
   /// generating one on first use.
@@ -125,9 +121,7 @@ class SecureKeyStore implements SessionTokenStore {
     return key;
   }
 
-  // ---------------------------------------------------------------------------
   // Session token
-  // ---------------------------------------------------------------------------
 
   @override
   Future<StoredSession?> loadSession() async {
@@ -149,9 +143,7 @@ class SecureKeyStore implements SessionTokenStore {
       _storage.write('sh_${_ns}setting_$name', value);
   Future<void> deleteSetting(String name) => _storage.delete('sh_${_ns}setting_$name');
 
-  // ---------------------------------------------------------------------------
   // Wipe
-  // ---------------------------------------------------------------------------
 
   /// Removes every secret belonging to [userId] (account deletion).
   Future<void> deleteAll(String userId) async {

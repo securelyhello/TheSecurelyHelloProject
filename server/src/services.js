@@ -12,9 +12,7 @@ export class Services {
     this.store = store;
   }
 
-  // ---------------------------------------------------------------------------
   // Sessions
-  // ---------------------------------------------------------------------------
 
   /**
    * Resolves a bearer token to {id, deviceId} or null. deviceId is null until
@@ -40,9 +38,7 @@ export class Services {
     await this.store.forgetSessions(hashBuffers.map((b) => Buffer.from(b).toString('hex')));
   }
 
-  // ---------------------------------------------------------------------------
   // Contacts
-  // ---------------------------------------------------------------------------
 
   async contactIds(userId) {
     const cached = await this.store.getCachedContacts(userId);
@@ -64,9 +60,7 @@ export class Services {
     await this.store.forgetContacts(...userIds);
   }
 
-  // ---------------------------------------------------------------------------
   // Devices
-  // ---------------------------------------------------------------------------
 
   /** Ids of [userId]'s registered devices (oldest first). */
   async deviceIds(userId) {
@@ -90,9 +84,7 @@ export class Services {
     await this.store.forgetDevices(...userIds);
   }
 
-  // ---------------------------------------------------------------------------
   // Presence
-  // ---------------------------------------------------------------------------
 
   async presence(ids) {
     return this.store.presence(ids);
