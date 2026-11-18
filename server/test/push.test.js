@@ -14,6 +14,18 @@ describe('FCM sender', () => {
     token_uri: 'https://oauth.test/token',
   };
 
+  test("the signed assertion only goes to Google, whatever the file's token_uri says", async () => {
+    const urls = [];
+    const fetchImpl = async (url) => {
+      urls.push(url);
+      return new Response(JSON.stringify({ access_token: 'at', expires_in: 3600 }), { status: 200 });
+    };
+    const evil = { ...sa, token_uri: 'https://attacker.example/token' };
+    await createFcmSender(evil, { fetchImpl }).send('device-token-123', 'message');
+    assert.equal(urls[0], 'https://oauth2.googleapis.com/token');
+    assert.ok(!urls.includes(evil.token_uri));
+  });
+
   test('signs a service-account JWT, caches the access token, sends no content', async () => {
     const calls = [];
     const fetchImpl = async (url, init) => {
@@ -23,7 +35,7 @@ describe('FCM sender', () => {
       }
       return new Response('{}', { status: 200 });
     };
-    const sender = createFcmSender(sa, { fetchImpl });
+    const sender = createFcmSender(sa, { fetchImpl, tokenEndpoint: sa.token_uri });
     assert.equal(await sender.send('device-token-123', 'message'), 'ok');
     assert.equal(await sender.send('device-token-123', 'request'), 'ok');
     assert.equal(calls.filter((c) => c.url === sa.token_uri).length, 1, 'access token reused');
@@ -55,7 +67,7 @@ describe('FCM sender', () => {
               status,
             })
           : new Response(JSON.stringify({ error: { status: 'UNAVAILABLE' } }), { status });
-    const sender = createFcmSender(sa, { fetchImpl });
+    const sender = createFcmSender(sa, { fetchImpl, tokenEndpoint: sa.token_uri });
     assert.equal(await sender.send('t'.repeat(20), 'message'), 'invalid_token');
     status = 503;
     await assert.rejects(sender.send('t'.repeat(20), 'message'), /503/);

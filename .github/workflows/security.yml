@@ -61,12 +61,14 @@ jobs:
         with:
           upload: never
           output: codeql-results
-      - name: Fail on CodeQL findings
+      - name: Fail on CodeQL findings not reviewed
         run: |
-          n=$(jq '[.runs[].results[]] | length' codeql-results/*.sarif)
-          jq -r '.runs[].results[] | "\(.ruleId): \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine) \(.message.text)"' codeql-results/*.sarif
-          echo "CodeQL findings: $n"
-          test "$n" -eq 0
+          jq -r '.runs[].results[] | "\(.ruleId) \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine) \(.message.text)"' \
+            codeql-results/*.sarif > findings.txt
+          echo "All findings:"; cat findings.txt
+          grep -v '^#' .github/codeql-reviewed.txt | grep . | sed 's/$/:/' > reviewed.txt
+          new=$(grep -v -F -f reviewed.txt findings.txt || true)
+          if [ -n "$new" ]; then echo "Not reviewed (see .github/codeql-reviewed.txt):"; echo "$new"; exit 1; fi
 
   fuzz:
     name: Long fuzz run

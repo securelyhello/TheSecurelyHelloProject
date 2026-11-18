@@ -179,7 +179,7 @@ export function createApp({
       const ctx = { req, params, query: url.searchParams, ip: clientIp(req, config.trustProxyHops) };
       if (route.auth) {
         const token = bearerToken(req);
-        const user = token ? await services.authenticate(token) : null;
+        const user = await services.authenticate(token);
         if (!user) throw new HttpError(401, 'unauthorized', 'Sign in again');
         if (!(await limits.take('api', user.id))) throw new HttpError(429, 'rate_limited', 'Too many requests');
         ctx.user = user;

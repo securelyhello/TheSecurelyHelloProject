@@ -8,39 +8,38 @@
 //
 // Provider: Firebase Cloud Messaging HTTP v1 (Android, and iOS through FCM's
 // APNs bridge). Configure with FCM_SERVICE_ACCOUNT: the service-account JSON,
-// either inline, base64-encoded, or a path to the file.
+// inline or base64-encoded.
 import { createSign } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 
 const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
+
+// Fixed, not taken from the service-account file: the signed assertion sent
+// there is a credential, and a tampered file must not be able to redirect it.
+const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const PROJECT_ID = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
 
 function loadServiceAccount(raw) {
   if (!raw) return null;
   const text = raw.trim();
-  let json = text;
-  if (!text.startsWith('{')) {
-    try {
-      json = readFileSync(text, 'utf8');
-    } catch {
-      json = Buffer.from(text, 'base64').toString('utf8');
-    }
-  }
+  const json = text.startsWith('{') ? text : Buffer.from(text, 'base64').toString('utf8');
   const sa = JSON.parse(json);
   if (!sa.client_email || !sa.private_key || !sa.project_id) {
     throw new Error('FCM_SERVICE_ACCOUNT must contain client_email, private_key and project_id');
   }
+  if (!PROJECT_ID.test(sa.project_id)) throw new Error('FCM_SERVICE_ACCOUNT has an invalid project_id');
   return sa;
 }
 
 const b64url = (buf) => Buffer.from(buf).toString('base64url');
 
 /**
- * FCM HTTP v1 sender. [fetchImpl] and [endpoint] are injectable for tests.
+ * FCM HTTP v1 sender. [fetchImpl], [endpoint] and [tokenEndpoint] are
+ * injectable for tests; the service account's own token_uri is ignored.
  * @returns {{send(token: string, kind: string): Promise<'ok'|'invalid_token'>}}
  */
-export function createFcmSender(serviceAccount, { fetchImpl = fetch, endpoint } = {}) {
+export function createFcmSender(serviceAccount, { fetchImpl = fetch, endpoint, tokenEndpoint = GOOGLE_TOKEN_URL } = {}) {
   const sa = serviceAccount;
-  const tokenUri = sa.token_uri || 'https://oauth2.googleapis.com/token';
+  const tokenUri = tokenEndpoint;
   const sendUri = endpoint || `https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`;
   let access = null; // {token, expiresAt}
 

@@ -1,0 +1,7 @@
+# CodeQL findings reviewed and accepted, one "<rule id> <file>" per line.
+# The Security workflow fails on every finding not listed here. Remove a
+# line when the code it covers changes.
+
+# coturn's use-auth-secret (the TURN REST scheme) verifies HMAC-SHA1 only.
+# As a keyed MAC, HMAC-SHA1 is not broken the way SHA-1 hashing is.
+js/weak-cryptographic-algorithm server/src/turn.js

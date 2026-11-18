@@ -18,7 +18,9 @@ export class Services {
    * Resolves a bearer token to {id, deviceId} or null. deviceId is null until
    * the client registers its device. Cached in Redis for minutes.
    */
+  /** The session's {id, deviceId}, or null for a missing, malformed, expired or unknown token. */
   async authenticate(token) {
+    if (typeof token !== 'string' || token.length === 0) return null;
     const hex = hashToken(token).toString('hex');
     const cached = await this.store.getCachedSession(hex);
     if (cached) return cached;

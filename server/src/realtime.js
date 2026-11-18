@@ -82,7 +82,7 @@ export class RealtimeHub {
         return reject(429, 'Too Many Requests');
       }
       const token = bearerToken(req);
-      const user = token ? await this.services.authenticate(token) : null;
+      const user = await this.services.authenticate(token);
       if (!user) return reject(401, 'Unauthorized');
       const tokenHash = hashToken(token).toString('hex');
       this.wss.handleUpgrade(req, socket, head, (ws) => this.#onConnection(ws, user, tokenHash));
