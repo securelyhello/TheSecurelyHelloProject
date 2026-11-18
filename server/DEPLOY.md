@@ -12,7 +12,7 @@ host works.
 | `redis` (in `docker-compose.yml`) | container, named volume, not exposed | presence, rate limits, caches, the 24 h **ciphertext** relay queue |
 | Postgres | Neon | accounts, password hashes, session-token hashes, public keys, contacts |
 
-Run **one** `app` instance: WebSocket routing is in-process.
+`app` can run as several instances behind the proxy (see Several instances).
 
 ## Coolify
 
@@ -143,11 +143,52 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" https://api.example.com/api/admin/r
 curl -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" https://api.example.com/api/admin/users/<user id>/restriction
 ```
 
-## One instance
+## Several instances
 
-Run exactly one server process per Redis. Live WebSocket state (who is
-connected, signaling) is held in that process. A second instance logs
-`another server instance uses this Redis` every 10 seconds.
+Instances share Postgres and Redis and need nothing else: no sticky
+sessions. Each holds its own WebSockets and records in Redis which users and
+devices it serves; a relay push, signal or "close this device" for a socket
+on another instance goes there over Redis pub/sub (`src/bus.js`). Presence
+counts a user online while any instance holds a socket of theirs, and an
+instance that dies stops counting within 75 s. The hourly sweep runs on one
+instance at a time.
+
+With Docker Compose, scale the service (`docker compose up -d --scale
+app=3`) and let the proxy balance across them. Size Redis for it: every
+instance keeps two connections (one for pub/sub).
+
+Pub/sub is fire-and-forget. A frame lost while an instance restarts is the
+same as one sent to a socket that just dropped: the message is still in the
+relay queue, and the client drains it when it reconnects.
+
+## Calls and TURN
+
+Calls and direct links use STUN to find a path. Behind symmetric NAT (most
+mobile carriers) they need a TURN relay. The compose file includes coturn
+under the `turn` profile; it uses the host's network, because TURN needs
+public UDP ports (3478 and the relay range 49160-49200).
+
+1. Pick a long random secret and set it as `TURN_SECRET` for both `app` and
+   `coturn`, with `TURN_REALM` and `TURN_EXTERNAL_IP` (the VPS's public IP).
+2. Set `TURN_URLS=turn:turn.example.com:3478?transport=udp,turn:turn.example.com:3478?transport=tcp`
+   for `app`.
+3. `docker compose --profile turn up -d`, and open UDP 3478, TCP 3478 and UDP
+   49160-49200 in the firewall.
+
+The app asks `GET /api/turn` for credentials that expire after
+`TURN_TTL_HOURS` (default 12), signed with the shared secret (coturn's
+`use-auth-secret`); nothing long-lived is built into the app. TURN only
+forwards DTLS-encrypted traffic: it learns IP addresses and timing, not
+content.
+
+## Metrics
+
+Set `METRICS_TOKEN` (32+ random characters) and scrape `GET /metrics` on each
+instance with `Authorization: Bearer <token>`. Without the token the route
+doesn't exist. It reports requests and latency per route pattern, open
+WebSockets, relay pushes delivered live versus queued, the Postgres pool
+queue and process memory and CPU. Labels are route patterns and status
+codes only, never ids or names.
 
 ## Proxy requirements
 

@@ -26,7 +26,13 @@
 // are always the authenticated sender. Frame handling talks to Redis (caches, presence,
 // relay acks), not to Postgres, except on a cold contact-cache miss.
 //
-// Routing is in-process: run ONE server instance (see DEPLOY.md).
+// Several server instances can run side by side. Each keeps its own
+// sockets, and records in Redis which users and devices it holds (HotStore:
+// sockets, devloc, online). A frame or instruction for a socket on another
+// instance goes over the Bus. Presence counts a user online while any
+// instance holds a non-away socket of theirs.
+import { randomUUID } from 'node:crypto';
+
 import { WebSocketServer } from 'ws';
 
 import { bearerToken, clientIp } from './http.js';
@@ -44,12 +50,15 @@ export class RealtimeHub {
    * @param {import('./hotstore.js').HotStore} deps.store
    * @param {import('./ratelimit.js').RateLimits} deps.limits
    */
-  constructor({ services, store, limits, trustProxyHops = 0, log }) {
+  constructor({ services, store, limits, trustProxyHops = 0, log, bus = null, instanceId = randomUUID() }) {
     this.services = services;
     this.store = store;
     this.limits = limits;
     this.trustProxyHops = trustProxyHops;
     this.log = log;
+    /** @type {import('./bus.js').Bus | null} */
+    this.bus = bus;
+    this.instanceId = instanceId;
     /** @type {Map<string, Set<import('ws').WebSocket>>} */
     this.sockets = new Map();
     this.closing = false;
@@ -112,15 +121,19 @@ export class RealtimeHub {
       const current = this.sockets.get(userId);
       current?.delete(ws);
       if (current && current.size === 0) this.sockets.delete(userId);
-      if (!this.isOnline(userId)) {
-        this.#wentOffline(userId).catch((err) => this.log.warn('presence offline failed', { error: err.message }));
-      }
+      this.#afterClose(userId, ws.deviceId).catch((err) =>
+        this.log.warn('presence offline failed', { error: err.message }),
+      );
     });
     ws.on('error', () => {});
 
     try {
       if (ws.deviceId) ws.deviceApproved = await this.services.isDeviceApproved(ws.deviceId);
-      if (!wasOnline && this.isOnline(userId)) await this.store.markOnline([userId]);
+      await this.store.noteSockets([userId], this.instanceId);
+      if (ws.deviceId) await this.store.noteDevices([ws.deviceId], this.instanceId);
+      // Online here may not be news: another instance can hold their other device.
+      const cameOnline =
+        !wasOnline && this.isOnline(userId) && (await this.store.markOnline([userId], this.instanceId)).length > 0;
       const contacts = await this.services.contactIds(userId);
       const presence = await this.services.presence(contacts);
       this.#send(ws, {
@@ -129,17 +142,29 @@ export class RealtimeHub {
         device_id: ws.deviceId,
         online: contacts.filter((id) => presence.get(id)?.online),
       });
-      if (!wasOnline) this.#broadcastPresence(userId, contacts, true, null);
+      if (cameOnline) this.#broadcastPresence(userId, contacts, true, null);
     } catch (err) {
       this.log.error('ws hello failed', { user: userId, error: err.message });
     }
   }
 
+  async #afterClose(userId, deviceId) {
+    if (!this.isOnline(userId)) await this.#wentOffline(userId);
+    if (!this.sockets.has(userId)) await this.store.dropSockets(userId, this.instanceId);
+    if (deviceId && !this.#hasDevice(userId, deviceId)) await this.store.dropDevice(deviceId, this.instanceId);
+  }
+
   async #wentOffline(userId) {
-    const lastSeen = await this.store.markOffline(userId);
+    const lastSeen = await this.store.markOffline(userId, this.instanceId);
+    if (!lastSeen) return; // still online through another instance
     if (this.closing) return; // shutting down: contacts' sockets are going too
     const contacts = await this.services.contactIds(userId);
     this.#broadcastPresence(userId, contacts, false, lastSeen);
+  }
+
+  #hasDevice(userId, deviceId) {
+    for (const ws of this.sockets.get(userId) ?? []) if (ws.deviceId === deviceId) return true;
+    return false;
   }
 
   #broadcastPresence(userId, contacts, online, lastSeen) {
@@ -149,8 +174,10 @@ export class RealtimeHub {
 
   #beat() {
     const online = [];
+    const devices = [];
     for (const [userId, set] of this.sockets) {
       for (const ws of set) {
+        if (ws.deviceId) devices.push(ws.deviceId);
         if (!ws.alive) {
           ws.terminate();
           continue;
@@ -164,8 +191,12 @@ export class RealtimeHub {
       }
       if (this.isOnline(userId)) online.push(userId);
     }
-    // Refresh online TTLs so a crashed process stops claiming users are online.
-    this.store.markOnline(online).catch((err) => this.log.warn('presence refresh failed', { error: err.message }));
+    // Refresh our claims, so a crashed instance stops claiming anyone.
+    Promise.all([
+      this.store.markOnline(online, this.instanceId),
+      this.store.noteSockets([...this.sockets.keys()], this.instanceId),
+      this.store.noteDevices(devices, this.instanceId),
+    ]).catch((err) => this.log.warn('presence refresh failed', { error: err.message }));
   }
 
   // Frames
@@ -252,7 +283,7 @@ export class RealtimeHub {
     const error = (reason) =>
       this.#send(ws, { type: 'signal_error', to: target, to_device: targetDevice, session_id: out.session_id, reason });
     if (!(await this.services.areContacts(from, target))) return error('not_contacts');
-    if (this.sendToDevice(target, targetDevice, out) === 0) error('offline');
+    if ((await this.deliverToDevice(target, targetDevice, out)) === 0) error('offline');
   }
 
   async #onRelayAck(ws, msg) {
@@ -273,16 +304,17 @@ export class RealtimeHub {
     const after = this.isOnline(ws.userId);
     if (before === after) return;
     if (after) {
-      await this.store.markOnline([ws.userId]);
-      this.#broadcastPresence(ws.userId, await this.services.contactIds(ws.userId), true, null);
+      const fresh = await this.store.markOnline([ws.userId], this.instanceId);
+      if (fresh.length) this.#broadcastPresence(ws.userId, await this.services.contactIds(ws.userId), true, null);
     } else {
       await this.#wentOffline(ws.userId);
     }
   }
 
-  // Helpers used by the HTTP routes
+  // Helpers used by the HTTP routes. Each acts here and, through the bus,
+  // on the other instances that hold sockets of the user.
 
-  /** A user is online while at least one of their sockets is not "away". */
+  /** A user is online here while at least one of their sockets is not "away". */
   isOnline(userId) {
     const set = this.sockets.get(userId);
     if (!set) return false;
@@ -290,8 +322,110 @@ export class RealtimeHub {
     return false;
   }
 
-  /** Sends [frame] to every socket of [userId]; returns how many got it. */
+  /** Sends [frame] to every socket of [userId], on any instance. Returns
+   * how many sockets here got it. */
   sendTo(userId, frame) {
+    this.#elsewhere(userId, { op: 'frame', u: userId, f: frame });
+    return this.#sendLocal(userId, frame);
+  }
+
+  /** Sends [frame] to one device's sockets. Resolves to how many got it
+   * (1 when it went to the instance holding that device). */
+  async deliverToDevice(userId, deviceId, frame) {
+    const here = this.#sendLocalDevice(userId, deviceId, frame);
+    if (here > 0 || !this.bus) return here;
+    const where = await this.store.deviceInstance(deviceId);
+    if (!where || where === this.instanceId) return 0;
+    await this.bus.send(where, { op: 'device', u: userId, d: deviceId, f: frame });
+    return 1;
+  }
+
+  /** Whether [deviceId] has a live socket on any instance (relay pushes reach it directly). */
+  async isDeviceConnected(userId, deviceId) {
+    for (const ws of this.sockets.get(userId) ?? []) {
+      if (ws.deviceId === deviceId && ws.readyState === ws.OPEN) return true;
+    }
+    if (!this.bus) return false;
+    const where = await this.store.deviceInstance(deviceId);
+    return where != null && where !== this.instanceId;
+  }
+
+  /** A session registered its device after opening its socket. */
+  bindDevice(userId, token, deviceId, approved = false) {
+    const hash = hashToken(token).toString('hex');
+    this.#elsewhere(userId, { op: 'bind', u: userId, h: hash, d: deviceId, a: approved });
+    this.#bindLocal(userId, hash, deviceId, approved);
+  }
+
+  /** A pending device was approved (or recovered). */
+  setDeviceApproved(userId, deviceId) {
+    this.#elsewhere(userId, { op: 'approved', u: userId, d: deviceId });
+    this.#approvedLocal(userId, deviceId);
+  }
+
+  /** Closes the sockets of one device (device removed). */
+  disconnectDevice(userId, deviceId, code = 4004, reason = 'device removed') {
+    this.#elsewhere(userId, { op: 'closeDevice', u: userId, d: deviceId, code, reason });
+    this.#closeLocal(userId, (ws) => ws.deviceId === deviceId, code, reason);
+  }
+
+  /** Closes the sockets opened with these sessions ([hashes]: SHA-256 buffers). */
+  disconnectSessions(userId, hashes, code = 4001, reason = 'session ended') {
+    const wanted = hashes.map((h) => Buffer.from(h).toString('hex'));
+    this.#elsewhere(userId, { op: 'closeSessions', u: userId, h: wanted, code, reason });
+    const set = new Set(wanted);
+    this.#closeLocal(userId, (ws) => set.has(ws.tokenHash), code, reason);
+  }
+
+  /** Closes every socket of [userId] (account deletion). */
+  disconnectUser(userId, code = 4001, reason = 'session ended') {
+    this.#elsewhere(userId, { op: 'closeUser', u: userId, code, reason });
+    this.#closeLocal(userId, () => true, code, reason);
+  }
+
+  /** A message from another instance (see Bus). */
+  onBusMessage(msg) {
+    const u = msg?.u;
+    if (typeof u !== 'string') return;
+    switch (msg.op) {
+      case 'frame':
+        this.#sendLocal(u, msg.f);
+        break;
+      case 'device':
+        this.#sendLocalDevice(u, msg.d, msg.f);
+        break;
+      case 'bind':
+        this.#bindLocal(u, msg.h, msg.d, msg.a === true);
+        break;
+      case 'approved':
+        this.#approvedLocal(u, msg.d);
+        break;
+      case 'closeDevice':
+        this.#closeLocal(u, (ws) => ws.deviceId === msg.d, msg.code, msg.reason);
+        break;
+      case 'closeSessions': {
+        const set = new Set(Array.isArray(msg.h) ? msg.h : []);
+        this.#closeLocal(u, (ws) => set.has(ws.tokenHash), msg.code, msg.reason);
+        break;
+      }
+      case 'closeUser':
+        this.#closeLocal(u, () => true, msg.code, msg.reason);
+        break;
+    }
+  }
+
+  /** Runs [msg] on the other instances holding sockets of [userId]. */
+  #elsewhere(userId, msg) {
+    if (!this.bus) return;
+    this.store
+      .socketInstances(userId)
+      .then(async (instances) => {
+        for (const i of instances) if (i !== this.instanceId) await this.bus.send(i, msg);
+      })
+      .catch((err) => this.log.warn('bus send failed', { op: msg.op, error: err.message }));
+  }
+
+  #sendLocal(userId, frame) {
     const set = this.sockets.get(userId);
     if (!set) return 0;
     const payload = JSON.stringify(frame);
@@ -305,8 +439,7 @@ export class RealtimeHub {
     return n;
   }
 
-  /** Sends [frame] to the sockets of one device; returns how many got it. */
-  sendToDevice(userId, deviceId, frame) {
+  #sendLocalDevice(userId, deviceId, frame) {
     const set = this.sockets.get(userId);
     if (!set) return 0;
     const payload = JSON.stringify(frame);
@@ -320,50 +453,30 @@ export class RealtimeHub {
     return n;
   }
 
-  /** Whether [deviceId] has a live socket (relay pushes reach it directly). */
-  isDeviceConnected(userId, deviceId) {
-    for (const ws of this.sockets.get(userId) ?? []) {
-      if (ws.deviceId === deviceId && ws.readyState === ws.OPEN) return true;
-    }
-    return false;
-  }
-
-  /** A session registered its device after opening its socket. */
-  bindDevice(userId, token, deviceId, approved = false) {
-    const hash = hashToken(token).toString('hex');
+  #bindLocal(userId, hash, deviceId, approved) {
+    let bound = false;
     for (const ws of this.sockets.get(userId) ?? []) {
       if (ws.tokenHash === hash) {
         ws.deviceId = deviceId;
         ws.deviceApproved = approved;
+        bound = true;
       }
+    }
+    if (bound) {
+      this.store
+        .noteDevices([deviceId], this.instanceId)
+        .catch((err) => this.log.warn('device location failed', { error: err.message }));
     }
   }
 
-  /** A pending device was approved (or recovered). */
-  setDeviceApproved(userId, deviceId) {
+  #approvedLocal(userId, deviceId) {
     for (const ws of this.sockets.get(userId) ?? []) {
       if (ws.deviceId === deviceId) ws.deviceApproved = true;
     }
   }
 
-  /** Closes the sockets of one device (device removed). */
-  disconnectDevice(userId, deviceId, code = 4004, reason = 'device removed') {
-    for (const ws of this.sockets.get(userId) ?? []) {
-      if (ws.deviceId === deviceId) ws.close(code, reason);
-    }
-  }
-
-  /** Closes the sockets opened with these sessions ([hashes]: SHA-256 buffers). */
-  disconnectSessions(userId, hashes, code = 4001, reason = 'session ended') {
-    const wanted = new Set(hashes.map((h) => Buffer.from(h).toString('hex')));
-    for (const ws of this.sockets.get(userId) ?? []) {
-      if (wanted.has(ws.tokenHash)) ws.close(code, reason);
-    }
-  }
-
-  /** Closes every socket of [userId] (account deletion). */
-  disconnectUser(userId, code = 4001, reason = 'session ended') {
-    for (const ws of this.sockets.get(userId) ?? []) ws.close(code, reason);
+  #closeLocal(userId, which, code, reason) {
+    for (const ws of this.sockets.get(userId) ?? []) if (which(ws)) ws.close(code, reason);
   }
 
   get connectionCount() {

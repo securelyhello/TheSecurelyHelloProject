@@ -101,7 +101,6 @@ Future<void> main() async {
   final calls = CallService(
     chat: chatService,
     canCall: (userId) => contactsProvider.getContact(userId) != null,
-    iceServers: AppConfig.iceServers(P2PConnectionManager.defaultStunServers),
   );
   final notifications = NotificationService();
   await notifications.init();

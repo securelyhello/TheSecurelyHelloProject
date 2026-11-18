@@ -99,6 +99,10 @@ class AppConfig {
   ///
   /// TURN only relays DTLS-encrypted WebRTC traffic that is additionally
   /// NaCl-encrypted end to end, so the relay operator never sees content.
+  ///
+  /// Prefer setting TURN_SECRET on the server instead: the app then gets
+  /// short-lived credentials (GET /api/turn) and nothing long-lived is
+  /// built into it. These static ones are a fallback for other relays.
   static List<Map<String, dynamic>> iceServers(
       List<Map<String, dynamic>> stunServers) {
     final servers = [...stunServers];

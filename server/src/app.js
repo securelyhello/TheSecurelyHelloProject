@@ -18,6 +18,9 @@ import { createMailer } from './mail.js';
 import { createNotifier, senderFromEnv } from './push.js';
 import { RateLimits } from './ratelimit.js';
 import { RealtimeHub } from './realtime.js';
+import { Bus } from './bus.js';
+import { Metrics, checkMetricsToken } from './metrics.js';
+import { registerTurnRoutes } from './turn.js';
 import { Services } from './services.js';
 import { HttpError, bad } from './validate.js';
 
@@ -61,6 +64,12 @@ export function loadConfig(env = process.env) {
     attachmentMaxBytes: int('ATTACHMENT_MAX_MB', 16) * 1024 * 1024,
     attachmentTtlDays: int('ATTACHMENT_TTL_DAYS', 30),
     attachmentQuotaBytes: int('ATTACHMENT_QUOTA_MB', 512) * 1024 * 1024,
+    // Prometheus scrape token for GET /metrics; unset turns the route off.
+    metricsToken: env.METRICS_TOKEN || '',
+    // TURN relay for calls and direct links (see turn.js and DEPLOY.md).
+    turnUrls: (env.TURN_URLS || '').split(',').map((u) => u.trim()).filter(Boolean),
+    turnSecret: env.TURN_SECRET || '',
+    turnTtlSeconds: int('TURN_TTL_HOURS', 12) * 3600,
   };
 }
 
@@ -98,7 +107,10 @@ export function createApp({
   });
   const services = new Services({ pool, store });
   const limits = new RateLimits(store, limitOverrides);
-  const hub = new RealtimeHub({ services, store, limits, trustProxyHops: config.trustProxyHops, log });
+  const instanceId = randomUUID();
+  const bus = new Bus({ redis, instanceId, prefix: config.redisPrefix, log });
+  const metrics = new Metrics();
+  const hub = new RealtimeHub({ services, store, limits, trustProxyHops: config.trustProxyHops, log, bus, instanceId });
   const notifier = createNotifier({ pool, store, hub, sender: pushSender, log });
   const router = new Router();
   const twoFactor = createTwoFactor({ pool, config, limits });
@@ -107,6 +119,7 @@ export function createApp({
   registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier, twoFactor, antiSpam, blobs });
   registerTwoFactorRoutes(router, { pool, twoFactor, limits });
   registerDeviceRoutes(router, {
+    metrics,
     pool,
     hub,
     store,
@@ -122,6 +135,24 @@ export function createApp({
   registerSafetyRoutes(router, { pool, hub, services, limits, config, antiSpam });
   registerInviteRoutes(router, { pool, hub, services, limits, config, antiSpam });
   registerGroupRoutes(router, { pool, services, limits });
+  registerTurnRoutes(router, { config });
+  router.add(
+    'GET',
+    '/metrics',
+    async ({ req }) => {
+      checkMetricsToken(config.metricsToken, req.headers.authorization);
+      const queued = await store.redis.dbsize().catch(() => -1);
+      return {
+        status: 200,
+        text: metrics.render({
+          sh_ws_connections: ['Open WebSockets on this instance.', hub.connectionCount],
+          sh_redis_keys: ['Keys in the Redis database (all instances).', queued],
+          sh_db_pool_waiting: ['Queries waiting for a Postgres connection.', pool.waitingCount ?? 0],
+        }),
+      };
+    },
+    { auth: false },
+  );
 
   const server = http.createServer(async (req, res) => {
     const started = Date.now();
@@ -158,6 +189,10 @@ export function createApp({
       if (Buffer.isBuffer(result)) {
         status = 200;
         sendBytes(res, 200, result);
+      } else if (result && typeof result === 'object' && 'text' in result) {
+        status = result.status;
+        res.writeHead(status, { 'Content-Type': 'text/plain; version=0.0.4', 'Cache-Control': 'no-store' });
+        res.end(result.text);
       } else if (result && typeof result === 'object' && 'status' in result && 'body' in result) {
         status = result.status;
         sendJson(res, result.status, result.body);
@@ -188,6 +223,7 @@ export function createApp({
         }
       }
     } finally {
+      metrics.observeRequest(req.method, pattern, status, Date.now() - started);
       // Route pattern only: never the raw path or query (ids, search terms).
       if (config.logRequests && pattern !== '/healthz') {
         log.info('http', { method: req.method, route: pattern, status, ms: Date.now() - started });
@@ -216,7 +252,6 @@ export function createApp({
     return { sessions: sessions.rowCount, codes: codes.rowCount, attachments: attachments.rowCount };
   }
   let sweepTimer = null;
-  let instanceTimer = null;
 
   return {
     server,
@@ -229,21 +264,12 @@ export function createApp({
     services,
     limits,
     sweep,
-    listen(port = config.port, host = config.host) {
-      const instanceId = randomUUID();
-      const claim = () =>
-        store
-          .claimInstance(instanceId, 30_000)
-          .then((other) => {
-            if (other) {
-              log.error('another server instance uses this Redis; run exactly one (see realtime.js)', { other });
-            }
-          })
-          .catch(() => {});
-      void claim();
-      instanceTimer = setInterval(claim, 10_000);
-      instanceTimer.unref();
-      sweepTimer = setInterval(() => {
+    instanceId,
+    async listen(port = config.port, host = config.host) {
+      await bus.start((msg) => hub.onBusMessage(msg));
+      sweepTimer = setInterval(async () => {
+        // Every instance has the timer; one of them sweeps each round.
+        if (!(await store.tryLock('sweep', config.sweepIntervalMs / 2).catch(() => false))) return;
         sweep()
           .then((n) => (n.sessions || n.codes || n.attachments) && log.info('sweep', n))
           .catch((err) => log.warn('sweep failed', { error: err.message }));
@@ -254,9 +280,9 @@ export function createApp({
     /** Stops accepting, drains WebSockets, closes the listener. Pool/Redis are the caller's. */
     async close() {
       clearInterval(sweepTimer);
-      clearInterval(instanceTimer);
       const closed = new Promise((resolve) => server.close(() => resolve()));
       await hub.close();
+      await bus.close();
       server.closeIdleConnections?.();
       await closed;
     },

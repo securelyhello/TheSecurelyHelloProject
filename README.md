@@ -122,6 +122,10 @@ scripts/dev.sh                      local Postgres + Redis + server
   throttles and the per-device 24 h ciphertext relay queues (native TTLs,
   `noeviction`).
 - **WebSocket** (`/api/ws`) carries signaling, presence and pushes.
+- **Several instances** can run behind a load balancer, without sticky
+  sessions: they route to each other's sockets over Redis pub/sub. Optional
+  Prometheus metrics (`METRICS_TOKEN`) and a coturn relay for calls, with
+  short-lived credentials (`TURN_SECRET`). See `server/DEPLOY.md`.
 
 The server never sees plaintext, file names or private keys. It takes the
 sender's identity and device from the session (never from the request), and

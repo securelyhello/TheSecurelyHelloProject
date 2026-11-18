@@ -107,6 +107,33 @@ export async function startServer({
   };
 }
 
+/** Another server instance sharing [srv]'s Postgres and Redis, as behind a
+ * load balancer. */
+export async function startSecondInstance(srv, { env = {} } = {}) {
+  const pool = createPool(TEST_DATABASE_URL, { max: 5 });
+  const redis = createRedis(TEST_REDIS_URL);
+  const config = { ...loadConfig({ POW_BITS: '0', ...env }), logRequests: false };
+  const app = createApp({
+    pool,
+    redis,
+    config,
+    limitOverrides: GENEROUS_LIMITS,
+    log: silentLogger,
+    mailer: srv.mailer,
+  });
+  const addr = await app.listen(0, '127.0.0.1');
+  return {
+    app,
+    base: `http://127.0.0.1:${addr.port}`,
+    wsUrl: `ws://127.0.0.1:${addr.port}/api/ws`,
+    async close() {
+      await app.close();
+      await pool.end();
+      await redis.quit();
+    },
+  };
+}
+
 export async function api(base, method, path, { token, body, headers = {} } = {}) {
   const res = await fetch(base + path, {
     method,

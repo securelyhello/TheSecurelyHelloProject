@@ -54,6 +54,15 @@ class P2PConnectionManager {
 
   List<Map<String, dynamic>> _iceServers = defaultStunServers;
 
+  /// Short-lived TURN credentials from our server (GET /api/turn).
+  Map<String, dynamic>? _serverTurn;
+
+  /// The ICE servers in use, for calls too.
+  List<Map<String, dynamic>> get iceServers => [..._iceServers, ?_serverTurn];
+
+  /// Replaces the server-issued TURN entry (null removes it).
+  void setServerTurn(Map<String, dynamic>? turn) => _serverTurn = turn;
+
   // ---- Per-contact state -------------------------------------------------
   final Map<String, RTCPeerConnection> _peerConnections = {};
   final Map<String, RTCDataChannel> _dataChannels = {};
@@ -262,7 +271,7 @@ class P2PConnectionManager {
       await _closeConnection(contactId);
     }
 
-    final pc = await createPeerConnection({'iceServers': _iceServers}, {});
+    final pc = await createPeerConnection({'iceServers': iceServers}, {});
     bool isCurrent() => identical(_peerConnections[contactId], pc);
 
     pc.onIceCandidate = (candidate) {

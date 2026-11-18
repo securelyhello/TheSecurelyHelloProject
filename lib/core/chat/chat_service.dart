@@ -356,6 +356,7 @@ class ChatService {
           .listen((e) => _handleIncomingBytes(e.contactId, e.data)));
 
     _started = true;
+    unawaited(_refreshTurn());
     await profiles.load();
     await _loadGroups();
     _sweeper = Timer.periodic(const Duration(seconds: 30), (_) => unawaited(sweepExpired()));
@@ -422,6 +423,9 @@ class ChatService {
     _memberNames.clear();
     _sweeper?.cancel();
     _sweeper = null;
+    _turnTimer?.cancel();
+    _turnTimer = null;
+    _p2p.setServerTurn(null);
     for (final sub in _subscriptions) {
       await sub.cancel();
     }
@@ -857,6 +861,26 @@ class ChatService {
   }
 
   Timer? _sweeper;
+
+  /// ICE servers for direct links and calls, with our server's TURN relay.
+  List<Map<String, dynamic>> get iceServers => _p2p.iceServers;
+
+  Timer? _turnTimer;
+
+  /// Fetches TURN credentials and renews them before they expire.
+  Future<void> _refreshTurn() async {
+    Duration next = const Duration(minutes: 5);
+    try {
+      final turn = await _directory.turnServer();
+      _p2p.setServerTurn(turn?.server);
+      if (turn != null) next = turn.ttl * 0.8;
+    } catch (e) {
+      debugPrint('TURN credentials unavailable: $e');
+    }
+    if (!_started) return;
+    _turnTimer?.cancel();
+    _turnTimer = Timer(next, () => unawaited(_refreshTurn()));
+  }
 
   /// Removes expired messages (and their cached attachments) now.
   Future<void> sweepExpired() async {

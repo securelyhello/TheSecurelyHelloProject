@@ -464,6 +464,18 @@ class DirectoryService {
 
   List<Map<String, dynamic>> _groupMembers(Object? res) => _list((res as Map)['members']);
 
+  /// Short-lived TURN credentials as an ICE server entry, with how long
+  /// they last; null when the server has no TURN relay configured.
+  Future<({Map<String, dynamic> server, Duration ttl})?> turnServer() async {
+    final res = Map<String, dynamic>.from(await _request('GET', '/api/turn') as Map);
+    final urls = (res['urls'] as List?)?.cast<String>() ?? const [];
+    if (urls.isEmpty) return null;
+    return (
+      server: {'urls': urls, 'username': res['username'], 'credential': res['credential']},
+      ttl: Duration(seconds: res['ttl'] as int? ?? 3600),
+    );
+  }
+
   Future<bool> emailDiscoverable() async =>
       (await _request('GET', '/api/me/discovery') as Map)['email_discoverable'] == true;
 

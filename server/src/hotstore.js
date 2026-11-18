@@ -6,7 +6,11 @@
 //   sess:<sha256 hex>        session token → "<user id>|<device id>" cache (short TTL)
 //   contacts:<user>          JSON array of contact ids (cache, short TTL)
 //   devices:<user>           JSON array of the user's device ids (cache, short TTL)
-//   online:<user>            "1" while a socket is connected (TTL, refreshed)
+//   online:<user>            ZSET of instances with a non-away socket of the user,
+//                            score = when that claim expires (ms, refreshed)
+//   sockets:<user>           ZSET of instances with any socket of the user (same scores)
+//   devloc:<device>          the instance holding that device's socket (TTL, refreshed)
+//   lock:<name>              short lock so periodic work runs on one instance
 //   lastseen:<user>          ISO timestamp of the last disconnect (90 d TTL)
 //   relay:m:<id>             one ciphertext envelope (JSON), PX = relay TTL
 //   relay:q:<device>         ZSET of envelope ids pending for one device, score = created ms
@@ -128,15 +132,9 @@ export class HotStore {
    * instance holding it, or null. Realtime state lives in one process, so
    * two instances would split sockets and presence.
    */
-  async claimInstance(id, ttlMs) {
-    const key = this.k('instance');
-    if ((await this.redis.set(key, id, 'PX', ttlMs, 'NX')) === 'OK') return null;
-    const holder = await this.redis.get(key);
-    if (holder === id) {
-      await this.redis.pexpire(key, ttlMs);
-      return null;
-    }
-    return holder;
+  /** True for the one caller that gets [name] for [ttlMs]. */
+  async tryLock(name, ttlMs) {
+    return (await this.redis.set(this.k('lock', name), '1', 'PX', ttlMs, 'NX')) === 'OK';
   }
 
   async ping() {
@@ -228,21 +226,43 @@ export class HotStore {
 
   // Presence
 
-  async markOnline(userIds) {
-    if (!userIds.length) return;
+  // Presence and routing. Each server instance claims the users (and
+  // devices) it holds sockets for; claims expire unless refreshed, so a
+  // crashed instance stops counting on its own.
+
+  /** Adds [instance]'s claim to [kind] (online | sockets) for [userIds];
+   * returns the users nobody had claimed before. */
+  async #claim(kind, userIds, instance) {
+    if (!userIds.length) return [];
+    const now = Date.now();
+    const until = now + this.onlineTtlSeconds * 1000;
     const m = this.redis.multi();
-    for (const id of userIds) m.set(this.k('online', id), '1', 'EX', this.onlineTtlSeconds);
-    await m.exec();
+    for (const id of userIds) {
+      const key = this.k(kind, id);
+      m.zremrangebyscore(key, '-inf', now).zcard(key).zadd(key, until, instance).expire(key, this.onlineTtlSeconds);
+    }
+    const res = await m.exec();
+    return userIds.filter((_, i) => res[i * 4 + 1][1] === 0);
   }
 
-  /** Clears the online flag and records last-seen; returns the timestamp. */
-  async markOffline(userId) {
+  /** Drops [instance]'s claim; returns how many instances still claim [userId]. */
+  async #release(kind, userId, instance) {
+    const key = this.k(kind, userId);
+    const res = await this.redis.multi().zrem(key, instance).zremrangebyscore(key, '-inf', Date.now()).zcard(key).exec();
+    return res[2][1];
+  }
+
+  /** [instance] has a non-away socket for each of [userIds]; returns those who just came online. */
+  markOnline(userIds, instance) {
+    return this.#claim('online', userIds, instance);
+  }
+
+  /** [instance] has no non-away socket of [userId] left. If no instance
+   * has one, records last-seen and returns it; otherwise null. */
+  async markOffline(userId, instance) {
+    if ((await this.#release('online', userId, instance)) > 0) return null;
     const now = new Date().toISOString();
-    await this.redis
-      .multi()
-      .del(this.k('online', userId))
-      .set(this.k('lastseen', userId), now, 'EX', 90 * 24 * 3600)
-      .exec();
+    await this.redis.set(this.k('lastseen', userId), now, 'EX', 90 * 24 * 3600);
     return now;
   }
 
@@ -250,14 +270,53 @@ export class HotStore {
   async presence(ids) {
     const out = new Map();
     if (!ids.length) return out;
-    const keys = ids.flatMap((id) => [this.k('online', id), this.k('lastseen', id)]);
-    const vals = await this.redis.mget(...keys);
-    ids.forEach((id, i) => out.set(id, { online: vals[2 * i] === '1', last_seen: vals[2 * i + 1] }));
+    const now = Date.now();
+    const m = this.redis.multi();
+    for (const id of ids) m.zcount(this.k('online', id), now, '+inf').get(this.k('lastseen', id));
+    const res = await m.exec();
+    ids.forEach((id, i) => out.set(id, { online: res[2 * i][1] > 0, last_seen: res[2 * i + 1][1] }));
     return out;
   }
 
   async forgetPresence(userId) {
     await this.redis.del(this.k('online', userId), this.k('lastseen', userId));
+  }
+
+  /** [instance] holds sockets (away or not) of [userIds]. */
+  async noteSockets(userIds, instance) {
+    await this.#claim('sockets', userIds, instance);
+  }
+
+  async dropSockets(userId, instance) {
+    await this.#release('sockets', userId, instance);
+  }
+
+  /** Instances that hold sockets of [userId]. */
+  async socketInstances(userId) {
+    return this.redis.zrangebyscore(this.k('sockets', userId), Date.now(), '+inf');
+  }
+
+  /** [instance] holds the sockets of [deviceIds]. */
+  async noteDevices(deviceIds, instance) {
+    if (!deviceIds.length) return;
+    const m = this.redis.multi();
+    for (const d of deviceIds) m.set(this.k('devloc', d), instance, 'EX', this.onlineTtlSeconds);
+    await m.exec();
+  }
+
+  /** Forgets where [deviceId] is, unless another instance has claimed it since. */
+  async dropDevice(deviceId, instance) {
+    await this.redis.eval(
+      "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+      1,
+      this.k('devloc', deviceId),
+      instance,
+    );
+  }
+
+  /** The instance holding [deviceId]'s socket, if any. */
+  async deviceInstance(deviceId) {
+    return this.redis.get(this.k('devloc', deviceId));
   }
 
   // Relay queue (ciphertext envelopes only)

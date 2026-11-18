@@ -101,7 +101,7 @@ export function createFcmSender(serviceAccount, { fetchImpl = fetch, endpoint } 
  */
 export function createNotifier({ pool, store, hub, sender, log, throttleSeconds = 30 }) {
   async function wakeDevice(userId, deviceId, kind) {
-    if (!sender || hub.isDeviceConnected(userId, deviceId)) return false;
+    if (!sender || (await hub.isDeviceConnected(userId, deviceId))) return false;
     const { rows } = await pool.query('SELECT push_token FROM devices WHERE id = $1 AND user_id = $2', [
       deviceId,
       userId,

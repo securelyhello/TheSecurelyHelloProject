@@ -99,7 +99,7 @@ export function approvalMessage(userId, deviceId, signingKey, identityKey) {
   return Buffer.from(`securelyhello-approve-v1|${userId}|${deviceId}|${signingKey}|${identityKey}`, 'utf8');
 }
 
-export function registerDeviceRoutes(router, { pool, hub, store, services, limits, log, notifier, codes, mailer, twoFactor }) {
+export function registerDeviceRoutes(router, { pool, hub, store, services, limits, log, notifier, codes, mailer, twoFactor, metrics }) {
   const tooMany = () => new HttpError(429, 'rate_limited', 'Too many requests, slow down');
   async function limit(name, key) {
     if (!(await limits.take(name, key))) throw tooMany();
@@ -293,7 +293,7 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
       [target, approver, body.signature],
     );
     hub.setDeviceApproved(user.id, target);
-    hub.sendToDevice(user.id, target, { type: 'device_approved' });
+    void hub.deliverToDevice(user.id, target, { type: 'device_approved' });
     await announceDevices(user.id);
     return { device_id: target, approved: true };
   });
@@ -489,7 +489,7 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
     for (const b of bundles) {
       if (b.one_time_prekey) {
         const left = await prekeysRemaining(b.device_id);
-        if (left < 20) hub.sendToDevice(target, b.device_id, { type: 'prekeys_low', remaining: left });
+        if (left < 20) void hub.deliverToDevice(target, b.device_id, { type: 'prekeys_low', remaining: left });
       }
     }
     return bundles;
@@ -595,7 +595,7 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
         throw new HttpError(429, 'relay_budget', 'Too much of what you sent is still undelivered. Try again later.');
       }
       const pushed =
-        hub.sendToDevice(recipientId, m.deviceId, {
+        (await hub.deliverToDevice(recipientId, m.deviceId, {
           type: 'relay',
           message: {
             id: msg.id,
@@ -604,7 +604,8 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
             envelope: m.envelope,
             created_at: msg.created_at,
           },
-        }) > 0;
+        })) > 0;
+      metrics?.count(pushed ? 'relay_live' : 'relay_queued');
       if (!pushed) notifier?.wake(recipientId, m.deviceId, 'message').catch((err) => log.warn('push failed', { error: err.message }));
       out.push({ device_id: m.deviceId, id: msg.id, pushed });
     }

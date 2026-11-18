@@ -122,6 +122,7 @@ class CallService extends ChangeNotifier {
   CallService({
     required ChatService chat,
     required bool Function(String userId) canCall,
+    // Empty: the chat's servers (STUN, plus our server's TURN relay).
     List<Map<String, dynamic>> iceServers = const [],
     CallMedia media = const DeviceCallMedia(),
     this.ringTimeout = const Duration(seconds: 45),
@@ -411,7 +412,7 @@ class CallService extends ChangeNotifier {
 
   Future<RTCPeerConnection> _newConnection(ActiveCall c) async {
     final pc = await createPeerConnection({
-      'iceServers': _iceServers,
+      'iceServers': _iceServers.isNotEmpty ? _iceServers : _chat.iceServers,
       'sdpSemantics': 'unified-plan',
     });
     _pc = pc;
