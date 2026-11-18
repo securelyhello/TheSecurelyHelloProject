@@ -1,0 +1,32 @@
+{
+  "run": 1,
+  "profile": "quick",
+  "source_ref": "08ba681",
+  "units": [
+    {
+      "id": "U1-server-auth",
+      "paths": ["server/src/api.js", "server/src/app.js", "server/src/http.js", "server/src/security.js", "server/src/codes.js", "server/src/twofactor.js", "server/src/spam.js", "server/src/validate.js", "server/src/ratelimit.js"],
+      "classes": ["access control", "cryptography and secrets", "business logic", "enumeration", "resource exhaustion"]
+    },
+    {
+      "id": "U2-server-devices-relay-realtime",
+      "paths": ["server/src/devices.js", "server/src/realtime.js", "server/src/services.js", "server/src/hotstore.js", "server/src/push.js"],
+      "classes": ["access control", "chained trust boundaries", "races", "resource exhaustion"]
+    },
+    {
+      "id": "U3-server-data-features",
+      "paths": ["server/src/attachments.js", "server/src/blobstore.js", "server/src/safety.js", "server/src/invites.js", "server/src/mail.js", "server/migrations"],
+      "classes": ["access control", "path traversal", "SSRF", "data leakage", "injection"]
+    },
+    {
+      "id": "U4-app-crypto-chat",
+      "paths": ["lib/core/crypto", "lib/core/chat", "lib/core/storage"],
+      "classes": ["cryptography", "business logic", "second-order trust in stored/peer data", "injection via file names"]
+    },
+    {
+      "id": "U5-app-network-ui",
+      "paths": ["lib/core/networking", "lib/core/security", "lib/core/invites", "lib/core/providers", "lib/features", "android", "ios"],
+      "classes": ["TLS and transport", "client-side", "local storage", "deep links"]
+    }
+  ]
+}
