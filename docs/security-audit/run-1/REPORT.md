@@ -64,6 +64,19 @@ upload quota race (Q14). Answered as intended: exact-username lookup (Q4),
 retry after a partial relay failure (Q9, deduplicated), and the skipped-key
 bound (Q15).
 
+### Follow-up round
+
+The reviewer accepted the fixes for Q1, Q2, Q3, Q6, Q10, Q11, Q13 and Q14, and
+raised two more:
+
+- A: the per-address sign-in cap counted every attempt, so attackers on many
+  IPs could still lock the owner out. It now counts only wrong passwords, and
+  checking it uses nothing (`authFailures`, test in `server/test/audit.test.js`).
+- B: the new `related` flag had no backfill. Migration 014 sets it where the
+  relationship is still visible. Older blocks can't be classified (blocking
+  removed the history), so they stay uncounted, and existing restrictions run
+  out within 7 days.
+
 ## Hardening notes (not vulnerabilities, not fixed in this run)
 
 - The verification guard protects sending only. Messages from a verified

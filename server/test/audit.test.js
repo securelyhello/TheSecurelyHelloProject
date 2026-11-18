@@ -128,3 +128,26 @@ describe('audit run 1, with e-mail verification required', () => {
     assert.equal(turnOn.status, 403);
   });
 });
+
+describe('audit run 1, sign-in limits', () => {
+  let srv;
+  before(async () => {
+    srv = await startServer({
+      limitOverrides: { authFailures: { capacity: 3, perMs: 60_000 }, authAccount: { capacity: 1000, perMs: 60_000 } },
+    });
+  });
+  after(() => srv.close());
+
+  // Reviewer follow-up A: the per-address cap counts only wrong passwords,
+  // and checking it uses nothing, so the owner's correct password keeps
+  // working until the failures themselves run out.
+  test('only wrong passwords count towards the per-address cap', async () => {
+    const a = await signup(srv.base, 'lockout');
+    const signin = (password) =>
+      api(srv.base, 'POST', '/api/auth/signin', { body: { email: a.email, password } });
+    for (let i = 0; i < 5; i++) assert.equal((await signin(a.password)).status, 200);
+    for (let i = 0; i < 3; i++) assert.equal((await signin('wrong password!!')).status, 401);
+    assert.equal((await signin(a.password)).status, 429, 'cap reached by failures only');
+  });
+});
+

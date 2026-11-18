@@ -147,6 +147,11 @@ export class HotStore {
   // Rate limits: fixed window counters
   // ---------------------------------------------------------------------------
 
+  /** Hits counted so far in the current window. */
+  async rateCount(bucket, key) {
+    return Number(await this.redis.get(this.k('rl', bucket, key))) || 0;
+  }
+
   /** Counts one hit; returns false once [capacity] is exceeded in the window. */
   async rateHit(bucket, key, capacity, windowMs) {
     const n = await this.redis.shRateHit(this.k('rl', bucket, key), windowMs);

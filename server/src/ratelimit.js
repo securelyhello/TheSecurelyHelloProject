@@ -11,8 +11,9 @@ export const DEFAULT_LIMITS = {
   authIp: { capacity: 20, perMs: 10 * MIN },
   // per normalized e-mail and client IP (slows password guessing)
   authAccount: { capacity: 10, perMs: 15 * MIN },
-  // per normalized e-mail from anywhere (spread-out guessing)
-  authAccountAll: { capacity: 100, perMs: 60 * MIN },
+  // wrong passwords per normalized e-mail from anywhere (spread-out guessing);
+  // only failures count, so the owner's right password is never the reason
+  authFailures: { capacity: 100, perMs: 60 * MIN },
   // unauthenticated username availability checks, per IP
   publicIp: { capacity: 60, perMs: MIN },
   // general authenticated API calls, per user
@@ -52,6 +53,13 @@ export class RateLimits {
   constructor(store, overrides = {}) {
     this.store = store;
     this.defs = { ...DEFAULT_LIMITS, ...overrides };
+  }
+
+  /** Whether [key] has used up the [name] budget, without using any. */
+  async exhausted(name, key) {
+    const def = this.defs[name];
+    if (!def) throw new Error(`unknown rate limit ${name}`);
+    return (await this.store.rateCount(name, key)) >= def.capacity;
   }
 
   /** Resolves false when [key] has exhausted the [name] budget. */

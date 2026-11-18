@@ -183,9 +183,14 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
         throw bad('password is required');
       }
       // Per address and IP, so guessing from one place doesn't lock the owner
-      // out from another; plus a looser per-address cap for spread-out guessing.
+      // out from another; plus a cap on wrong passwords per address from
+      // anywhere, which a correct password never adds to.
       await limit('authAccount', `${email.toLowerCase()}|${ip}`);
-      await limit('authAccountAll', email.toLowerCase());
+      if (await limits.exhausted('authFailures', email.toLowerCase())) throw tooMany();
+      const failed = async () => {
+        await limits.take('authFailures', email.toLowerCase());
+        throw new HttpError(401, 'invalid_credentials', 'Wrong email or password');
+      };
 
       const { rows } = await pool.query(
         `SELECT ${USER_COLUMNS}, u.password_hash, u.suspended_at FROM users u WHERE lower(u.email) = lower($1)`,
@@ -194,11 +199,9 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       const row = rows[0];
       if (!row) {
         await burnPasswordCheck(body.password);
-        throw new HttpError(401, 'invalid_credentials', 'Wrong email or password');
+        await failed();
       }
-      if (!(await verifyPassword(body.password, row.password_hash))) {
-        throw new HttpError(401, 'invalid_credentials', 'Wrong email or password');
-      }
+      if (!(await verifyPassword(body.password, row.password_hash))) await failed();
       if (row.suspended_at) throw new HttpError(403, 'suspended', 'This account is suspended');
       await twoFactor.require(row.id, body.otp);
       const token = await createSession(pool, row.id);
