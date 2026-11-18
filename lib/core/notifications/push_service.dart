@@ -79,9 +79,14 @@ class PushService {
       // The server sends through the FCM HTTP v1 API, whose `message.token`
       // is the classic registration token (not the installation id that
       // register()/onRegistered return for FCM direct send).
-      // ignore: deprecated_member_use
-      final token = await messaging.getToken();
-      if (token != null) await _directory.registerPushToken(token);
+      await registerToken(
+        // ignore: deprecated_member_use
+        getToken: messaging.getToken,
+        // ignore: deprecated_member_use
+        deleteToken: messaging.deleteToken,
+        register: _directory.registerPushToken,
+      );
+      // Subscribe even if registering failed: a later token gets another go.
       // ignore: deprecated_member_use
       _refresh = messaging.onTokenRefresh.listen((t) {
         unawaited(_directory.registerPushToken(t).catchError((Object e) {
@@ -92,6 +97,36 @@ class PushService {
       _started = true;
     } catch (e) {
       debugPrint('Push unavailable: $e');
+    }
+  }
+
+  /// Registers the current FCM token with the server. If a signed-in device
+  /// of another account still holds it (409 push_token_in_use, e.g. after a
+  /// reinstall without signing out), asks FCM for a fresh token and tries
+  /// once more. Returns whether a token was registered. Never throws.
+  @visibleForTesting
+  static Future<bool> registerToken({
+    required Future<String?> Function() getToken,
+    required Future<void> Function() deleteToken,
+    required Future<void> Function(String token) register,
+  }) async {
+    try {
+      final token = await getToken();
+      if (token == null) return false;
+      try {
+        await register(token);
+        return true;
+      } on ApiException catch (e) {
+        if (e.status != 409 || e.code != 'push_token_in_use') rethrow;
+      }
+      await deleteToken();
+      final fresh = await getToken();
+      if (fresh == null) return false;
+      await register(fresh);
+      return true;
+    } catch (e) {
+      debugPrint('Push token registration failed: $e');
+      return false;
     }
   }
 

@@ -31,7 +31,8 @@ class _AttachmentViewState extends State<AttachmentView> {
   bool _saving = false;
 
   Map<String, dynamic> get m => widget.meta;
-  String get _name => m['name'] as String? ?? 'file';
+  /// The sender chooses this name, so it is sanitized before any use.
+  String get _name => AttachmentService.safeFileName(m['name']);
   int get _size => m['size'] as int? ?? 0;
   String get _mime => m['mime'] as String? ?? 'application/octet-stream';
   bool get _isImage => AttachmentService.isImage(m);

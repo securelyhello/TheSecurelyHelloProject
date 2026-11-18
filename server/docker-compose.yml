@@ -23,6 +23,8 @@ services:
       SMTP_URL: ${SMTP_URL:-}
       MAIL_FROM: ${MAIL_FROM:-}
       EMAIL_VERIFICATION: ${EMAIL_VERIFICATION:-}
+      # Most e-mails in any 24 h (shared provider quota); see .env.example.
+      EMAIL_DAILY_CAP: ${EMAIL_DAILY_CAP:-40}
       # Push wake-ups (optional): FCM service-account JSON (inline or base64).
       FCM_SERVICE_ACCOUNT: ${FCM_SERVICE_ACCOUNT:-}
       # Moderation API (/api/admin/*); at least 32 random characters.

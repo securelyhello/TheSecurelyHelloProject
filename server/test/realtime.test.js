@@ -231,7 +231,7 @@ describe('websocket', () => {
     const ws = await connectWs(srv.wsUrl, a.token);
     await ws.next(ofType('hello'));
     const closed = new Promise((resolve) => ws.ws.once('close', (code) => resolve(code)));
-    await api(srv.base, 'DELETE', '/api/me', { token: a.token });
+    await api(srv.base, 'DELETE', '/api/me', { token: a.token, body: { current_password: a.password } });
     assert.equal(await closed, 4003);
     assert.equal(ws.ws.readyState, WebSocket.CLOSED);
   });

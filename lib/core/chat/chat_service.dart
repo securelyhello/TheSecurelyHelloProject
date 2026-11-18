@@ -631,7 +631,9 @@ class ChatService {
     final pinned = await _storage.kvGet('verified:$contactId');
     if (pinned == null) return Verification.unverified;
     final current = await devicesOf(contactId);
-    if (current.isEmpty) return Verification.verified;
+    // No keys to check the pin against: unknown, so never shown (or trusted)
+    // as verified. The pin stays, so the same keys verify again later.
+    if (current.isEmpty) return Verification.unverified;
     return keySetDigest(current) == pinned ? Verification.verified : Verification.changed;
   }
 
@@ -1001,7 +1003,11 @@ class ChatService {
       return '🎤 Voice message ${VoiceNote.clock(VoiceNote.durationOf(attachment))}';
     }
     final isImage = (attachment['mime'] as String? ?? '').startsWith('image/');
-    final label = isImage ? '📷 Photo' : '📎 ${attachment['name'] ?? 'File'}';
+    // The name comes from the sender: strip bidi/control characters and paths.
+    final name = attachment['name'];
+    final label = isImage
+        ? '📷 Photo'
+        : '📎 ${name == null ? 'File' : AttachmentService.safeFileName(name)}';
     return text.isEmpty ? label : '$label · $text';
   }
 

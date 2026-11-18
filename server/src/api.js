@@ -2,8 +2,8 @@
 // non-browser clients through on that prefix). All JSON. Every route needs a
 // Bearer session token unless registered with {auth:false}. The acting user
 // is always taken from the session, never from the request body.
+import { emailCapReached } from './codes.js';
 import { withTransaction } from './db.js';
-import { createCodes } from './codes.js';
 import { emailHash } from './invites.js';
 import { hasBlocked } from './safety.js';
 import { burnPasswordCheck, hashPassword, hashToken, newSessionToken, verifyPassword } from './security.js';
@@ -27,7 +27,7 @@ const USER_COLUMNS =
  * @param {import('./services.js').Services} deps.services
  * @param {import('./ratelimit.js').RateLimits} deps.limits
  */
-export function registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier, twoFactor, antiSpam, blobs }) {
+export function registerRoutes(router, { pool, hub, store, services, limits, config, mailer, codes, log, notifier, twoFactor, antiSpam, blobs }) {
   const verificationRequired = config.emailVerification === 'required';
   // Serialization
 
@@ -61,7 +61,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
 
   // E-mail codes (verification, password reset)
 
-  const { issueCode, consumeCode } = createCodes({ pool, mailer });
+  const { canSend, issueCode, consumeCode } = codes;
 
   /** With EMAIL_VERIFICATION=required, unverified accounts can't reach anyone. */
   async function requireVerified(userId) {
@@ -206,7 +206,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
   router.add('POST', '/api/auth/signout', async ({ token, user }) => {
     const hash = hashToken(token);
     await pool.query('DELETE FROM sessions WHERE token_hash = $1', [hash]);
-    await services.revokeCachedSessions([hash]);
+    await services.revokeCachedSessions(user.id, [hash]);
     hub.disconnectSessions(user.id, [hash]);
   });
 
@@ -231,7 +231,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       );
       return res.rows.map((r) => r.token_hash);
     });
-    await services.revokeCachedSessions(revoked);
+    await services.revokeCachedSessions(user.id, revoked);
     hub.disconnectSessions(user.id, revoked);
   });
 
@@ -249,6 +249,9 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
   );
 
   router.add('POST', '/api/auth/email/send-verification', async ({ user }) => {
+    // Daily cap first (without spending it), so a 503 doesn't burn the
+    // user's own budget; issueCode() takes the global slot.
+    if (!(await canSend('verify'))) throw emailCapReached();
     await limit('emailSend', `verify:${user.id}`);
     const { rows } = await pool.query('SELECT email, email_verified_at FROM users WHERE id = $1', [user.id]);
     if (!rows[0]) throw notFound();
@@ -340,7 +343,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
           token: await createSession(client, userId),
         };
       });
-      await services.revokeCachedSessions(revoked);
+      await services.revokeCachedSessions(userId, revoked);
       hub.disconnectUser(userId, 4001, 'password reset');
       return { token, user: await me(row) };
     },
@@ -367,6 +370,22 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     return me(rows[0]);
   });
 
+  /**
+   * Re-checks the password ([body].current_password) and, with two-step
+   * verification on, [body].otp, for changes a stolen session must not make.
+   */
+  async function requireFreshCredentials(userId, body) {
+    await limit('authAccount', `pw:${userId}`);
+    if (typeof body.current_password !== 'string' || body.current_password.length > 256) {
+      throw bad('current_password is required');
+    }
+    const { rows } = await pool.query('SELECT password_hash FROM users WHERE id = $1', [userId]);
+    if (!rows[0] || !(await verifyPassword(body.current_password, rows[0].password_hash))) {
+      throw new HttpError(403, 'invalid_credentials', 'Current password is wrong');
+    }
+    await twoFactor.require(userId, body.otp);
+  }
+
   router.add('PATCH', '/api/me', async ({ body, user }) => {
     v.requireObject(body);
     const sets = [];
@@ -378,6 +397,9 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     if (body.username !== undefined) {
       args.push(v.username(body.username));
       sets.push(`username = $${args.length}`);
+      // Contacts find and recognise you by username, so a stolen session
+      // alone can't change it: the password (and 2FA code) again.
+      await requireFreshCredentials(user.id, body);
     }
     if (body.discoverable !== undefined) {
       if (typeof body.discoverable !== 'boolean') throw bad('discoverable must be true or false');
@@ -397,7 +419,10 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     }
   });
 
-  router.add('DELETE', '/api/me', async ({ user }) => {
+  router.add('DELETE', '/api/me', async ({ body, user }) => {
+    // Irreversible, so a stolen session alone can't do it: the password (and
+    // 2FA code) again, as for a username change.
+    await requireFreshCredentials(user.id, body ?? {});
     // Blobs outside Postgres aren't removed by the cascade (audit run 1, U3-4).
     const { rows: files } = await pool.query(
       "SELECT id FROM attachments WHERE uploader_id = $1 AND storage <> 'postgres'",
@@ -414,7 +439,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       await client.query('DELETE FROM users WHERE id = $1', [user.id]);
       return res.rows.map((r) => r.token_hash);
     });
-    await services.revokeCachedSessions(sessions);
+    await services.revokeCachedSessions(user.id, sessions);
     await services.contactsChanged(user.id, ...contacts);
     await services.devicesChanged(user.id);
     await store.relayPurgeUser(user.id, devices);

@@ -19,6 +19,7 @@ import 'package:securelyhello/features/settings/screens/blocked_users_screen.dar
 import 'package:securelyhello/features/settings/screens/edit_profile_screen.dart';
 import 'package:securelyhello/features/settings/screens/legal_screen.dart';
 import 'package:securelyhello/features/settings/screens/two_factor_screen.dart';
+import 'package:securelyhello/features/settings/widgets/delete_account_dialog.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/shared/theme/locale_controller.dart';
 import 'package:securelyhello/shared/theme/theme_controller.dart';
@@ -235,24 +236,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _deleteAccount(AuthProvider auth) async {
-    final confirmed = await showDialog<bool>(
+    // Two-step status decides whether the code is asked up front; the
+    // server's otp_required brings the field up anyway if this fails.
+    final twoFactor = auth
+        .twoFactorStatus()
+        .then((s) => s['enabled'] == true)
+        .catchError((Object _) => false);
+    final deleted = await showDialog<bool>(
       context: context,
-      builder: (ctx) => const _DeleteAccountDialog(),
+      barrierDismissible: false,
+      builder: (ctx) => DeleteAccountDialog(
+        twoFactorEnabled: twoFactor,
+        onDelete: (password, otp) async {
+          if (mounted) setState(() => _signingOut = true);
+          final ok = await auth.deleteAccount(currentPassword: password, otp: otp);
+          if (ok) return null;
+          if (mounted) setState(() => _signingOut = false);
+          return DeleteAccountFailure(
+            auth.deleteAccountErrorCode,
+            friendlyError(auth.errorMessage, fallback: 'Failed to delete account'),
+          );
+        },
+      ),
     );
-    if (confirmed != true || !mounted) return;
-    setState(() => _signingOut = true);
-    final success = await auth.deleteAccount();
-    if (!mounted) return;
-    if (success) {
-      Navigator.of(context).pushNamedAndRemoveUntil('/login', (_) => false);
-    } else {
-      setState(() => _signingOut = false);
-      showAppSnackBar(
-        context,
-        friendlyError(auth.errorMessage, fallback: 'Failed to delete account'),
-        error: true,
-      );
-    }
+    if (deleted != true || !mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil('/login', (_) => false);
   }
 
   void _showAbout() {
@@ -789,74 +797,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
         ],
       ),
-    );
-  }
-}
-
-class _DeleteAccountDialog extends StatefulWidget {
-  const _DeleteAccountDialog();
-
-  @override
-  State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
-}
-
-class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
-  final _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final armed = _controller.text.trim() == 'DELETE';
-    return AlertDialog(
-      icon: Icon(LucideIcons.triangleAlert, color: p.danger, size: 30),
-      title: const Text('Delete account?'),
-      content: SizedBox(
-        width: 380,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'This is permanent. Your profile, contacts, encryption keys and '
-              'all messages on this device will be deleted.',
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Type DELETE to confirm',
-              style: Theme.of(
-                context,
-              ).textTheme.labelLarge?.copyWith(color: p.textPrimary),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _controller,
-              autofocus: true,
-              onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(hintText: 'DELETE'),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: p.danger,
-            foregroundColor: Theme.of(context).colorScheme.onError,
-          ),
-          onPressed: armed ? () => Navigator.pop(context, true) : null,
-          child: const Text('Delete account'),
-        ),
-      ],
     );
   }
 }

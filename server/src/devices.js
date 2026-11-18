@@ -6,6 +6,7 @@
 // server only ever moves opaque envelopes addressed to one device each.
 import { createPublicKey, verify as verifySignature } from 'node:crypto';
 
+import { emailCapReached } from './codes.js';
 import { withTransaction } from './db.js';
 import { hashToken } from './security.js';
 import * as v from './validate.js';
@@ -243,7 +244,7 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
     });
 
     // The cached session still says "no device".
-    await services.revokeCachedSessions([hashToken(token)]);
+    await services.revokeCachedSessions(user.id, [hashToken(token)]);
     if (result.approved && (result.created || result.keysChanged)) await announceDevices(user.id);
     hub.bindDevice(user.id, token, result.deviceId, result.approved);
     if (!result.approved && (result.created || result.keysChanged)) {
@@ -307,6 +308,8 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
     const deviceId = requireDevice(user);
     if (await services.isDeviceApproved(deviceId)) return { status: 200, body: { approved: true } };
     if (!mailer?.enabled) throw new HttpError(503, 'email_unavailable', 'E-mail is not configured on this server');
+    // Daily cap before the per-user budget (see send-verification).
+    if (!(await codes.canSend('device'))) throw emailCapReached();
     if (!(await limits.take('emailSend', `device:${user.id}`))) {
       throw new HttpError(429, 'rate_limited', 'Too many requests, slow down');
     }
@@ -338,7 +341,7 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
       );
       return { devices: others.rows.map((r) => r.id), sessions: sessions.rows.map((r) => r.token_hash) };
     });
-    await services.revokeCachedSessions(removed.sessions);
+    await services.revokeCachedSessions(user.id, removed.sessions);
     for (const d of removed.devices) {
       await store.relayPurgeDevice(d);
       hub.disconnectDevice(user.id, d, 4004, 'device removed');
@@ -385,8 +388,10 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
 
   /**
    * Registers this device's push token (FCM). The token is moved here if
-   * another device had it (reinstall). Pushes only ever say "something is
-   * waiting"; see push.js.
+   * another device of the same user had it (reinstall). Other users' devices
+   * are never touched, so nobody can switch off someone else's pushes by
+   * claiming their token. Pushes only ever say "something is waiting"; see
+   * push.js.
    */
   router.add('PUT', '/api/devices/current/push', async ({ body, user }) => {
     const deviceId = requireDevice(user);
@@ -394,11 +399,22 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
     if (body.platform !== 'fcm') throw bad("platform must be 'fcm'");
     const token = v.string(body.token, 'token', { min: 16, max: 4096 });
     await withTransaction(pool, async (client) => {
-      await client.query('UPDATE devices SET push_token = NULL, push_platform = NULL WHERE push_token = $1 AND id <> $2', [
-        token,
-        deviceId,
-      ]);
-      await client.query("UPDATE devices SET push_token = $2, push_platform = 'fcm' WHERE id = $1", [deviceId, token]);
+      // Our other devices, and devices nobody is signed in on any more (the
+      // previous account on this install signed out), give the token up.
+      await client.query(
+        `UPDATE devices d SET push_token = NULL, push_platform = NULL
+          WHERE d.push_token = $1 AND d.id <> $2
+            AND (d.user_id = $3
+                 OR NOT EXISTS (SELECT 1 FROM sessions s WHERE s.device_id = d.id AND s.expires_at > now()))`,
+        [token, deviceId, user.id],
+      );
+      // A signed-in device of someone else keeps it (push_token is unique).
+      try {
+        await client.query("UPDATE devices SET push_token = $2, push_platform = 'fcm' WHERE id = $1", [deviceId, token]);
+      } catch (err) {
+        if (err.code === '23505') throw new HttpError(409, 'push_token_in_use', 'Another account uses this push token');
+        throw err;
+      }
     });
     return { push_enabled: true, push_available: notifier?.enabled ?? false };
   });
@@ -426,7 +442,7 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
       // ON DELETE CASCADE removed its sessions.
       return sessions.rows.map((r) => r.token_hash);
     });
-    await services.revokeCachedSessions(revoked);
+    await services.revokeCachedSessions(user.id, revoked);
     await store.relayPurgeDevice(id);
     hub.disconnectDevice(user.id, id, 4004, 'device removed');
     await announceDevices(user.id);
@@ -460,6 +476,13 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
       throw new HttpError(403, 'not_contacts', 'You can only start sessions with contacts and people in your groups');
     }
     await limit('prekeyClaim', user.id);
+    // Per requester and target, so one contact can't drain another's
+    // one-time prekeys. Past it the bundle carries only the signed prekey
+    // (as when a device has run out), so session setup still works.
+    const spendOneTime =
+      target === user.id ||
+      ((await limits.take('prekeyPair', `${user.id}:${target}`)) &&
+        (await limits.take('prekeyPairDaily', `${user.id}:${target}`)));
     const bundles = await withTransaction(pool, async (client) => {
       const out = [];
       for (const deviceId of ids.map((x) => x.toLowerCase())) {
@@ -469,7 +492,7 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
         ]);
         if (!rows[0]) continue;
         const d = rows[0];
-        const otpk = await client.query(
+        const otpk = !spendOneTime ? { rows: [] } : await client.query(
           `DELETE FROM one_time_prekeys
             WHERE (device_id, key_id) = (
               SELECT device_id, key_id FROM one_time_prekeys WHERE device_id = $1

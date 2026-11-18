@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar notification icon: the logo's shield + check, white only
+     (Android tints it; colour or opaque backgrounds render as a white blob). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48"
+    android:tint="#FFFFFFFF">
+    <group android:translateX="-8" android:translateY="-8">
+        <path
+            android:pathData="M32,12 L47,18 L47,30 C47,40 40.6,48.4 32,52 C23.4,48.4 17,40 17,30 L17,18 Z"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="4"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M25,31.5 L30,36.5 L39,26.5"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="4"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+    </group>
+</vector>

@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:securelyhello/core/calls/call_service.dart';
 import 'package:securelyhello/core/invites/invites.dart';
 import 'package:securelyhello/core/config/app_config.dart';
+import 'package:securelyhello/core/config/release_logging.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/shared/theme/locale_controller.dart';
@@ -41,6 +42,8 @@ import 'package:securelyhello/features/chat/screens/chat_screen.dart';
 import 'package:securelyhello/features/settings/screens/linked_devices_screen.dart';
 
 Future<void> main() async {
+  // Release builds must not write diagnostics to the system log.
+  silenceDebugPrintInRelease();
   WidgetsFlutterBinding.ensureInitialized();
 
   // Lock to portrait on mobile (optional on desktop/web)

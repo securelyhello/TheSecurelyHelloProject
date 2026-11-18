@@ -32,14 +32,17 @@ host works.
    | `SMTP_URL` | recommended | e.g. `smtps://user:pass@smtp.example.com:465`; sends verification and password-reset codes |
    | `MAIL_FROM` | with SMTP | sender address, e.g. `Securely Hello <no-reply@example.com>` |
    | `EMAIL_VERIFICATION` | no | `required` (default with SMTP) or `optional` |
+   | `EMAIL_DAILY_CAP` | no | most e-mails sent in any 24 h, all kinds together; default `40`, minimum `2` (see E-mail) |
    | `ADMIN_TOKEN` | no | at least 32 random characters; enables `/api/admin/*` (reports, suspensions) |
    | `TOTP_ENCRYPTION_KEY` | recommended | long random string (at least 32 characters; the server refuses shorter); encrypts two-step verification secrets at rest. Keep it with your backups: changing or losing it locks out users who use two-step verification |
-   | `INVITE_BASE_URL` | recommended | invite link prefix, e.g. `https://securelyhello.example/i/` (the website's invite page); default `securelyhello://invite/` |
+   | `INVITE_BASE_URL` | recommended | invite link prefix: the website's invite page, `https://securelyhello.thenn.in/i/` in production; default `securelyhello://invite/` |
    | `POW_BITS` | no | proof-of-work difficulty for signup and reset e-mails; default `18` (about a second on a phone), `0` turns it off |
    | `BLOCK_DISPOSABLE_EMAIL` | no | `0` allows throwaway e-mail domains at signup (refused by default) |
    | `DISPOSABLE_DOMAINS_FILE` | no | extra domains to refuse, one per line |
    | `FCM_SERVICE_ACCOUNT` | no | Firebase service-account JSON (inline or base64) for push wake-ups |
    | `ATTACHMENT_MAX_MB` / `ATTACHMENT_TTL_DAYS` / `ATTACHMENT_QUOTA_MB` | no | `16` / `30` / `512` |
+   | `METRICS_TOKEN` | no | 32+ random characters; enables `GET /metrics` (see Metrics) |
+   | `TURN_URLS` / `TURN_SECRET` / `TURN_TTL_HOURS` | no | TURN relay for calls (see Calls and TURN); TTL default `12`, production uses `1` |
 
    `REDIS_URL`, `PORT` and `HOST` are set by the compose file.
 4. Health check: `GET /healthz` returns 200 only when Postgres and Redis both
@@ -56,14 +59,54 @@ the image) codes are never written to logs. Any SMTP provider works; codes
 are 6 digits, valid 15 (reset) or 30 (verify) minutes, stored hashed, and
 allow five guesses.
 
+### Daily e-mail cap
+
+`EMAIL_DAILY_CAP` (default `40`) bounds every e-mail the server sends
+(verification, password reset, new-device codes) in any 24 h. It is a
+sliding window kept in Redis and shared by all instances, so the cap holds
+at every moment, not per calendar day. Set it below your provider's daily
+quota minus anything else that shares the quota.
+
+- Verification mail stops at `floor(2/3 × cap)` (26 of 40), so a wave of
+  sign-ups can't use up the headroom that password resets and device
+  recovery need.
+- Values below `2` are raised to `2`, with a warning in the log.
+- Over the cap:
+  - sign-up still succeeds (`201`) but no verification mail is sent; the
+    user can ask for it again later;
+  - password reset gives its usual generic `202` and sends nothing, so it
+    still doesn't reveal whether an address is registered;
+  - resending verification (`POST /api/auth/email/send-verification`) and
+    device recovery by e-mail answer `503 email_unavailable`.
+- For resending verification and device recovery, the cap is checked before
+  the per-user limits, so a `503` doesn't use up the user's own budget.
+  Password reset deliberately does the opposite: it takes the per-address
+  budget first and only then checks the cap, so its answer (always `202`)
+  and the budget it spends are the same whether or not the address has an
+  account, and the cap can't be used to enumerate addresses.
+
 ## Push wake-ups (optional)
 
-1. Create a Firebase project and add an Android app (and an iOS app, with an
-   APNs key uploaded under Cloud Messaging) with the app's bundle ids.
-2. Server: Project settings → Service accounts → generate a key; put the
-   JSON (or its base64) in `FCM_SERVICE_ACCOUNT`.
-3. App: put the project id, sender id, API key and app ids in the app's
-   `.env` (`FIREBASE_*`, see `.env.example`).
+Push is off until the owner creates a Firebase project. Until then, mobile
+messages wait in the relay queue until the app is opened.
+
+1. Create a Firebase project. Add an Android app with package name
+   `securelyhello.thenn.in`, and an iOS app with bundle id
+   `securelyhello.thenn.in`. (The Android `namespace` and Kotlin package are
+   `securelyhello.thenn`, because `in` is a Kotlin keyword. Firebase only
+   needs the application id.)
+2. iOS: create an APNs authentication key in the Apple Developer account and
+   upload it in Firebase under Project settings → Cloud Messaging. The keys
+   live in Firebase, not on this server. The app already has the Push
+   Notifications capability (`ios/Runner/Runner.entitlements`,
+   `aps-environment`).
+3. Server: Project settings → Service accounts → generate a key; put the
+   JSON (or its base64) in `FCM_SERVICE_ACCOUNT` and redeploy. Never commit
+   it (`*service-account*.json` and `*firebase*adminsdk*.json` are
+   git-ignored).
+4. App: put the project id, sender id, API key and app ids in the app's
+   `.env` (`FIREBASE_*`, see `.env.example`), then rebuild and ship the app.
+   No `google-services.json` or `GoogleService-Info.plist` is needed.
 
 A push says only "You have a new message" or "You have a new contact
 request". It is sent only to devices without a live socket, and at most
@@ -206,9 +249,11 @@ codes only, never ids or names.
   `http://` server address (except `127.0.0.1`/`localhost`).
 - Add HSTS at the proxy, e.g. in Traefik a headers middleware with
   `stsSeconds=31536000` and `stsIncludeSubdomains=true`.
-- Optional pinning: build the app with the SHA-256 of the server's public
-  key, plus a backup key that isn't deployed yet. The app then refuses any
-  other key, even one with a valid certificate.
+- Pinning is **off by default** (`API_CERT_PINS` empty). Optional pinning:
+  build the app with the SHA-256 of the server's public key, plus a backup
+  key that isn't deployed yet. The app then refuses any other key, even one
+  with a valid certificate. The app compares the pins with the server's own
+  (leaf) certificate key only, not with intermediates or roots.
 
   ```
   # current key (from the live server)
@@ -224,9 +269,47 @@ codes only, never ids or names.
   ```
 
   Renew certificates with the same key (certbot `--reuse-key`; in Traefik use
-  a fixed certificate instead of automatic ACME keys). If the key ever
-  changes to one that isn't pinned, every installed app stops connecting
-  until it is updated.
+  a fixed certificate instead of automatic ACME keys), and always ship the
+  backup pin. Never pin a leaf whose key rotates on renewal, as default ACME
+  setups (including Traefik's) do. Pinning the ISRG (Let's Encrypt) roots
+  instead would survive key rotation, but the app doesn't support it yet: it
+  would need a check of the certificate chain in `lib/core/networking/tls_pinning.dart`.
+  If the key ever changes to one that isn't pinned, every installed app
+  stops connecting until it is updated.
+
+## Upgrading production from 0d52749
+
+Production runs commit `0d52749`. Going to this version:
+
+1. **Environment already set** (keep as is): `SMTP_URL` (Resend SMTP),
+   `MAIL_FROM`, `TOTP_ENCRYPTION_KEY`, `ADMIN_TOKEN`, `METRICS_TOKEN`,
+   `TURN_URLS`, `TURN_SECRET`, `TURN_TTL_HOURS=1`, `ATTACHMENT_*`,
+   `POW_BITS`, `EMAIL_DAILY_CAP=40`. **Never change `TOTP_ENCRYPTION_KEY`**:
+   users with two-step verification would be locked out.
+2. **Add**: `INVITE_BASE_URL=https://securelyhello.thenn.in/i/`.
+3. **Back up the database first** (a Neon branch or `pg_dump`). Migrations
+   `002` to `015` are applied automatically at boot (`MIGRATE_ON_START=1`,
+   under an advisory lock, so several instances are fine).
+4. **Keep the `attachments` volume** (`/data/attachments` with
+   `ATTACHMENT_STORAGE=filesystem`): it must persist across redeploys, or
+   uploaded files are lost while their rows remain.
+5. Redeploy, then smoke test:
+
+   ```
+   curl -fsS https://api.hello.thenn.in/healthz            # 200: Postgres and Redis answer
+   curl -fsS https://api.hello.thenn.in/api/config         # password_reset: true (SMTP works)
+   curl -fsS -H "Authorization: Bearer $METRICS_TOKEN" https://api.hello.thenn.in/metrics | head
+   curl -fsS -H "Authorization: Bearer $ADMIN_TOKEN" https://api.hello.thenn.in/api/admin/reports
+   ```
+
+   Then, in a release build of the app: sign up (the verification mail
+   arrives), sign in on a second device and approve it, send a message and
+   an attachment, open an invite link (`https://securelyhello.thenn.in/i/…`),
+   make a call over mobile data (TURN), reset a password, and check that a
+   2FA user can still sign in.
+6. **After verifying**, delete the old variables, which this version no
+   longer reads: `EMAIL_PROVIDER`, `EMAIL_FROM`, `EMAIL_API_KEY`,
+   `CODE_HMAC_KEY`, `TURN_TTL_SECONDS`.
 
 ## Running migrations by hand
 

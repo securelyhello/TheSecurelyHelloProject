@@ -79,6 +79,9 @@ raised two more:
 
 ## Hardening notes (not vulnerabilities, not fixed in this run)
 
+As recorded at the end of run 1; items marked **Fixed** were fixed afterwards
+(see "Fixed after run 1" below).
+
 - The verification guard protects sending only. Messages from a verified
   contact's new, unverified device are still shown (marked by the
   safety-number notice).
@@ -89,16 +92,44 @@ raised two more:
 - Typing indicators and direct-connection setup don't go through the
   verification guard.
 - Quoted replies show what the sender claims was quoted.
-- Incoming attachment names aren't sanitized before the save dialog.
-- The session cache can keep a revoked token for up to 5 minutes in a narrow
+- **Fixed.** Incoming attachment names aren't sanitized before the save dialog.
+- **Fixed.** The session cache can keep a revoked token for up to 5 minutes in a narrow
   race. `authenticate` doesn't check suspension.
-- Deleting the account or changing the username needs only a session
+- **Fixed.** Deleting the account or changing the username needs only a session
   (no re-entry of the password).
-- Release builds write device addresses to the system log (`debugPrint`).
+- **Fixed.** Release builds write device addresses to the system log (`debugPrint`).
   The clipboard keeps copied 2FA secrets and recovery codes.
-- Contacts can drain each other's one-time prekeys at 60 claims per minute.
-- The `127.` loopback check matches host names starting with `127.`.
+- **Fixed.** Contacts can drain each other's one-time prekeys at 60 claims per minute.
+- **Fixed.** The `127.` loopback check matches host names starting with `127.`.
   The address comes from build config.
+
+### Fixed after run 1
+
+Fixed on branch `cloud-integration` after this audit; not re-audited yet.
+
+- Attachment names: `AttachmentService.safeFileName` sanitises the
+  sender-chosen name (length and byte caps, fallback `attachment`) before
+  any display or save.
+- Session cache: revoking sessions stamps a per-user revocation time in
+  Redis, and cache entries looked up before it are ignored and never
+  re-written, so a revoked token stops working at once. Suspension is
+  checked in `authenticate` (Postgres) and by a Redis flag on cached
+  sessions.
+- Account deletion (`DELETE /api/me`) and username changes (`PATCH /api/me`)
+  need `current_password`, plus `otp` when two-step verification is on.
+- Release builds turn `debugPrint` into a no-op. 2FA secrets, recovery
+  codes and backup keys copied to the clipboard are cleared after 60 s if
+  the clipboard still holds them.
+- One-time prekeys: per requester and target, at most 10 claims a minute and
+  100 a day spend one-time prekeys; past that the bundle carries only the
+  signed prekey (own devices are exempt).
+- Loopback check: only `localhost`, literal 127.0.0.0/8 and `::1` count.
+- Also: registering a push token that a signed-in device of another account
+  holds answers `409 push_token_in_use` instead of taking it over; the admin
+  token comparison can't throw on odd lengths; Android data extraction rules
+  exclude all app data from cloud backup and device-to-device transfer; the
+  release network security config no longer allows cleartext to local
+  hosts (debug builds only).
 
 ## Final state
 

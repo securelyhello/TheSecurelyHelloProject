@@ -75,6 +75,51 @@ class AttachmentService {
   static String mimeFor(String name, [List<int>? header]) =>
       lookupMimeType(name, headerBytes: header) ?? 'application/octet-stream';
 
+  /// Longest file name [safeFileName] returns, in characters. It also stays
+  /// under [_maxFileNameBytes] UTF-8 bytes (most file systems allow 255).
+  static const maxFileNameLength = 120;
+  static const _maxFileNameBytes = 200;
+  static const _fallbackFileName = 'attachment';
+
+  static final _unsafeChars = RegExp(
+      '[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]');
+  static final _windowsReserved = RegExp(r'[<>:"|?*]');
+  static final _windowsDevice =
+      RegExp(r'^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])$', caseSensitive: false);
+
+  /// A file name from a contact's message made safe to offer in a save
+  /// dialog or write to disk: no directories or `..`, no control or bidi
+  /// characters, no leading dots, a bounded length, never empty.
+  static String safeFileName(Object? raw) {
+    if (raw is! String) return _fallbackFileName;
+    var name = raw.replaceAll(_unsafeChars, '');
+    name = name.substring(name.lastIndexOf(RegExp(r'[/\\]')) + 1);
+    name = name
+        .replaceAll(_windowsReserved, '_')
+        .replaceAll(RegExp(r'\.{2,}'), '.')
+        .replaceFirst(RegExp(r'^[.\s]+'), '')
+        .replaceFirst(RegExp(r'[.\s]+$'), '');
+    if (name.isEmpty) return _fallbackFileName;
+    if (_windowsDevice.hasMatch(name.split('.').first)) name = '_$name';
+    return _capFileName(name);
+  }
+
+  static String _capFileName(String name) {
+    bool fits(List<int> runes) =>
+        runes.length <= maxFileNameLength &&
+        utf8.encode(String.fromCharCodes(runes)).length <= _maxFileNameBytes;
+    final all = name.runes.toList();
+    if (fits(all)) return name;
+    final dot = name.lastIndexOf('.');
+    final ext = dot > 0 && name.length - dot <= 16 ? name.substring(dot).runes.toList() : <int>[];
+    final stem = all.sublist(0, all.length - ext.length).take(maxFileNameLength).toList();
+    while (stem.isNotEmpty && !fits([...stem, ...ext])) {
+      stem.removeLast();
+    }
+    final out = String.fromCharCodes(stem).replaceFirst(RegExp(r'[.\s]+$'), '');
+    return out.isEmpty ? _fallbackFileName : out + String.fromCharCodes(ext);
+  }
+
   static bool isImage(Map<String, dynamic> meta) {
     final mime = meta['mime'] as String? ?? '';
     // Only formats Flutter can decode.

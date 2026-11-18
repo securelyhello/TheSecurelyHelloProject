@@ -124,6 +124,11 @@ class DirectoryService {
 
   StoredSession? _session;
 
+  /// Errors for a wrong password or two-step code given to confirm a
+  /// change (requireFreshCredentials on the server). They are answered 401
+  /// or 403 but don't mean the session expired.
+  static const freshCredentialErrors = {'invalid_credentials', 'otp_required', 'invalid_otp'};
+
   // ---- realtime state ----
   WebSocket? _socket;
   bool _realtimeWanted = false;
@@ -185,8 +190,17 @@ class DirectoryService {
     return uri;
   }
 
-  static bool _isLoopback(String host) =>
-      host == 'localhost' || host == '::1' || host == '[::1]' || host.startsWith('127.');
+  /// True only for `localhost` and literal loopback addresses
+  /// (127.0.0.0/8 and ::1). A host name such as `127.evil.com` is not one.
+  static bool _isLoopback(String host) {
+    var h = host.toLowerCase();
+    if (h == 'localhost') return true;
+    if (h.startsWith('[') && h.endsWith(']')) h = h.substring(1, h.length - 1);
+    final ip = InternetAddress.tryParse(h);
+    if (ip == null) return false;
+    if (ip.type == InternetAddressType.IPv4) return ip.rawAddress[0] == 127;
+    return ip.type == InternetAddressType.IPv6 && ip.isLoopback;
+  }
 
   static bool _isPrivate(String host) {
     final ip = InternetAddress.tryParse(host);
@@ -363,10 +377,24 @@ class DirectoryService {
     return _adoptSession(res);
   }
 
-  /// Deletes the account and everything the server holds about it.
-  Future<void> deleteAccount() async {
+  /// Deletes the account and everything the server holds about it. Needs
+  /// the password again, and [otp] with two-step verification on: a wrong
+  /// one throws [ApiException] `invalid_credentials` (403) or
+  /// `otp_required` / `invalid_otp` (401), and the session stays.
+  Future<void> deleteAccount({required String currentPassword, String? otp}) async {
+    final realtime = _realtimeWanted;
+    // Closed first: the server ends the account's sockets with 4003, which
+    // would otherwise look like the account being deleted elsewhere.
     await stopRealtime();
-    await _request('DELETE', '/api/me');
+    try {
+      await _request('DELETE', '/api/me', body: {
+        'current_password': currentPassword,
+        if (otp != null && otp.isNotEmpty) 'otp': otp,
+      });
+    } catch (_) {
+      if (realtime && _session != null) unawaited(startRealtime().catchError((_) {}));
+      rethrow;
+    }
     _session = null;
     await _tokenStore.clearSession();
   }
@@ -555,10 +583,26 @@ class DirectoryService {
           'POST', '/api/users/${Uri.encodeComponent(userId)}/prekey-bundles',
           body: {'device_ids': deviceIds}));
 
-  Future<void> updateProfile({String? displayName, String? username, bool? discoverable}) async {
+  /// Updates the profile. Changing [username] needs the account password
+  /// again ([currentPassword]) and, with two-step verification on, [otp];
+  /// the server answers 403 invalid_credentials / 401 otp_required otherwise.
+  Future<void> updateProfile({
+    String? displayName,
+    String? username,
+    bool? discoverable,
+    String? currentPassword,
+    String? otp,
+  }) async {
+    assert((username == null) == (currentPassword == null),
+        'username and currentPassword go together');
+    assert(otp == null || username != null, 'otp is only sent with a username change');
     final body = <String, dynamic>{
       if (displayName != null) 'display_name': displayName,
-      if (username != null) 'username': username,
+      if (username != null) ...{
+        'username': username,
+        'current_password': currentPassword,
+        if (otp != null && otp.isNotEmpty) 'otp': otp,
+      },
       if (discoverable != null) 'discoverable': discoverable,
     };
     if (body.isEmpty) return;
@@ -1042,9 +1086,11 @@ class DirectoryService {
               : 'Server error (${response.statusCode})'),
       details: decoded is Map ? Map<String, dynamic>.from(decoded) : null,
     );
-    // Our token was rejected: the session is gone for good.
+    // Our token was rejected: the session is gone for good. A missing or
+    // wrong two-step code is also a 401, but the session is fine.
     if (auth &&
         response.statusCode == 401 &&
+        !freshCredentialErrors.contains(error.code) &&
         identical(session, _session) &&
         !_sessionExpired.isClosed) {
       _sessionExpired.add(null);

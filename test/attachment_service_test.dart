@@ -135,4 +135,73 @@ void main() {
     expect(AttachmentService.formatSize(1536), '2 KB');
     expect(AttachmentService.formatSize(3 * 1024 * 1024), '3.0 MB');
   });
+
+  group('safeFileName', () {
+    String f(Object? n) => AttachmentService.safeFileName(n);
+
+    test('keeps ordinary names', () {
+      expect(f('report.pdf'), 'report.pdf');
+      expect(f('Holiday photo 2026.jpg'), 'Holiday photo 2026.jpg');
+      expect(f('résumé ✓ 😀.txt'), 'résumé ✓ 😀.txt');
+    });
+
+    test('drops directories and traversal', () {
+      expect(f('../../etc/passwd'), 'passwd');
+      expect(f(r'..\..\Windows\System32\evil.dll'), 'evil.dll');
+      expect(f('/data/data/app/shared_prefs/x.xml'), 'x.xml');
+      expect(f('a..b..c.txt'), 'a.b.c.txt');
+      expect(f('..'), 'attachment');
+      expect(f('dir/'), 'attachment');
+      expect(f('..\\'), 'attachment');
+    });
+
+    test('strips leading dots and trailing dots or spaces', () {
+      expect(f('.bashrc'), 'bashrc');
+      expect(f('...hidden.txt'), 'hidden.txt');
+      expect(f('name.txt. . '), 'name.txt');
+    });
+
+    test('removes control and bidi characters', () {
+      expect(f('a\u0000b\nc\r\td\u007f.txt'), 'abcd.txt');
+      expect(f('invoice\u202Efdp.exe'), 'invoicefdp.exe');
+      expect(f('x\u2066y\u2069.png'), 'xy.png');
+    });
+
+    test('replaces characters Windows rejects', () {
+      expect(f('a<b>c:d"e|f?g*h.txt'), 'a_b_c_d_e_f_g_h.txt');
+      expect(f('CON'), '_CON');
+      expect(f('nul.txt'), '_nul.txt');
+      expect(f('console.txt'), 'console.txt');
+    });
+
+    test('caps the length and keeps the extension', () {
+      final long = '${'a' * 500}.pdf';
+      final out = f(long);
+      expect(out.length, lessThanOrEqualTo(AttachmentService.maxFileNameLength));
+      expect(out, endsWith('.pdf'));
+      final emoji = f('${'😀' * 300}.png');
+      expect(emoji.runes.length, lessThanOrEqualTo(AttachmentService.maxFileNameLength));
+      expect(emoji, endsWith('.png'));
+      // No broken surrogate pair at the cut.
+      expect(() => utf8.encode(emoji), returnsNormally);
+      expect(emoji.runes.every((r) => r != 0xFFFD), isTrue);
+    });
+
+    test('handles a huge name quickly', () {
+      final sw = Stopwatch()..start();
+      final out = f('${'x' * 200000}.zip');
+      expect(out, endsWith('.zip'));
+      expect(out.length, lessThanOrEqualTo(AttachmentService.maxFileNameLength));
+      expect(sw.elapsedMilliseconds, lessThan(2000));
+    });
+
+    test('falls back to "attachment"', () {
+      expect(f(null), 'attachment');
+      expect(f(42), 'attachment');
+      expect(f(''), 'attachment');
+      expect(f('   '), 'attachment');
+      expect(f('\u0000\u0001'), 'attachment');
+      expect(f('....'), 'attachment');
+    });
+  });
 }

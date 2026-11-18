@@ -126,7 +126,7 @@ class ProfileService extends ChangeNotifier {
   static Future<bool> validPhoto(String fts) async {
     try {
       final bytes = FileStringCodec.decode(fts, maxBytes: maxPhotoBytes).bytes;
-      return compute(_sane, bytes);
+      return await compute(_sane, bytes);
     } on FileStringException {
       return false;
     }

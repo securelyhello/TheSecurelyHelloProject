@@ -579,6 +579,11 @@ class _VerificationRow extends StatelessWidget {
                     await chat.markVerified(contactId, comparedNumber: number);
                   } on SafetyNumberChangedException catch (e) {
                     if (context.mounted) showAppSnackBar(context, e.toString(), error: true);
+                  } catch (_) {
+                    // No keys for them right now, or the network failed.
+                    if (context.mounted) {
+                      showAppSnackBar(context, "Couldn't check $name's keys. Try again.", error: true);
+                    }
                   }
                 },
                 child: Text(v == Verification.changed ? 'Verify again' : 'Mark verified'),

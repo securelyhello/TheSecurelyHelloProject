@@ -1,6 +1,5 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +8,7 @@ import 'package:securelyhello/core/backup/chat_backup.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/shared/widgets/app_dialogs.dart';
+import 'package:securelyhello/core/security/sensitive_clipboard.dart';
 
 /// Save chats to an encrypted file, or restore them from one.
 class BackupScreen extends StatefulWidget {
@@ -169,7 +169,7 @@ class _KeyDialogState extends State<_KeyDialog> {
         ),
         TextButton.icon(
           onPressed: () {
-            Clipboard.setData(ClipboardData(text: widget.backupKey));
+            SensitiveClipboard.copy(widget.backupKey);
             showAppSnackBar(context, 'Key copied');
           },
           icon: const Icon(LucideIcons.copy, size: 16),

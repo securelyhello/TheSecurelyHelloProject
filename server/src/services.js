@@ -15,29 +15,46 @@ export class Services {
   // Sessions
 
   /**
-   * Resolves a bearer token to {id, deviceId} or null. deviceId is null until
-   * the client registers its device. Cached in Redis for minutes.
+   * Resolves a bearer token to {id, deviceId} or null: null for a missing,
+   * malformed, expired or unknown token, or a suspended account. deviceId is
+   * null until the client registers its device. Cached in Redis for minutes;
+   * revokeCachedSessions() and suspensionChanged() make cached entries stale at once,
+   * including ones written by a lookup that raced the revocation.
    */
-  /** The session's {id, deviceId}, or null for a missing, malformed, expired or unknown token. */
   async authenticate(token) {
     if (typeof token !== 'string' || token.length === 0) return null;
     const hex = hashToken(token).toString('hex');
     const cached = await this.store.getCachedSession(hex);
     if (cached) return cached;
+    // Taken before the read: a revocation after this instant wins.
+    const lookedUpAt = await this.store.clockMicros();
     const { rows } = await this.pool.query(
-      `UPDATE sessions SET last_used_at = now()
-        WHERE token_hash = $1 AND expires_at > now()
-        RETURNING user_id, device_id, extract(epoch FROM expires_at - now()) AS remaining`,
+      `UPDATE sessions s SET last_used_at = now()
+         FROM users u
+        WHERE s.token_hash = $1 AND s.expires_at > now() AND u.id = s.user_id AND u.suspended_at IS NULL
+        RETURNING s.user_id, s.device_id, extract(epoch FROM s.expires_at - now()) AS remaining`,
       [Buffer.from(hex, 'hex')],
     );
     if (!rows[0]) return null;
-    await this.store.cacheSession(hex, rows[0].user_id, rows[0].device_id, Number(rows[0].remaining));
+    await this.store.cacheSession(hex, rows[0].user_id, rows[0].device_id, Number(rows[0].remaining), lookedUpAt);
     return { id: rows[0].user_id, deviceId: rows[0].device_id };
   }
 
-  /** Drops cached lookups for revoked session hashes (Buffers). */
-  async revokeCachedSessions(hashBuffers) {
+  /**
+   * Call after deleting sessions of [userId] (or changing what they resolve
+   * to): drops the cached lookups for [hashBuffers] and marks every session
+   * of the user cached so far as stale.
+   */
+  async revokeCachedSessions(userId, hashBuffers) {
+    if (typeof userId !== 'string') throw new TypeError('revokeCachedSessions needs the user id');
+    await this.store.markSessionsRevoked(userId);
     await this.store.forgetSessions(hashBuffers.map((b) => Buffer.from(b).toString('hex')));
+  }
+
+  /** The account was suspended (sessions already deleted) or unsuspended. */
+  async suspensionChanged(userId, suspended) {
+    if (suspended) await this.store.markSuspended(userId);
+    else await this.store.clearSuspended(userId);
   }
 
   // Contacts

@@ -109,7 +109,7 @@ class Stack {
   Future<void> dispose() async {
     await chat.stop();
     try {
-      await directory.deleteAccount();
+      await directory.deleteAccount(currentPassword: password);
     } catch (_) {}
     await storage.close();
     await p2p.dispose();

@@ -1,4 +1,4 @@
-package `in`.thenn.securelyhello
+package securelyhello.thenn
 
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterFragmentActivity

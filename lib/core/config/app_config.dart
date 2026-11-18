@@ -1,13 +1,16 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 /// Launch-time configuration.
 ///
 /// * `API_BASE_URL` — the Securely Hello server (see `server/`). Read from
-///   `--dart-define=API_BASE_URL=…` first, then `.env`. Defaults to the local
-///   dev server (`scripts/dev.sh`); the Android emulator reaches the host as
-///   `10.0.2.2`.
+///   `--dart-define=API_BASE_URL=…` first, then (desktop only) the
+///   `SH_API_BASE_URL` environment variable, then `.env`. Empty values count
+///   as unset. With nothing set, release builds use the production server
+///   ([productionBaseUrl]); debug and profile builds use the local dev server
+///   (`scripts/dev.sh`), which the Android emulator reaches as `10.0.2.2`.
 /// * `SH_PROFILE` — optional profile name (environment variable on desktop,
 ///   or `--dart-define`). Each profile gets its own local database directory
 ///   and keystore entries, so two instances with different accounts can run
@@ -58,15 +61,44 @@ class AppConfig {
     } catch (_) {
       fromProcess = null;
     }
-    final raw = _definedBaseUrl.isNotEmpty
-        ? _definedBaseUrl
-        : fromProcess?.trim().isNotEmpty == true
-            ? fromProcess!.trim()
-            : (fromEnv?.trim().isNotEmpty == true
-            ? fromEnv!.trim()
-            : (Platform.isAndroid
-                ? 'http://10.0.2.2:8787'
-                : 'http://127.0.0.1:8787'));
+    bool isAndroid;
+    try {
+      isAndroid = Platform.isAndroid;
+    } catch (_) {
+      isAndroid = false;
+    }
+    return resolveBaseUrl(
+      defined: _definedBaseUrl,
+      fromProcess: fromProcess,
+      fromEnv: fromEnv,
+      isRelease: kReleaseMode,
+      isAndroid: isAndroid,
+    );
+  }
+
+  /// Production server, used by release builds when nothing else is set.
+  static const productionBaseUrl = 'https://api.hello.thenn.in';
+
+  /// Picks the server URL: the first non-empty of [defined] (dart-define),
+  /// [fromProcess] (desktop environment variable) and [fromEnv] (`.env`),
+  /// else [productionBaseUrl] in release builds or the local dev server
+  /// otherwise. A trailing slash is removed. Pure, for tests.
+  @visibleForTesting
+  static String resolveBaseUrl({
+    required String defined,
+    required String? fromProcess,
+    required String? fromEnv,
+    required bool isRelease,
+    required bool isAndroid,
+  }) {
+    String? pick(String? v) =>
+        v != null && v.trim().isNotEmpty ? v.trim() : null;
+    final raw = pick(defined) ??
+        pick(fromProcess) ??
+        pick(fromEnv) ??
+        (isRelease
+            ? productionBaseUrl
+            : (isAndroid ? 'http://10.0.2.2:8787' : 'http://127.0.0.1:8787'));
     return raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
   }
 

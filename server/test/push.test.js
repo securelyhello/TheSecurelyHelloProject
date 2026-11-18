@@ -139,10 +139,14 @@ describe('push wake-ups', () => {
     const a = await signup(srv.base, 'push_move');
     const other = await signup(srv.base, 'push_move2');
     await register(a, 'shared-token-0000001');
+    // Another account can't take it while [a] is signed in on that device
+    // (audit run 1 hardening); after [a] signs out (reinstall) it can.
+    assert.equal((await register(other, 'shared-token-0000001')).status, 409);
+    assert.equal((await register(a, 'short')).status, 400);
+    await api(srv.base, 'POST', '/api/auth/signout', { token: a.token });
     await register(other, 'shared-token-0000001');
     const { rows } = await srv.pool.query('SELECT id FROM devices WHERE push_token = $1', ['shared-token-0000001']);
     assert.deepEqual(rows.map((r) => r.id), [other.deviceId]);
     assert.equal((await api(srv.base, 'DELETE', '/api/devices/current/push', { token: other.token })).status, 204);
-    assert.equal((await register(a, 'short')).status, 400);
   });
 });

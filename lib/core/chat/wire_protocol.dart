@@ -531,5 +531,9 @@ T _strict<T>(String what, T Function() decode) {
     return decode();
   } on TypeError catch (e) {
     throw FormatException('Malformed $what: $e');
+  } on FormatException catch (e) {
+    // jsonDecode puts the input in `source`, and toString() prints it. For a
+    // payload that is the decrypted message, so keep only the reason.
+    throw FormatException('Malformed $what: ${e.message}');
   }
 }

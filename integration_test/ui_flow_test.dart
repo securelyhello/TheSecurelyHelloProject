@@ -81,6 +81,9 @@ String? latestCode(String to) {
   return null;
 }
 
+/// Every account in this test uses it (deleting one needs it again).
+const _password = 'a long enough password';
+
 class Client {
   final Directory dir;
   late final SecureKeyStore keyStore =
@@ -158,7 +161,7 @@ void main() {
       expect(
           await mira.auth.signUp(
               email: 'mira_$tag@example.test',
-              password: 'a long enough password',
+              password: _password,
               username: 'mira_$tag',
               displayName: 'Mira Kapoor'),
           isTrue,
@@ -237,8 +240,8 @@ void main() {
       await tester.enterText(fields.at(0), 'tirth_$tag@example.test');
       await tester.enterText(fields.at(1), 'Tirth');
       await tester.enterText(fields.at(2), 'tirth_$tag');
-      await tester.enterText(fields.at(3), 'a long enough password');
-      await tester.enterText(fields.at(4), 'a long enough password');
+      await tester.enterText(fields.at(3), _password);
+      await tester.enterText(fields.at(4), _password);
       await settle(1200);
       await shot('04_signup_filled');
       await tester.ensureVisible(find.widgetWithText(ElevatedButton, 'Sign up'));
@@ -413,7 +416,7 @@ void main() {
       expect(
           await sam.auth.signUp(
               email: 'sam_$tag@example.test',
-              password: 'a long enough password',
+              password: _password,
               username: 'sam_$tag',
               displayName: 'Sam Okafor'),
           isTrue,
@@ -539,7 +542,7 @@ void main() {
       for (final c in [me, mira]) {
         await c.chat.stop();
         try {
-          await c.directory.deleteAccount();
+          await c.directory.deleteAccount(currentPassword: _password);
         } catch (_) {}
         await c.storage.close();
         c.dir.deleteSync(recursive: true);

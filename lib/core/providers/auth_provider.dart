@@ -519,17 +519,25 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  /// The server's error code for the last failed [deleteAccount]
+  /// (`invalid_credentials`, `otp_required`, `invalid_otp`, ...), or null.
+  String? get deleteAccountErrorCode => _deleteAccountErrorCode;
+  String? _deleteAccountErrorCode;
+
   /// Delete account permanently: server profile, local history and keys.
-  Future<bool> deleteAccount() async {
+  /// Needs the password again, and [otp] with two-step verification on.
+  Future<bool> deleteAccount({required String currentPassword, String? otp}) async {
     final userId = _user?.id;
     if (userId == null) return false;
     _setLoading(true);
     _clearError();
+    _deleteAccountErrorCode = null;
     _signingOut = true;
 
     try {
       // Server first: if it fails, nothing local has been destroyed yet.
-      await _directoryService.deleteAccount();
+      await _directoryService.deleteAccount(
+          currentPassword: currentPassword, otp: _otpOrNull(otp));
       await _runSignOutHooks();
       await _localStorage.deleteDatabaseForUser(userId);
       await _keyStore.deleteAll(userId);
@@ -541,6 +549,7 @@ class AuthProvider extends ChangeNotifier {
       return true;
     } catch (e) {
       _signingOut = false;
+      _deleteAccountErrorCode = e is ApiException ? e.code : null;
       _errorMessage = _describe(e, 'Account deletion failed');
       _setLoading(false);
       return false;

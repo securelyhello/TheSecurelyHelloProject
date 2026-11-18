@@ -85,6 +85,18 @@ void main() {
       expect(() => parse('http://8.8.8.8', release: false), throwsArgumentError);
     });
 
+    test('loopback means a real loopback address, not a 127. prefix', () {
+      expect(parse('http://127.0.0.1:8787').host, '127.0.0.1');
+      expect(parse('http://127.1.2.3').host, '127.1.2.3');
+      expect(parse('http://[::1]:8787').host, '::1');
+      expect(parse('http://LOCALHOST:8787').host, 'localhost');
+      expect(() => parse('http://127.evil.com'), throwsArgumentError);
+      expect(() => parse('http://127.0.0.1.evil.com'), throwsArgumentError);
+      expect(() => parse('http://127.0.0.1.nip.io:8787'), throwsArgumentError);
+      expect(() => parse('http://localhost.evil.com'), throwsArgumentError);
+      expect(() => parse('http://127.evil.com', release: false), throwsArgumentError);
+    });
+
     test('pins need https', () {
       expect(() => parse('http://127.0.0.1:8787', pinned: true), throwsArgumentError);
     });

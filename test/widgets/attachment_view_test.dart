@@ -56,4 +56,27 @@ void main() {
       expect(s.contains('FTS1'), isFalse, reason: 'the transport never shows');
     }
   });
+
+  testWidgets('a hostile file name is shown (and saved) sanitized', (t) async {
+    final dir = Directory.systemTemp.createTempSync('sh_av2');
+    final service = AttachmentService(directory: FakeBlobs(), cacheDirectory: () async => dir.path);
+    late Map<String, dynamic> meta;
+    await t.runAsync(() async {
+      meta = await service.upload(Uint8List.fromList(utf8.encode('x' * 100)), name: 'a.txt');
+    });
+    await t.pumpWidget(MaterialApp(
+      localizationsDelegates: L10n.localizationsDelegates,
+      supportedLocales: L10n.supportedLocales,
+      theme: AppTheme.dark,
+      home: Scaffold(
+          body: AttachmentView(
+              meta: {...meta, 'name': '../../.config/evil\u202Etxt.sh\n'},
+              service: service,
+              isSent: false)),
+    ));
+    await t.pump();
+    final shown = texts(t);
+    expect(shown, contains('eviltxt.sh'));
+    expect(shown.any((s) => s.contains('/') || s.contains('\u202E')), isFalse);
+  });
 }

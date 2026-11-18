@@ -1,19 +1,49 @@
 // One-time e-mail codes: 6 digits, stored hashed, short-lived, single use,
 // at most CODE_MAX_ATTEMPTS guesses (right or wrong) per code.
+//
+// Every code e-mail goes through issueCode(), so this is where the global
+// daily e-mail cap (EMAIL_DAILY_CAP, see ratelimit.js) is enforced.
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 
 import { codeEmail } from './mail.js';
+import { HttpError } from './validate.js';
 
 export const CODE_TTL_MINUTES = { verify: 30, reset: 15, device: 15 };
 export const CODE_MAX_ATTEMPTS = 5;
 const CODE_RE = /^\d{6}$/;
 
-export function createCodes({ pool, mailer }) {
+/** Thrown by issueCode() when the daily e-mail cap leaves no room. */
+export const emailCapReached = () =>
+  new HttpError(503, 'email_unavailable', 'E-mail is temporarily unavailable, try again later');
+
+/** Global caps a code e-mail for [purpose] counts against. Verification
+ * mail also has its own share, so it can't crowd out resets. */
+const capsFor = (purpose) => (purpose === 'verify' ? ['emailDaily', 'emailVerifyDaily'] : ['emailDaily']);
+
+/** @param {{pool: object, mailer: object, limits: import('./ratelimit.js').RateLimits}} deps */
+export function createCodes({ pool, mailer, limits }) {
   const codeHash = (userId, purpose, code) =>
     createHash('sha256').update(`securelyhello-code|${purpose}|${userId}|${code}`).digest();
 
-  /** Creates (or replaces) a code for [purpose] and e-mails it. */
+  /**
+   * Whether the daily cap has room for one [purpose] e-mail, without using
+   * any. Lets callers refuse before spending a user's own budget; racy, so
+   * issueCode() checks again for real.
+   */
+  async function canSend(purpose) {
+    return limits.peekAll(capsFor(purpose), 'global');
+  }
+
+  /**
+   * Creates (or replaces) a code for [purpose] and e-mails it. Throws
+   * emailCapReached() (503) when the daily cap is used up; nothing is stored
+   * or sent then.
+   */
   async function issueCode(userId, email, purpose) {
+    // One atomic take across every cap: either all get a slot or none does,
+    // so a full overall cap never burns a verification slot (or vice versa),
+    // even under concurrent requests.
+    if (!(await limits.takeAll(capsFor(purpose), 'global'))) throw emailCapReached();
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
     const minutes = CODE_TTL_MINUTES[purpose];
     await pool.query(
@@ -58,5 +88,5 @@ export function createCodes({ pool, mailer }) {
     return del.rowCount === 1;
   }
 
-  return { issueCode, consumeCode };
+  return { canSend, issueCode, consumeCode };
 }

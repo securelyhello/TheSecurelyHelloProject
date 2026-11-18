@@ -51,6 +51,8 @@ export const GENEROUS_LIMITS = {
   wsConnect: generous,
   emailSend: generous,
   prekeyClaim: generous,
+  prekeyPair: generous,
+  prekeyPairDaily: generous,
   upload: generous,
   report: generous,
   signupIp: generous,
@@ -60,11 +62,16 @@ export const GENEROUS_LIMITS = {
   inviteLookup: generous,
   discovery: generous,
   groupChange: generous,
+  // The global e-mail caps are always sliding windows (codes.js takes them
+  // atomically together, which only sliding windows support).
+  emailDaily: { ...generous, sliding: true },
+  emailVerifyDaily: { ...generous, sliding: true },
 };
 
 export const TEST_REDIS_URL = process.env.TEST_REDIS_URL ?? 'redis://127.0.0.1:56379/15';
 
 export async function startServer({
+  baseLimits = GENEROUS_LIMITS,
   limitOverrides = {},
   storeOptions = {},
   env = {},
@@ -82,7 +89,7 @@ export async function startServer({
     pool,
     redis,
     config,
-    limitOverrides: { ...GENEROUS_LIMITS, ...limitOverrides },
+    limitOverrides: { ...baseLimits, ...limitOverrides },
     storeOptions,
     log: silentLogger,
     mailer,

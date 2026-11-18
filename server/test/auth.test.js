@@ -179,7 +179,7 @@ describe('auth', () => {
     assert.equal((await relaySend(srv.base, a, b)).status, 201);
     assert.equal((await relaySend(srv.base, b, a)).status, 201);
 
-    assert.equal((await api(srv.base, 'DELETE', '/api/me', { token: a.token })).status, 204);
+    assert.equal((await api(srv.base, 'DELETE', '/api/me', { token: a.token, body: { current_password: a.password } })).status, 204);
     assert.equal((await api(srv.base, 'GET', '/api/me', { token: a.token })).status, 401);
     for (const [table, col] of [
       ['sessions', 'user_id'],

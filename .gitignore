@@ -48,3 +48,10 @@ app.*.map.json
 .env
 .env.*
 !.env.example
+
+# Secrets and service credentials (never commit)
+google-services.json
+GoogleService-Info.plist
+*firebase*adminsdk*.json
+*service-account*.json
+key.properties

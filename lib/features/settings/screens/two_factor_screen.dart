@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +7,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/shared/widgets/app_dialogs.dart';
+import 'package:securelyhello/core/security/sensitive_clipboard.dart';
 
 /// Turns two-step verification on or off and manages recovery codes.
 class TwoFactorScreen extends StatefulWidget {
@@ -203,7 +203,7 @@ class _TwoFactorScreenState extends State<TwoFactorScreen> {
         IconButton(
           tooltip: 'Copy',
           icon: const Icon(LucideIcons.copy, size: 18),
-          onPressed: () => Clipboard.setData(ClipboardData(text: secret)),
+          onPressed: () => SensitiveClipboard.copy(secret),
         ),
       ]),
       const SizedBox(height: 20),
@@ -263,7 +263,7 @@ class _RecoveryCodes extends StatelessWidget {
       const SizedBox(height: 12),
       OutlinedButton.icon(
         onPressed: () {
-          Clipboard.setData(ClipboardData(text: codes.join('\n')));
+          SensitiveClipboard.copy(codes.join('\n'));
           showAppSnackBar(context, 'Recovery codes copied');
         },
         icon: const Icon(LucideIcons.copy),

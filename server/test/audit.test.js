@@ -91,7 +91,7 @@ describe('audit run 1', () => {
     const { id } = await up.json();
     const file = path.join(dir, id.slice(0, 2), `${id}.bin`);
     assert.equal(existsSync(file), true);
-    assert.equal((await api(srv.base, 'DELETE', '/api/me', { token: a.token })).status, 204);
+    assert.equal((await api(srv.base, 'DELETE', '/api/me', { token: a.token, body: { current_password: a.password } })).status, 204);
     assert.equal(existsSync(file), false);
   });
 });

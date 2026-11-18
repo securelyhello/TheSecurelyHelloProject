@@ -16,7 +16,7 @@ import { Router, bearerToken, clientIp, containsNul, readJsonBody, readRawBody, 
 import { logger } from './log.js';
 import { createMailer } from './mail.js';
 import { createNotifier, senderFromEnv } from './push.js';
-import { RateLimits } from './ratelimit.js';
+import { MIN_EMAIL_DAILY_CAP, RateLimits, emailLimits } from './ratelimit.js';
 import { RealtimeHub } from './realtime.js';
 import { Bus } from './bus.js';
 import { Metrics, checkMetricsToken } from './metrics.js';
@@ -73,6 +73,10 @@ export function loadConfig(env = process.env) {
     turnUrls: (env.TURN_URLS || '').split(',').map((u) => u.trim()).filter(Boolean),
     turnSecret: env.TURN_SECRET || '',
     turnTtlSeconds: int('TURN_TTL_HOURS', 12) * 3600,
+    // Most e-mails sent in any 24 h, all kinds together (verification gets
+    // two thirds of it). Keep it under the provider's daily quota, minus
+    // whatever else shares that quota.
+    emailDailyCap: int('EMAIL_DAILY_CAP', 40, { allowZero: true }),
   };
 }
 
@@ -109,7 +113,11 @@ export function createApp({
     ...storeOptions,
   });
   const services = new Services({ pool, store });
+  if (config.emailDailyCap < MIN_EMAIL_DAILY_CAP) {
+    log.warn(`EMAIL_DAILY_CAP=${config.emailDailyCap} is too low, using ${MIN_EMAIL_DAILY_CAP}`);
+  }
   const limits = new RateLimits(store, {
+    ...emailLimits(config.emailDailyCap),
     ...(config.signupsPerIp ? { signupIp: { capacity: config.signupsPerIp, perMs: 24 * 60 * 60_000 } } : {}),
     ...limitOverrides,
   });
@@ -122,7 +130,8 @@ export function createApp({
   const twoFactor = createTwoFactor({ pool, config, limits });
   const antiSpam = createAntiSpam({ pool, store, config, log });
   if (!config.totpKey) log.warn('TOTP_ENCRYPTION_KEY is not set: two-step secrets are stored unencrypted');
-  registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier, twoFactor, antiSpam, blobs });
+  const codes = createCodes({ pool, mailer, limits });
+  registerRoutes(router, { pool, hub, store, services, limits, config, mailer, codes, log, notifier, twoFactor, antiSpam, blobs });
   registerTwoFactorRoutes(router, { pool, twoFactor, limits });
   registerDeviceRoutes(router, {
     metrics,
@@ -134,7 +143,7 @@ export function createApp({
     log,
     notifier,
     mailer,
-    codes: createCodes({ pool, mailer }),
+    codes,
     twoFactor,
   });
   registerAttachmentRoutes(router, { pool, services, limits, config, blobs });

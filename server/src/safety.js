@@ -1,5 +1,5 @@
 // Blocking and abuse reports (see migrations/005_blocks_reports.sql).
-import { timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import { withTransaction } from './db.js';
 import * as v from './validate.js';
@@ -133,15 +133,18 @@ export function registerSafetyRoutes(router, { pool, hub, services, limits, conf
 
   // Operator: review reports with ADMIN_TOKEN (Authorization: Bearer <token>)
 
+  // Both sides are HMACed with a per-process key, so timingSafeEqual always
+  // sees equal-length buffers: a token with multi-byte characters (or of any
+  // length) is just a wrong token, never a RangeError / 500.
+  const adminMacKey = randomBytes(32);
+  const adminMac = (s) => createHmac('sha256', adminMacKey).update(s, 'utf8').digest();
+
   function requireAdmin(req) {
     const expected = config.adminToken;
     const header = String(req.headers.authorization ?? '');
     const given = header.startsWith('Bearer ') ? header.slice(7) : '';
     const ok =
-      expected &&
-      expected.length >= 32 &&
-      given.length === expected.length &&
-      timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+      typeof expected === 'string' && expected.length >= 32 && timingSafeEqual(adminMac(given), adminMac(expected));
     if (!ok) throw new HttpError(404, 'not_found');
   }
 
@@ -195,7 +198,8 @@ export function registerSafetyRoutes(router, { pool, hub, services, limits, conf
         const s = await client.query('DELETE FROM sessions WHERE user_id = $1 RETURNING token_hash', [id]);
         return s.rows.map((r) => r.token_hash);
       });
-      await services.revokeCachedSessions(revoked);
+      await services.suspensionChanged(id, true);
+      await services.revokeCachedSessions(id, revoked);
       hub.disconnectUser(id, 4003, 'account suspended');
     },
     { auth: false },
@@ -206,7 +210,9 @@ export function registerSafetyRoutes(router, { pool, hub, services, limits, conf
     '/api/admin/users/:id/suspend',
     async ({ req, params }) => {
       requireAdmin(req);
-      await pool.query('UPDATE users SET suspended_at = NULL WHERE id = $1', [v.uuid(params.id)]);
+      const id = v.uuid(params.id);
+      await pool.query('UPDATE users SET suspended_at = NULL WHERE id = $1', [id]);
+      await services.suspensionChanged(id, false);
     },
     { auth: false },
   );

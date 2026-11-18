@@ -2,8 +2,15 @@
 // stays off the hot path.
 //
 // Keys (all prefixed with REDIS_PREFIX, default "sh:"):
-//   rl:<bucket>:<key>        rate-limit counter (fixed window, PX = window)
-//   sess:<sha256 hex>        session token → "<user id>|<device id>" cache (short TTL)
+//   rl:<bucket>:<key>        rate-limit counter (fixed window, PX = window), or
+//                            for sliding limits a ZSET of hits scored by ms
+//   sess:<sha256 hex>        session token → "<user id>|<device id>|<looked up at µs>"
+//                            cache (short TTL)
+//   sessrev:<user>           when the user's sessions were last revoked (Redis
+//                            TIME, µs); cache entries looked up at or before it
+//                            are ignored and not written
+//   suspended:<user>         "1" while the account is suspended (rejects cached
+//                            sessions; Postgres is the source of truth)
 //   contacts:<user>          JSON array of contact ids (cache, short TTL)
 //   devices:<user>           JSON array of the user's device ids (cache, short TTL)
 //   online:<user>            ZSET of instances with a non-away socket of the user,
@@ -40,6 +47,10 @@ export function createRedis(url, { name = 'securelyhello' } = {}) {
 
 // Acked messages give their bytes back to the recipient's and the
 // sender's budgets.
+// KEYS[2] and KEYS[4] are key prefixes: the script touches keys it does not
+// declare (message bodies, per-sender byte counters), so it needs a
+// standalone Redis (or a single primary), not Redis Cluster. The other
+// multi-key scripts here also assume every key lives on one node.
 const ACK_SCRIPT = `
 local n = 0
 for i, id in ipairs(ARGV) do
@@ -91,6 +102,79 @@ local c = redis.call('INCR', KEYS[1])
 if c == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end
 return c`;
 
+// Sliding-window logs over several keys at once (strict caps such as the
+// daily e-mail quota, where a fixed window could let up to twice the cap
+// through around a window boundary).
+//
+// KEYS: one sorted set per cap. ARGV: now ms ('' = Redis TIME), member, then
+// window ms and capacity for each key. The clock is Redis TIME unless a test
+// passes one, so every server instance (and peek vs take) agrees on it.
+const SLIDING_NOW_MS = `
+local now
+if ARGV[1] == '' then
+  local t = redis.call('TIME')
+  now = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+else
+  now = tonumber(ARGV[1])
+end`;
+
+// Records one hit in every key only if each has fewer than its capacity in
+// its window; otherwise records nothing. Returns 1 or 0.
+const SLIDING_TAKE_SCRIPT = `
+${SLIDING_NOW_MS}
+for i = 1, #KEYS do
+  redis.call('ZREMRANGEBYSCORE', KEYS[i], '-inf', now - tonumber(ARGV[1 + 2 * i]))
+  if redis.call('ZCARD', KEYS[i]) >= tonumber(ARGV[2 + 2 * i]) then return 0 end
+end
+for i = 1, #KEYS do
+  redis.call('ZADD', KEYS[i], now, ARGV[2])
+  redis.call('PEXPIRE', KEYS[i], ARGV[1 + 2 * i])
+end
+return 1`;
+
+// Same check as SLIDING_TAKE_SCRIPT, recording nothing: an entry counts if
+// its score is after now - window, including entries "in the future" written
+// by a skewed caller, exactly as ZREMRANGEBYSCORE + ZCARD count them.
+const SLIDING_PEEK_SCRIPT = `
+${SLIDING_NOW_MS}
+for i = 1, #KEYS do
+  local floor = string.format('(%.0f', now - tonumber(ARGV[1 + 2 * i]))
+  if redis.call('ZCOUNT', KEYS[i], floor, '+inf') >= tonumber(ARGV[2 + 2 * i]) then return 0 end
+end
+return 1`;
+
+// Redis TIME in microseconds: one clock for every server instance.
+const NOW_US = `local t = redis.call('TIME')
+local now = tonumber(t[1]) * 1000000 + tonumber(t[2])`;
+
+// A cached session, with the user's revocation marker and suspension flag.
+// KEYS: session. ARGV: key prefix. Returns false or {raw, revoked at, suspended}.
+// Reads keys it does not declare in KEYS (they depend on the session's
+// value), so it needs a standalone Redis (or a single-primary setup), not
+// Redis Cluster, where they could live on another shard.
+const SESSION_GET_SCRIPT = `
+local raw = redis.call('GET', KEYS[1])
+if not raw then return false end
+local uid = string.match(raw, '^([^|]*)')
+local rev = redis.call('GET', ARGV[1] .. 'sessrev:' .. uid) or '0'
+return {raw, rev, redis.call('EXISTS', ARGV[1] .. 'suspended:' .. uid)}`;
+
+// Caches a session looked up at ARGV[2] (µs), unless the user's sessions were
+// revoked since then or the user is suspended.
+// KEYS: session, revocation marker, suspension flag. ARGV: value, looked up at, ttl s.
+const SESSION_PUT_SCRIPT = `
+if tonumber(redis.call('GET', KEYS[2]) or '0') >= tonumber(ARGV[2]) then return 0 end
+if redis.call('EXISTS', KEYS[3]) == 1 then return 0 end
+redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3])
+return 1`;
+
+// Stamps the user's revocation marker with the current Redis time.
+// KEYS: revocation marker. ARGV: ttl s.
+const SESSION_REVOKE_SCRIPT = `
+${NOW_US}
+redis.call('SET', KEYS[1], string.format('%d', now), 'EX', ARGV[1])
+return 1`;
+
 export class HotStore {
   /**
    * @param {import('ioredis').Redis} redis
@@ -121,6 +205,12 @@ export class HotStore {
     redis.defineCommand('shRelayAck', { numberOfKeys: 4, lua: ACK_SCRIPT });
     redis.defineCommand('shRelayEnqueue', { numberOfKeys: 5, lua: ENQUEUE_SCRIPT });
     redis.defineCommand('shRateHit', { numberOfKeys: 1, lua: RATE_SCRIPT });
+    // Variable key count: the first argument is the number of keys.
+    redis.defineCommand('shSlidingTake', { lua: SLIDING_TAKE_SCRIPT });
+    redis.defineCommand('shSlidingPeek', { lua: SLIDING_PEEK_SCRIPT });
+    redis.defineCommand('shSessionGet', { numberOfKeys: 1, lua: SESSION_GET_SCRIPT });
+    redis.defineCommand('shSessionPut', { numberOfKeys: 3, lua: SESSION_PUT_SCRIPT });
+    redis.defineCommand('shSessionRevoke', { numberOfKeys: 1, lua: SESSION_REVOKE_SCRIPT });
   }
 
   k(...parts) {
@@ -154,23 +244,109 @@ export class HotStore {
     return n <= capacity;
   }
 
+  /** Like rateHit() but records nothing: true if one more hit would fit. */
+  async ratePeek(bucket, key, capacity) {
+    return (await this.rateCount(bucket, key)) + 1 <= capacity;
+  }
+
+  // Rate limits: sliding windows (strict caps)
+
+  /**
+   * True (and the hit is recorded) only if fewer than [capacity] hits were
+   * recorded in the [windowMs] up to now. [now] (ms) overrides the Redis
+   * clock, for tests.
+   */
+  async slidingHit(bucket, key, capacity, windowMs, now) {
+    return this.slidingTakeAll([{ bucket, key, capacity, windowMs }], now);
+  }
+
+  /** Like slidingHit() but records nothing: true if one more hit would fit. */
+  async slidingPeek(bucket, key, capacity, windowMs, now) {
+    return this.slidingPeekAll([{ bucket, key, capacity, windowMs }], now);
+  }
+
+  /**
+   * Atomically records one hit in every cap of [caps] ({bucket, key,
+   * capacity, windowMs}) if all of them have room, else records nothing.
+   * The clock is Redis TIME unless [now] (ms) is given.
+   */
+  async slidingTakeAll(caps, now) {
+    if (caps.some((c) => c.capacity <= 0)) return false;
+    const member = `${now ?? ''}:${randomUUID()}`;
+    return (await this.redis.shSlidingTake(...this.#slidingArgs(caps, now, member))) === 1;
+  }
+
+  /** Like slidingTakeAll() but records nothing: true if every cap has room. */
+  async slidingPeekAll(caps, now) {
+    if (caps.some((c) => c.capacity <= 0)) return false;
+    return (await this.redis.shSlidingPeek(...this.#slidingArgs(caps, now, ''))) === 1;
+  }
+
+  #slidingArgs(caps, now, member) {
+    const keys = caps.map((c) => this.k('rl', c.bucket, c.key));
+    const limits = caps.flatMap((c) => [c.windowMs, c.capacity]);
+    return [keys.length, ...keys, now ?? '', member, ...limits];
+  }
+
   // Session cache
 
-  /** {id, deviceId} or null. */
+  /** How long revocation and suspension markers outlive any cache entry. */
+  get #markerSeconds() {
+    return this.sessionCacheSeconds + 3600;
+  }
+
+  /** Redis TIME in microseconds; pass it to cacheSession() as [lookedUpAt]. */
+  async clockMicros() {
+    const [sec, usec] = await this.redis.time();
+    return Number(sec) * 1_000_000 + Number(usec);
+  }
+
+  /**
+   * {id, deviceId} or null. Entries looked up before the user's sessions were
+   * last revoked, and entries of suspended users, count as misses.
+   */
   async getCachedSession(hashHex) {
-    const raw = await this.redis.get(this.k('sess', hashHex));
-    if (raw === null) return null;
-    const [id, deviceId] = raw.split('|');
+    const res = await this.redis.shSessionGet(this.k('sess', hashHex), this.p);
+    if (!res) return null;
+    const [raw, revokedAt, suspended] = res;
+    const [id, deviceId, lookedUpAt] = raw.split('|');
+    if (Number(suspended) === 1) return null;
+    if (!(Number(lookedUpAt) > Number(revokedAt))) return null;
     return { id, deviceId: deviceId || null };
   }
 
-  async cacheSession(hashHex, userId, deviceId, maxSeconds) {
+  /**
+   * Caches a session row read from Postgres at [lookedUpAt] (clockMicros()
+   * taken before the query). Skipped if the user's sessions were revoked
+   * since, so a lookup racing a revocation can't re-cache a dead token.
+   */
+  async cacheSession(hashHex, userId, deviceId, maxSeconds, lookedUpAt) {
     const ttl = Math.max(1, Math.min(this.sessionCacheSeconds, Math.floor(maxSeconds)));
-    await this.redis.set(this.k('sess', hashHex), `${userId}|${deviceId ?? ''}`, 'EX', ttl);
+    await this.redis.shSessionPut(
+      this.k('sess', hashHex),
+      this.k('sessrev', userId),
+      this.k('suspended', userId),
+      `${userId}|${deviceId ?? ''}|${lookedUpAt}`,
+      lookedUpAt,
+      ttl,
+    );
   }
 
   async forgetSessions(hashHexes) {
     if (hashHexes.length) await this.redis.del(...hashHexes.map((h) => this.k('sess', h)));
+  }
+
+  /** Every session of [userId] cached until now is stale. */
+  async markSessionsRevoked(userId) {
+    await this.redis.shSessionRevoke(this.k('sessrev', userId), this.#markerSeconds);
+  }
+
+  async markSuspended(userId) {
+    await this.redis.set(this.k('suspended', userId), '1', 'EX', this.#markerSeconds);
+  }
+
+  async clearSuspended(userId) {
+    await this.redis.del(this.k('suspended', userId));
   }
 
   // Contact-list cache

@@ -135,11 +135,14 @@ contacts. Deployment and configuration: `server/DEPLOY.md`.
 ## Setup
 
 1. `cp .env.example .env` and set `API_BASE_URL` to your server
-   (`http://127.0.0.1:8787` for local development). Optionally set
-   `TURN_URLS`, `TURN_USERNAME` and `TURN_CREDENTIAL`. Without a TURN server,
-   peers behind strict NAT (common on mobile data) fall back to the relay
-   queue instead of connecting directly. The `FIREBASE_*` values enable push
-   wake-ups on Android and iOS (see `server/DEPLOY.md`).
+   (`http://127.0.0.1:8787` for local development). With `API_BASE_URL`
+   unset or empty, release builds use `https://api.hello.thenn.in` and
+   debug builds the local dev server. The `FIREBASE_*` values enable push
+   wake-ups on Android and iOS (see `server/DEPLOY.md`, Push wake-ups).
+   **`.env` ships inside the app** (it is a Flutter asset), so never put
+   long-lived secrets in it. For calls behind strict NAT (common on mobile
+   data), set `TURN_SECRET` on the server, which hands out short-lived
+   credentials, instead of `TURN_USERNAME`/`TURN_CREDENTIAL` here.
 2. Local backend: `scripts/dev.sh` (needs Docker and Node 22+). In
    development, verification and reset codes are printed to the server's
    stderr.
@@ -157,11 +160,86 @@ SH_PROFILE=alice flutter run -d linux
 SH_PROFILE=bob   flutter run -d linux
 ```
 
+## App ID and release builds
+
+The app ID is `securelyhello.thenn.in` on every platform: Android
+`applicationId`, iOS and macOS `PRODUCT_BUNDLE_IDENTIFIER` (tests:
+`securelyhello.thenn.in.RunnerTests`), Linux `APPLICATION_ID`. The Android
+`namespace` and Kotlin package are `securelyhello.thenn`, because `in` is a
+Kotlin keyword.
+
+Minimums: Android minSdk 24, targetSdk 36, compileSdk 37 (AGP 9.1.1,
+Gradle 9.3.1); iOS 15.0; macOS 11.0.
+
+### Android signing
+
+Release builds are signed with the key named in `android/key.properties`
+(git-ignored):
+
+```
+storeFile=/absolute/path/outside/the/repo/upload-keystore.jks
+storePassword=...
+keyAlias=...
+keyPassword=...
+```
+
+- Keep the keystore **outside the repository**, and back it and its
+  passwords up somewhere safe. Use **Play App Signing**, so the key in
+  `key.properties` is only the upload key, and Google can reset it if it is
+  lost.
+- If `key.properties` exists, all four values are required; the build fails
+  otherwise.
+- Without `key.properties`, release builds **fail** rather than ship a
+  debug-signed app. For a local test build only (Play won't accept it), pass
+  `--android-project-arg=allowDebugSignedRelease=true`
+  (`./gradlew assembleRelease -PallowDebugSignedRelease=true` with Gradle).
+
+```
+flutter build apk --release          # APK
+flutter build appbundle --release    # AAB for Play
+```
+
+### iOS
+
+- The Push Notifications capability is on (`ios/Runner/Runner.entitlements`,
+  `aps-environment`); the App ID in the Apple Developer account needs it too.
+  The file says `development` on purpose, so debug builds get APNs tokens
+  from the sandbox; Xcode rewrites it to `production` when you export or
+  upload an App Store / TestFlight build. Don't change it to `production`
+  by hand.
+- Background modes: `remote-notification` and `audio`. The `voip` mode was
+  removed (there is no PushKit / CallKit integration).
+- TODO (owner): decide `ITSAppUsesNonExemptEncryption` in `Info.plist` and
+  the export-compliance answer before submitting. The app uses end-to-end
+  encryption, so it is not set yet.
+
+### Hardening in release builds
+
+- `debugPrint` is silenced, so nothing reaches logcat, Console or journald.
+- 2FA secrets, recovery codes and backup keys copied to the clipboard are
+  cleared after 60 s (unless something else was copied since).
+- File names of incoming attachments are sanitised before they are shown or
+  saved.
+- Android: no cloud backup and no device-to-device transfer of app data
+  (`allowBackup="false"` and `data_extraction_rules.xml`); keys and the
+  message database stay on the device. Cleartext HTTP is allowed only in
+  debug builds, for the local dev server.
+- Server side: deleting the account and changing the username need the
+  current password again (and a 2FA code when two-step verification is on);
+  ended sessions and suspended accounts are rejected at once, even from the
+  session cache; a push token signed in on another account is refused
+  (`409 push_token_in_use`); one contact can take only a few of another's
+  one-time prekeys (10 a minute, 100 a day), after which bundles carry just
+  the signed prekey.
+
 ## Website
 
 `website/` is the product page and the invite landing page (`/i/<token>`):
 static files that load nothing from other hosts. Its screenshots and test
 results come from the real test runs. See [website/README.md](website/README.md).
+It is served at `https://securelyhello.thenn.in`. The privacy and terms
+pages still contain `[placeholders]` (hosting, mail provider, …), which must
+be filled in before publishing; `website/config.js` holds the store links.
 
 ## Languages
 
@@ -222,15 +300,21 @@ unlinking.
   local database. A reinstall registers as a new device, and the old one
   stays listed (and queues messages for 24 h) until you remove it under
   Linked devices.
-- **Push needs your own Firebase project** (`FIREBASE_*` in `.env`,
-  `FCM_SERVICE_ACCOUNT` on the server, APNs set up in Firebase for iOS).
-  Without it, mobile messages wait in the relay queue until the app is
-  opened. Desktop apps receive them while running.
+- **Push is off until a Firebase project exists** (`FIREBASE_*` in `.env`,
+  `FCM_SERVICE_ACCOUNT` on the server, APNs key uploaded to Firebase for
+  iOS, then a rebuild; see `server/DEPLOY.md`). Without it, mobile messages
+  wait in the relay queue until the app is opened. Desktop apps receive
+  them while running.
+- **E-mail is capped** at `EMAIL_DAILY_CAP` (default 40) messages in any
+  24 h. Past the cap, new sign-ups get no verification mail until it frees
+  up, and device recovery by e-mail is temporarily unavailable.
 - **Push timing is visible to Google/Apple**: a wake-up reveals that
   *something* arrived for a device, though not what or from whom.
 - **Groups send one copy per member.** Fine up to the 64-member cap, but each
   message costs one relay call per member. New members see messages from
   when they joined, not earlier ones.
+- **Android 14+: calls work only while the app is in the foreground.** There
+  is no foreground service for calls yet.
 - **Calls are 1:1 and ring while the app runs.** There's no CallKit or
   ConnectionService integration yet: with the app closed, a push wake-up
   shows a notification, and a call offer older than a minute is recorded as
