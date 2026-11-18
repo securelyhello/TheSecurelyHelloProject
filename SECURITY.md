@@ -15,6 +15,7 @@ issues within 30 days, and we credit reporters who want it.
 | Attachment files on the server or your VPS | Nobody: stored encrypted; the key travels inside the encrypted message |
 | Local chat database | Encrypted with a key kept in the platform keystore |
 | Profile photos and "about" lines | Only your contacts and your own devices |
+| Calls | Only the two people: media is DTLS-SRTP, keyed by fingerprints exchanged inside the end-to-end encrypted session. A TURN relay, if used, only forwards ciphertext |
 | Backup files | Whoever has the backup key: 125 random bits, shown once, never stored by us. XSalsa20-Poly1305, bound to your account. Sessions and identity keys are never in a backup |
 | History copied to a new device | Only that device: sent as an end-to-end message to your own approved devices |
 | Passwords | Hashed (scrypt) on the server |
@@ -49,7 +50,8 @@ The server relays ciphertext and can't read it. It does see metadata:
   and nothing said in it);
 - when each device connects and from which IP address;
 - the size and time of each relayed message and attachment, and its sender
-  and recipient devices;
+  and recipient devices (call setup included, so it can tell a call
+  happened, not what was said);
 - the push token of devices that turned on push (wake-ups carry no content).
 - messages a user chooses to include when reporting someone (kept for a year
   for moderation, then deleted).

@@ -53,7 +53,10 @@ enum PayloadKind {
   history('history'),
 
   /// A group's state: name, members, admins, revision (see GroupState).
-  group('group');
+  group('group'),
+
+  /// Call signaling: offer, answer, ICE candidates, end (see CallService).
+  call('call');
 
   const PayloadKind(this.wire);
   final String wire;
@@ -184,6 +187,9 @@ class WirePayload {
   /// [group]: the group's state.
   final Map<String, dynamic>? group;
 
+  /// [call]: `{id, t, ...}` where `t` is offer, answer, ice, end or taken.
+  final Map<String, dynamic>? call;
+
   /// Set when a message, action, receipt or timer belongs to a group
   /// rather than to the 1:1 chat with the sender.
   final String? groupId;
@@ -208,6 +214,7 @@ class WirePayload {
     this.profile,
     this.group,
     this.groupId,
+    this.call,
   });
 
   factory WirePayload.message({
@@ -251,6 +258,15 @@ class WirePayload {
     required Map<String, dynamic> group,
   }) =>
       WirePayload._(kind: PayloadKind.group, from: from, to: to, timestampMs: timestampMs, group: group);
+
+  /// Call signaling, to a contact's devices or our own.
+  factory WirePayload.call({
+    required String from,
+    required String to,
+    required int timestampMs,
+    required Map<String, dynamic> call,
+  }) =>
+      WirePayload._(kind: PayloadKind.call, from: from, to: to, timestampMs: timestampMs, call: call);
 
   /// Our chat history, for our own other devices.
   factory WirePayload.history({
@@ -398,6 +414,7 @@ class WirePayload {
         if (profile != null) 'prof': profile,
         if (group != null) 'grp': group,
         if (groupId != null) 'gid': groupId,
+        if (call != null) 'call': call,
       };
 
   Uint8List encode() => Uint8List.fromList(utf8.encode(jsonEncode(toJson())));
@@ -413,6 +430,7 @@ class WirePayload {
     final reply = json['reply'];
     final prof = json['prof'];
     final grp = json['grp'];
+    final call = json['call'];
     final payload = WirePayload._(
       kind: kind,
       from: json['from'] as String,
@@ -435,6 +453,7 @@ class WirePayload {
       profile: prof is Map ? Map<String, dynamic>.from(prof) : null,
       group: grp is Map ? Map<String, dynamic>.from(grp) : null,
       groupId: json['gid'] as String?,
+      call: call is Map ? Map<String, dynamic>.from(call) : null,
     );
     switch (kind) {
       case PayloadKind.message:
@@ -474,6 +493,17 @@ class WirePayload {
         break;
       case PayloadKind.group:
         if (payload.group == null) throw const FormatException('Malformed group');
+        break;
+      case PayloadKind.call:
+        final c = payload.call;
+        final id = c?['id'];
+        if (c == null ||
+            id is! String ||
+            id.isEmpty ||
+            id.length > 64 ||
+            !const {'offer', 'answer', 'ice', 'end', 'taken'}.contains(c['t'])) {
+          throw const FormatException('Malformed call signal');
+        }
         break;
       case PayloadKind.timer:
         final s = payload.expireSeconds;

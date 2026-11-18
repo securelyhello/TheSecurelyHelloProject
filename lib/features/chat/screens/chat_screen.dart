@@ -14,7 +14,9 @@ import 'package:securelyhello/core/notifications/notification_service.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/connection_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
+import 'package:securelyhello/core/calls/call_service.dart';
 import 'package:securelyhello/core/chat/group_state.dart';
+import 'package:securelyhello/features/calls/call_screen.dart';
 import 'package:securelyhello/features/chat/chat_names.dart';
 import 'package:securelyhello/features/chat/widgets/attachment_view.dart';
 import 'package:securelyhello/features/chat/widgets/chat_header.dart';
@@ -356,6 +358,23 @@ class _ChatScreenState extends State<ChatScreen> {
     if ((result == ContactSheetAction.removed || result == ContactSheetAction.blocked)) _close();
   }
 
+  Future<void> _call({required bool video}) async {
+    final calls = context.read<CallService?>();
+    if (calls == null) return;
+    if (calls.busy) {
+      await showCallScreen(context);
+      return;
+    }
+    final starting = calls.start(_id, video: video);
+    // The screen opens at once and shows "Ringing…" while the offer goes out.
+    unawaited(showCallScreen(context));
+    try {
+      await starting;
+    } catch (e) {
+      if (mounted) showAppSnackBar(context, friendlyError(e.toString(), fallback: "Couldn't start the call"), error: true);
+    }
+  }
+
   Future<void> _openGroupInfo() async {
     final result = await Navigator.of(context).push<(GroupInfoResult, String?)>(
         MaterialPageRoute(builder: (_) => GroupInfoScreen(conversationId: _id)));
@@ -567,6 +586,20 @@ class _ChatScreenState extends State<ChatScreen> {
                 onTap: () => _openInfo(contact),
               ),
         actions: [
+          if (!_isGroup && contact != null && context.watch<CallService?>() != null) ...[
+            IconButton(
+              key: const ValueKey('call-video'),
+              tooltip: 'Video call',
+              icon: const Icon(LucideIcons.video),
+              onPressed: () => _call(video: true),
+            ),
+            IconButton(
+              key: const ValueKey('call-voice'),
+              tooltip: 'Voice call',
+              icon: const Icon(LucideIcons.phone),
+              onPressed: () => _call(video: false),
+            ),
+          ],
           if (_timer > 0)
             Tooltip(
               message: 'Messages disappear after ${ChatService.disappearLabel(_timer).toLowerCase()}',

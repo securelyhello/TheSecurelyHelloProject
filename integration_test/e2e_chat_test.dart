@@ -18,6 +18,7 @@ import 'package:image/image.dart' as img;
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:securelyhello/core/calls/call_service.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
 import 'package:securelyhello/core/chat/group_state.dart';
 import 'package:securelyhello/core/invites/invites.dart';
@@ -760,6 +761,89 @@ void main() {
           reason: 'the server made the same choice');
 
       for (final s in [gail, hal, ivy]) {
+        await s.dispose();
+      }
+    });
+  });
+
+  testWidgets('voice and video calls, ringing on every device', (tester) async {
+    await tester.runAsync(() async {
+      // The server allows ten sign-ups per address a day, and this file is
+      // near that: keep new accounts to what a test needs.
+      final jan = Stack('jan');
+      final kim = Stack('kim');
+      for (final s in [jan, kim]) {
+        await s.signUp();
+      }
+      await kim.contacts.acceptInvite(inviteTokenFrom((await jan.contacts.createInvite())['url'] as String)!);
+      await jan.contacts.loadContacts();
+
+      // Kim also has a tablet.
+      final tablet = Stack('kim_tablet');
+      await tablet.signInAs(kim);
+      final pending = (await kim.auth.listDevices()).firstWhere((d) => d['device_id'] == tablet.auth.deviceId);
+      expect(await kim.auth.approveDevice(pending), isTrue);
+      await until(() => tablet.auth.refreshDeviceApproval(), what: 'the tablet is approved');
+      await tablet.startChat();
+      await tablet.contacts.loadContacts();
+
+      // No capture devices here; calls still connect and carry the other side's media.
+      CallService calls(Stack s, {Duration ring = const Duration(seconds: 45)}) => CallService(
+          chat: s.chat,
+          canCall: (u) => s.contacts.getContact(u) != null,
+          media: const NoCallMedia(),
+          ringTimeout: ring);
+      final janCalls = calls(jan, ring: const Duration(seconds: 4));
+      final kimCalls = calls(kim, ring: const Duration(seconds: 4));
+      final tabletCalls = calls(tablet, ring: const Duration(seconds: 4));
+      Future<bool> notice(Stack s, String peer, Pattern text) async =>
+          (await s.chat.fetchMessages(peer)).any((m) => m.isSystem && m.content.contains(text));
+
+      // ---- answered on the phone; the tablet stops ringing -----------------
+      final ringing = kimCalls.onIncoming.first;
+      final call = await janCalls.start(kim.id);
+      expect(janCalls.call!.phase, CallPhase.outgoing);
+      expect((await ringing.timeout(const Duration(seconds: 10))).id, call.id);
+      await until(() => tabletCalls.call?.phase == CallPhase.incoming, what: 'the tablet rings too');
+      await kimCalls.accept();
+      await until(() => janCalls.call?.phase == CallPhase.active && kimCalls.call?.phase == CallPhase.active,
+          what: 'both ends connected');
+      expect(janCalls.call!.peerDevice, kim.auth.deviceId, reason: 'the phone took it');
+      await until(() => tabletCalls.call?.endedBy == CallEnd.elsewhere || tabletCalls.call == null,
+          what: 'the tablet stops ringing');
+      await until(() => notice(tablet, jan.id, 'Voice call answered on another device'), what: 'and says why');
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      await janCalls.hangUp();
+      await until(() => kimCalls.call == null || kimCalls.call!.endedBy == CallEnd.hungUp, what: 'Kim sees the hang-up');
+      await until(() => notice(jan, kim.id, RegExp(r'Outgoing voice call · 0:0\d')), what: "Jan's call record");
+      await until(() => notice(kim, jan.id, RegExp(r'Incoming voice call · 0:0\d')), what: "Kim's call record");
+
+      // ---- declined ---------------------------------------------------------
+      await until(() => !janCalls.busy && !kimCalls.busy && !tabletCalls.busy, what: 'all idle');
+      await janCalls.start(kim.id, video: true);
+      await until(() => tabletCalls.call?.phase == CallPhase.incoming, what: 'the video call rings');
+      expect(tabletCalls.call!.video, isTrue);
+      await tabletCalls.decline();
+      await until(() => notice(jan, kim.id, 'Outgoing video call · Declined'), what: 'Jan hears it was declined');
+      await until(() => kimCalls.call == null || kimCalls.call!.phase == CallPhase.ended,
+          what: 'the phone stops ringing too');
+      await until(() => notice(kim, jan.id, 'Declined video call'), what: "the phone's record");
+
+      // ---- nobody answers ---------------------------------------------------
+      await until(() => !janCalls.busy && !kimCalls.busy && !tabletCalls.busy, what: 'all idle again');
+      await janCalls.start(kim.id);
+      await until(() => notice(jan, kim.id, 'Outgoing voice call · No answer'),
+          timeout: const Duration(seconds: 15), what: 'the call times out');
+      await until(() => notice(kim, jan.id, 'Missed voice call'), what: 'Kim has a missed call');
+
+      // ---- only contacts can call -------------------------------------------
+      expect(() => janCalls.start('00000000-0000-4000-8000-000000000000'), throwsStateError);
+
+      for (final c in [janCalls, kimCalls, tabletCalls]) {
+        c.dispose();
+      }
+      await tablet.chat.stop();
+      for (final s in [jan, kim]) {
         await s.dispose();
       }
     });

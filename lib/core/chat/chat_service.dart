@@ -283,6 +283,35 @@ class ChatService {
   /// Emits a user id when that user's (or our own) devices changed.
   Stream<String> get onDevicesChanged => _devicesChangedController.stream;
 
+  /// Call signaling (offers, answers, ICE, hang-ups), decrypted. See
+  /// CallService.
+  Stream<CallSignal> get onCallSignal => _callSignals.stream;
+  final _callSignals = StreamController<CallSignal>.broadcast();
+
+  /// Sends call signaling [data] to [userId] end to end, to [devices] only
+  /// if given. The SDP inside carries the media's DTLS fingerprints, so it
+  /// must not travel any other way.
+  Future<bool> sendCallSignal(String userId, Map<String, dynamic> data, {Set<String>? devices}) async {
+    final me = _requireUserId();
+    return _deliver(
+      userId,
+      WirePayload.call(from: me, to: userId, timestampMs: DateTime.now().millisecondsSinceEpoch, call: data),
+      onlyDevices: devices,
+    );
+  }
+
+  /// Adds a call record ("Missed voice call", ...) to the chat with
+  /// [contactId] on this device.
+  Future<void> addCallNotice(String contactId, String text) async {
+    await _storage.insertSystemMessage(contactId, text, id: _uuid.v4());
+    await _storage.updateConversation(
+        id: contactId,
+        contactUserId: contactId,
+        lastMessage: text,
+        lastMessageTime: DateTime.now().millisecondsSinceEpoch);
+    _changed(contactId);
+  }
+
   bool get isStarted => _started;
   String? get myUserId => _myUserId;
   String? get myDeviceId => _myDeviceId;
@@ -1094,11 +1123,13 @@ class ChatService {
   /// Seals [payload] for every device of [userId] and sends each envelope
   /// P2P when that device has an open channel, otherwise via its relay
   /// queue.  Returns whether every device was reached (`false` if [userId]
-  /// has no devices at all).
+  /// has no devices at all). With [onlyDevices], only those of [userId]'s
+  /// devices get it.
   Future<bool> _deliver(
     String userId,
     WirePayload payload, {
     String? envelopeId,
+    Set<String>? onlyDevices,
   }) async {
     final sessions = _sessions;
     if (sessions == null) throw StateError('ChatService.start() has not been called');
@@ -1113,22 +1144,25 @@ class ChatService {
         debugPrint('Not sending to $userId: keys changed since verification');
         return false;
       }
+      final targets =
+          onlyDevices == null ? devices : devices.where((d) => onlyDevices.contains(d.deviceId)).toList();
+      if (targets.isEmpty) return false;
       final sealed =
-          await sessions.seal(userId, devices, payload, envelopeId: envId);
+          await sessions.seal(userId, targets, payload, envelopeId: envId);
       final viaRelay = <String, String>{};
-      for (final d in devices) {
+      for (final d in targets) {
         final env = sealed[d.deviceId];
         if (env == null) continue; // no session (device vanished); 409 sorts it out
         if (await _p2p.sendMessage(d.address, env.encode())) continue;
         viaRelay[d.deviceId] = env.encodeJson();
       }
       try {
-        if (viaRelay.isNotEmpty || sealed.length < devices.length) {
+        if (viaRelay.isNotEmpty || sealed.length < targets.length) {
           await _directory.queueRelayMessages(userId,
               knownDevices: devices.map((d) => d.deviceId).toList(),
               envelopes: viaRelay);
         }
-        return sealed.length == devices.length;
+        return sealed.length == targets.length;
       } on DevicesChangedException {
         continue; // refresh the device list and seal again
       }
@@ -1249,6 +1283,8 @@ class ChatService {
         await _importHistoryFrom(payload.attachment!);
       } else if (payload.kind == PayloadKind.group) {
         await _receiveGroupState(me, payload);
+      } else if (payload.kind == PayloadKind.call) {
+        _emitCallSignal(envelope, payload);
       } else if (payload.kind == PayloadKind.timer && payload.conversation != null) {
         await _applyTimer(payload.conversation!, me, payload.expireSeconds!);
       } else if (payload.conversation != null &&
@@ -1289,11 +1325,24 @@ class ChatService {
         case PayloadKind.group:
           await _receiveGroupState(contactId, payload);
           break;
+        case PayloadKind.call:
+          _emitCallSignal(envelope, payload);
+          break;
         case PayloadKind.sync:
           break; // only our own devices send these
       }
     }
     await _storage.markEnvelopeSeen(seenKey);
+  }
+
+  void _emitCallSignal(WireEnvelope envelope, WirePayload payload) {
+    if (_callSignals.isClosed) return;
+    _callSignals.add(CallSignal(
+      from: envelope.senderId,
+      fromDevice: envelope.senderDevice,
+      sentAt: DateTime.fromMillisecondsSinceEpoch(payload.timestampMs),
+      data: payload.call!,
+    ));
   }
 
   /// A contact's timestamp, kept within what delivery allows: no more than
@@ -1836,7 +1885,18 @@ class ChatService {
     await _onMessageReceivedController.close();
     await _typingController.close();
     await _devicesChangedController.close();
+    await _callSignals.close();
   }
+}
+
+/// One decrypted call signal from [from]'s device [fromDevice].
+class CallSignal {
+  final String from;
+  final String fromDevice;
+  final DateTime sentAt;
+  final Map<String, dynamic> data;
+
+  const CallSignal({required this.from, required this.fromDevice, required this.sentAt, required this.data});
 }
 
 enum Verification {

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/core/calls/call_service.dart';
 import 'package:securelyhello/core/invites/invites.dart';
 import 'package:securelyhello/core/config/app_config.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
@@ -97,6 +98,11 @@ Future<void> main() async {
     directoryService: directoryService,
     localStorage: localStorage,
   );
+  final calls = CallService(
+    chat: chatService,
+    canCall: (userId) => contactsProvider.getContact(userId) != null,
+    iceServers: AppConfig.iceServers(P2PConnectionManager.defaultStunServers),
+  );
   final notifications = NotificationService();
   await notifications.init();
   final push = PushService(directory: directoryService, onWake: chatService.drainRelayQueue);
@@ -108,6 +114,7 @@ Future<void> main() async {
   // Tear down per-user state before the session and database go away.
   authProvider
     ..addSignOutHook(push.stop)
+    ..addSignOutHook(calls.hangUp)
     ..addSignOutHook(chatProvider.reset)
     ..addSignOutHook(contactsProvider.reset)
     ..addSignOutHook(() async => connectionProvider.reset());
@@ -133,6 +140,7 @@ Future<void> main() async {
       appLock: appLock,
       invites: invites,
       profiles: chatService.profiles,
+      calls: calls,
       theme: theme,
       language: language,
     ),
@@ -174,6 +182,7 @@ class SecurelyHelloApp extends StatelessWidget {
   final AppLockService? appLock;
   final PendingInvites? invites;
   final ProfileService? profiles;
+  final CallService? calls;
   final ThemeController theme;
   final LocaleController language;
 
@@ -188,6 +197,7 @@ class SecurelyHelloApp extends StatelessWidget {
     this.appLock,
     this.invites,
     this.profiles,
+    this.calls,
     ThemeController? theme,
     LocaleController? language,
   })  : theme = theme ?? ThemeController(),
@@ -204,6 +214,7 @@ class SecurelyHelloApp extends StatelessWidget {
         Provider<NotificationService>.value(value: notifications ?? NotificationService()),
         Provider<PushService?>.value(value: push),
         ChangeNotifierProvider<PendingInvites?>.value(value: invites),
+        ChangeNotifierProvider<CallService?>.value(value: calls),
         ChangeNotifierProvider<ThemeController>.value(value: theme),
         ChangeNotifierProvider<LocaleController>.value(value: language),
         if (profiles != null) ChangeNotifierProvider<ProfileService>.value(value: profiles!),

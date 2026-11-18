@@ -5,10 +5,12 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/features/calls/call_screen.dart';
 import 'package:securelyhello/features/chat/chat_names.dart';
 import 'package:securelyhello/features/settings/widgets/history_transfer.dart';
 import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/features/contacts/widgets/invite_prompt.dart';
+import 'package:securelyhello/core/calls/call_service.dart';
 import 'package:securelyhello/core/invites/invites.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
 import 'package:securelyhello/core/crypto/device_manager.dart';
@@ -86,6 +88,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (identity == null || myUserId == null || deviceId == null) return;
     final push = context.read<PushService?>();
     _invites = context.read<PendingInvites?>();
+    _callSub ??= context.read<CallService?>()?.onIncoming.listen(_onIncomingCall);
 
     // Subscribe before the socket opens so no presence or request push is
     // missed, then start messaging and load the lists.
@@ -153,6 +156,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   PendingInvites? _invites;
   StreamSubscription<int>? _historySub;
+  StreamSubscription<ActiveCall>? _callSub;
 
   /// An invite link was opened (now, or before signing in).
   Future<void> _onInvite() async {
@@ -166,10 +170,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     unawaited(_chat.syncProfiles([for (final c in _contacts.contacts) c.userId]));
   }
 
+  void _onIncomingCall(ActiveCall c) {
+    if (!mounted) return;
+    unawaited(showCallScreen(context));
+    // Only shows when the app is in the background.
+    _notifications.showMessage(
+      contactId: c.peer,
+      sender: _contacts.getContact(c.peer)?.displayLabel ?? 'Securely Hello',
+      preview: c.video ? '📹 Incoming video call' : '📞 Incoming voice call',
+      activeConversation: c.peer,
+    );
+  }
+
   @override
   void dispose() {
     _contacts.removeListener(_syncProfiles);
     _historySub?.cancel();
+    _callSub?.cancel();
     _invites?.removeListener(_onInvite);
     WidgetsBinding.instance.removeObserver(this);
     _auth.removeListener(_onAuthChanged);

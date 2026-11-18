@@ -28,6 +28,9 @@ up. Private keys and chat history never leave the device.
   add (their own contacts), remove and promote members; every member's app
   checks each change, so a server can't rename a group or add someone to
   it unnoticed. Per-member delivered and read receipts.
+- **Voice and video calls** with contacts. Call setup travels end to end
+  like a message, so the server can't swap the keys that protect the media
+  (DTLS-SRTP). All your devices ring; the one you answer on takes the call.
 - **Profile photos and voice notes**, both sent end to end. The server
   never sees a photo, an "about" line or a recording.
 - **Encrypted backup and history transfer**: save your chats to a file sealed
@@ -224,4 +227,8 @@ unlinking.
 - **Groups send one copy per member.** Fine up to the 64-member cap, but each
   message costs one relay call per member. New members see messages from
   when they joined, not earlier ones.
-- **No voice or video calls yet.**
+- **Calls are 1:1 and ring while the app runs.** There's no CallKit or
+  ConnectionService integration yet: with the app closed, a push wake-up
+  shows a notification, and a call offer older than a minute is recorded as
+  missed rather than ringing. Behind strict NATs, calls need a TURN server
+  (`TURN_URLS`, see Setup).

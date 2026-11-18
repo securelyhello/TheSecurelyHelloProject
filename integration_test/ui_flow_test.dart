@@ -21,6 +21,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:securelyhello/features/chat/widgets/voice_note.dart';
+import 'package:securelyhello/core/calls/call_service.dart';
 import 'package:securelyhello/core/invites/invites.dart';
 import 'package:securelyhello/core/media/voice.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
@@ -181,12 +182,18 @@ void main() {
       await theme.set(ThemeMode.dark);
       final language = LocaleController();
       await language.set(const Locale('en'));
+      // No capture devices on the test machine; the call still connects.
+      final myCalls = CallService(
+          chat: me.chat, canCall: (u) => me.contacts.getContact(u) != null, media: const NoCallMedia());
+      final miraCalls = CallService(
+          chat: mira.chat, canCall: (u) => mira.contacts.getContact(u) != null, media: const NoCallMedia());
       await tester.pumpWidget(SecurelyHelloApp(
         authProvider: me.auth,
         chatProvider: me.chatProvider,
         contactsProvider: me.contacts,
         connectionProvider: me.connection,
         profiles: me.chat.profiles,
+        calls: myCalls,
         theme: theme,
         language: language,
       ));
@@ -361,6 +368,26 @@ void main() {
       await shot('13_chat_typing_and_composer');
       await tester.enterText(find.byType(EditableText).last, '');
       mira.chat.sendTyping(me.auth.myUserId!, false);
+
+      // ---- Mira calls -------------------------------------------------------
+      await mira.contacts.loadContacts();
+      await miraCalls.start(me.auth.myUserId!);
+      await waitFor(find.byKey(const ValueKey('call-accept')), 'incoming call screen');
+      await settle(800);
+      await shot('13b_incoming_call');
+      await tester.tap(find.byKey(const ValueKey('call-accept')));
+      final callEnd = DateTime.now().add(const Duration(seconds: 20));
+      while (myCalls.call?.phase != CallPhase.active || miraCalls.call?.phase != CallPhase.active) {
+        if (DateTime.now().isAfter(callEnd)) fail('the call never connected');
+        await settle(100);
+      }
+      await settle(2200);
+      await shot('13c_call_active');
+      expect(find.byKey(const ValueKey('call-no-media')), findsOneWidget, reason: 'says why there is no audio');
+      await tester.tap(find.byKey(const ValueKey('call-hangup')));
+      await waitFor(find.textContaining('Incoming voice call · 0:0'), 'the call record in the chat', seconds: 15);
+      expect(find.byKey(const ValueKey('call-hangup')), findsNothing, reason: 'the call screen closed');
+      await settle(800);
 
       // Contact info / safety number.
       await tester.tap(find.text('Mira Kapoor').first);
