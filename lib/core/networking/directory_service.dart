@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
 import 'package:securelyhello/core/networking/tls_pinning.dart';
+import 'package:securelyhello/core/security/proof_of_work.dart';
 import 'package:securelyhello/core/storage/secure_key_store.dart';
 
 /// An error answered by the Securely Hello server.
@@ -251,6 +252,7 @@ class DirectoryService {
       'password': password,
       'username': username,
       'display_name': displayName,
+      'pow': await _proofOfWork('signup'),
     }) as Map<String, dynamic>;
     return _adoptSession(res);
   }
@@ -324,9 +326,19 @@ class DirectoryService {
 
   /// E-mails a password-reset code (the server answers the same whether or
   /// not the address has an account).
-  Future<void> requestPasswordReset(String email) => _request(
+  Future<void> requestPasswordReset(String email) async => _request(
       'POST', '/api/auth/password/forgot',
-      auth: false, body: {'email': email});
+      auth: false, body: {'email': email, 'pow': await _proofOfWork('reset')});
+
+  /// Fetches and solves an anti-bot challenge (a second or so on a phone).
+  Future<Map<String, String>> _proofOfWork(String purpose) async {
+    final c = await _request('GET', '/api/auth/challenge?purpose=$purpose', auth: false) as Map;
+    final challenge = c['challenge'] as String;
+    return {
+      'challenge': challenge,
+      'nonce': await ProofOfWork.solve(purpose, challenge, c['bits'] as int),
+    };
+  }
 
   /// Sets a new password with the e-mailed code and signs in. Every other
   /// session of the account is signed out.

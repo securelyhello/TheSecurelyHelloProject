@@ -26,7 +26,7 @@ const USER_COLUMNS =
  * @param {import('./services.js').Services} deps.services
  * @param {import('./ratelimit.js').RateLimits} deps.limits
  */
-export function registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier, twoFactor }) {
+export function registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier, twoFactor, antiSpam }) {
   const verificationRequired = config.emailVerification === 'required';
   // ---------------------------------------------------------------------------
   // Serialization
@@ -113,6 +113,19 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
   // Auth
   // ---------------------------------------------------------------------------
 
+  /** A proof-of-work challenge for signing up or asking for a reset e-mail. */
+  router.add(
+    'GET',
+    '/api/auth/challenge',
+    async ({ query, ip }) => {
+      await limit('publicIp', ip);
+      const purpose = query.get('purpose');
+      if (purpose !== 'signup' && purpose !== 'reset') throw bad("purpose must be 'signup' or 'reset'");
+      return antiSpam.issueChallenge(purpose);
+    },
+    { auth: false },
+  );
+
   router.add(
     'POST',
     '/api/auth/signup',
@@ -123,6 +136,9 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       const password = v.password(body.password);
       const username = v.username(body.username);
       const displayName = v.displayName(body.display_name ?? body.username);
+      antiSpam.checkSignupEmail(email);
+      await antiSpam.requirePow('signup', body.pow);
+      await limit('signupIp', ip);
       // Keys are registered per device afterwards (PUT /api/devices/current).
       const passwordHash = await hashPassword(password);
 
@@ -268,6 +284,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       v.requireObject(body);
       const email = v.email(body.email);
       if (!mailer.enabled) throw new HttpError(503, 'email_unavailable', 'Password reset is not available on this server');
+      await antiSpam.requirePow('reset', body.pow);
       await limit('emailSend', `reset:${email.toLowerCase()}`);
       const { rows } = await pool.query('SELECT id, email FROM users WHERE lower(email) = lower($1)', [email]);
       if (rows[0]) {
@@ -443,6 +460,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
   const requestSelect = `
     SELECT r.id, r.sender_id, r.receiver_id, r.status, r.created_at, r.updated_at,
            s.id AS s_id, s.username AS s_username, s.display_name AS s_display_name,
+           s.created_at AS s_created_at,
            t.id AS t_id, t.username AS t_username, t.display_name AS t_display_name
       FROM contact_requests r
       JOIN users s ON s.id = r.sender_id
@@ -462,6 +480,9 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     created_at: row.created_at,
     updated_at: row.updated_at,
     sender: profile(pick(row, 's')),
+    // How long the sender has had an account: brand-new accounts asking
+    // to connect are the usual spam pattern, so the app points them out.
+    sender_joined_at: row.s_created_at,
     receiver: profile(pick(row, 't')),
   });
 
@@ -502,6 +523,8 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
   router.add('POST', '/api/contact-requests', async ({ body, user }) => {
     await limit('contactRequest', user.id);
     await requireVerified(user.id);
+    const { isNew } = await antiSpam.checkCanRequest(user.id);
+    if (isNew) await limit('contactRequestNew', user.id);
     v.requireObject(body);
     let receiverId;
     if (body.receiver_id !== undefined) {
@@ -612,6 +635,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     if (!rows[0]) throw notFound('No pending request with that id addressed to you');
     const request = await loadRequest(id);
     hub.sendTo(rows[0].sender_id, { type: 'contact_request_update', request });
+    await antiSpam.evaluate(rows[0].sender_id);
     return request;
   });
 

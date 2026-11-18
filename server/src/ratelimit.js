@@ -25,6 +25,10 @@ export const DEFAULT_LIMITS = {
   relay: { capacity: 120, perMs: MIN },
   // contact requests, per sender
   contactRequest: { capacity: 30, perMs: 60 * MIN },
+  // contact requests from accounts less than a day old, per sender
+  contactRequestNew: { capacity: 10, perMs: 24 * 60 * MIN },
+  // new accounts, per client IP
+  signupIp: { capacity: 10, perMs: 24 * 60 * MIN },
   // WebSocket frames (signaling, acks, presence), per user
   wsFrames: { capacity: 600, perMs: MIN },
   // verification / reset e-mails, per account or address

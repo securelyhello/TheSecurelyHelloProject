@@ -51,6 +51,9 @@ export const GENEROUS_LIMITS = {
   prekeyClaim: generous,
   upload: generous,
   report: generous,
+  signupIp: generous,
+  contactRequestNew: generous,
+  otp: generous,
 };
 
 export const TEST_REDIS_URL = process.env.TEST_REDIS_URL ?? 'redis://127.0.0.1:56379/15';
@@ -68,7 +71,7 @@ export async function startServer({
   await migrate(pool, { log: () => {} });
   const redis = createRedis(TEST_REDIS_URL);
   await redis.flushdb(); // database 15 is reserved for tests
-  const config = { ...loadConfig(env), logRequests: false };
+  const config = { ...loadConfig({ POW_BITS: '0', ...env }), logRequests: false };
   const app = createApp({
     pool,
     redis,

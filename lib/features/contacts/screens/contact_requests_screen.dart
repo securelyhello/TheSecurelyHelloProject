@@ -151,10 +151,32 @@ class _ContactRequestsScreenState extends State<ContactRequestsScreen> {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
-                  subtitle: Text(
-                    sender == null ? 'wants to connect' : '@${sender.username}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  isThreeLine: req.fromNewAccount,
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        sender == null ? 'wants to connect' : '@${sender.username}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (req.fromNewAccount)
+                        Text.rich(
+                          key: ValueKey('new-account-${req.id}'),
+                          TextSpan(children: [
+                            WidgetSpan(
+                              alignment: PlaceholderAlignment.middle,
+                              child: Icon(LucideIcons.triangleAlert, size: 13, color: p.warning),
+                            ),
+                            TextSpan(
+                              text: ' New account, joined ${_age(req.senderJoinedAt!)}. '
+                                  "Only accept if you know them.",
+                            ),
+                          ]),
+                          style: TextStyle(color: p.warning, fontSize: 12),
+                        ),
+                    ],
                   ),
                   trailing: busy
                       ? const SizedBox(
@@ -261,4 +283,11 @@ class _ContactRequestsScreenState extends State<ContactRequestsScreen> {
       ),
     );
   }
+}
+
+String _age(DateTime joined) {
+  final d = DateTime.now().difference(joined);
+  if (d.inHours < 1) return 'minutes ago';
+  if (d.inHours < 24) return '${d.inHours} h ago';
+  return d.inDays == 1 ? 'yesterday' : '${d.inDays} days ago';
 }

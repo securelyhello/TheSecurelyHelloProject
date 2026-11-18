@@ -6,6 +6,7 @@ import { createCodes } from './codes.js';
 import { createBlobStore } from './blobstore.js';
 import { registerDeviceRoutes } from './devices.js';
 import { registerSafetyRoutes } from './safety.js';
+import { createAntiSpam } from './spam.js';
 import { createTwoFactor, registerTwoFactorRoutes } from './twofactor.js';
 import { HotStore } from './hotstore.js';
 import { Router, bearerToken, clientIp, containsNul, readJsonBody, readRawBody, sendBytes, sendJson } from './http.js';
@@ -44,6 +45,10 @@ export function loadConfig(env = process.env) {
     // Encrypts two-step (TOTP) secrets at rest. Any long random string;
     // changing it makes existing secrets unreadable.
     totpKey: env.TOTP_ENCRYPTION_KEY || '',
+    // Proof-of-work difficulty for signup and reset e-mails (leading zero
+    // bits of SHA-256; 0 turns it off). 18 takes about a second on a phone.
+    powBits: int('POW_BITS', 18, { allowZero: true }),
+    blockDisposableEmail: env.BLOCK_DISPOSABLE_EMAIL !== '0',
     attachmentMaxBytes: int('ATTACHMENT_MAX_MB', 16) * 1024 * 1024,
     attachmentTtlDays: int('ATTACHMENT_TTL_DAYS', 30),
     attachmentQuotaBytes: int('ATTACHMENT_QUOTA_MB', 512) * 1024 * 1024,
@@ -86,8 +91,9 @@ export function createApp({
   const notifier = createNotifier({ pool, store, hub, sender: pushSender, log });
   const router = new Router();
   const twoFactor = createTwoFactor({ pool, config, limits });
+  const antiSpam = createAntiSpam({ pool, store, config, log });
   if (!config.totpKey) log.warn('TOTP_ENCRYPTION_KEY is not set: two-step secrets are stored unencrypted');
-  registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier, twoFactor });
+  registerRoutes(router, { pool, hub, store, services, limits, config, mailer, log, notifier, twoFactor, antiSpam });
   registerTwoFactorRoutes(router, { pool, twoFactor, limits });
   registerDeviceRoutes(router, {
     pool,
@@ -102,7 +108,7 @@ export function createApp({
     twoFactor,
   });
   registerAttachmentRoutes(router, { pool, services, limits, config, blobs });
-  registerSafetyRoutes(router, { pool, hub, services, limits, config });
+  registerSafetyRoutes(router, { pool, hub, services, limits, config, antiSpam });
 
   const server = http.createServer(async (req, res) => {
     const started = Date.now();

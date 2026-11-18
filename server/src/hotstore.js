@@ -154,6 +154,16 @@ export class HotStore {
   // ---------------------------------------------------------------------------
 
   /** True if a wake-up may be sent to [deviceId] now (at most one per window). */
+  /** Stores a proof-of-work challenge for [ttlSeconds]. */
+  async putChallenge(challenge, purpose, ttlSeconds) {
+    await this.redis.set(this.k('pow', challenge), purpose, 'EX', ttlSeconds);
+  }
+
+  /** Removes the challenge and returns its purpose (null if unknown or used). */
+  async takeChallenge(challenge) {
+    return this.redis.getdel(this.k('pow', challenge));
+  }
+
   async takePushSlot(deviceId, windowSeconds) {
     return (await this.redis.set(this.k('push', deviceId), '1', 'EX', windowSeconds, 'NX')) === 'OK';
   }

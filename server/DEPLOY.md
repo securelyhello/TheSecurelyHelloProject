@@ -34,6 +34,9 @@ Run **one** `app` instance: WebSocket routing is in-process.
    | `EMAIL_VERIFICATION` | no | `required` (default with SMTP) or `optional` |
    | `ADMIN_TOKEN` | no | at least 32 random characters; enables `/api/admin/*` (reports, suspensions) |
    | `TOTP_ENCRYPTION_KEY` | recommended | long random string; encrypts two-step verification secrets at rest. Keep it with your backups: changing or losing it locks out users who use two-step verification |
+   | `POW_BITS` | no | proof-of-work difficulty for signup and reset e-mails; default `18` (about a second on a phone), `0` turns it off |
+   | `BLOCK_DISPOSABLE_EMAIL` | no | `0` allows throwaway e-mail domains at signup (refused by default) |
+   | `DISPOSABLE_DOMAINS_FILE` | no | extra domains to refuse, one per line |
    | `FCM_SERVICE_ACCOUNT` | no | Firebase service-account JSON (inline or base64) for push wake-ups |
    | `ATTACHMENT_MAX_MB` / `ATTACHMENT_TTL_DAYS` / `ATTACHMENT_QUOTA_MB` | no | `16` / `30` / `512` |
 
@@ -118,6 +121,26 @@ A report contains only what the reporter chose to share (reason, notes and
 optionally their last 20 messages with that person); the server can't read
 anything else. Suspending signs the account out everywhere and blocks
 sign-in until lifted.
+
+### Spam controls
+
+The server can't read messages, so it judges accounts by how other people
+react to them (`src/spam.js`). An account is restricted, meaning it can't
+send new contact requests while its existing chats keep working, when:
+
+- 3 different people report it within a week (restricted for 7 days);
+- 5 different people block it within a week (7 days);
+- 10 or more of its requests are rejected in a day, at least 80% of those
+  it got an answer to (1 day).
+
+Accounts less than a day old can send 10 contact requests per day. Signups
+need a solved proof-of-work challenge, are capped at 10 per IP per day,
+and refuse disposable e-mail domains.
+
+```
+curl -H "Authorization: Bearer $ADMIN_TOKEN" https://api.example.com/api/admin/restricted
+curl -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" https://api.example.com/api/admin/users/<user id>/restriction
+```
 
 ## Proxy requirements
 

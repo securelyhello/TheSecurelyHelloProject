@@ -68,6 +68,9 @@ class ContactRequest {
   final UserSearchResult? sender;
   final UserSearchResult? receiver;
 
+  /// When the sender created their account.
+  final DateTime? senderJoinedAt;
+
   ContactRequest({
     required this.id,
     required this.senderId,
@@ -75,7 +78,15 @@ class ContactRequest {
     required this.status,
     this.sender,
     this.receiver,
+    this.senderJoinedAt,
   });
+
+  /// Requests from accounts less than a week old get a warning: that is the
+  /// usual shape of spam and scams.
+  bool get fromNewAccount {
+    final j = senderJoinedAt;
+    return j != null && DateTime.now().difference(j) < const Duration(days: 7);
+  }
 
   factory ContactRequest.fromMap(Map<String, dynamic> map) {
     return ContactRequest(
@@ -85,6 +96,7 @@ class ContactRequest {
       status: map['status'],
       sender: map['sender'] != null ? UserSearchResult.fromMap(map['sender']) : null,
       receiver: map['receiver'] != null ? UserSearchResult.fromMap(map['receiver']) : null,
+      senderJoinedAt: DateTime.tryParse(map['sender_joined_at'] as String? ?? '')?.toLocal(),
     );
   }
 }

@@ -50,6 +50,21 @@ The server relays ciphertext and can't read it. It does see metadata:
 Relayed messages are deleted when delivered and after `RELAY_TTL_HOURS`
 otherwise. Attachments expire after `ATTACHMENT_TTL_DAYS`.
 
+## Spam and abuse
+
+Message content is end-to-end encrypted, so spam controls never look at it:
+
+- Signing up and asking for a reset e-mail need a solved proof-of-work
+  challenge. Signups are capped per IP, and disposable e-mail domains are
+  refused.
+- Only contacts can message each other, and becoming contacts takes an
+  accepted request. Requests from accounts less than a week old carry a
+  warning, and accounts less than a day old have a smaller quota.
+- Accounts that several people report or block, or whose requests are
+  mostly rejected, can't send new requests for a while (see
+  `server/DEPLOY.md`, Spam controls).
+- Reports include only the messages the reporter chooses to share.
+
 ## Known limitations
 
 - **A malicious server can add a device to an account** and claim it was

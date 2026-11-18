@@ -192,6 +192,8 @@ void main() {
           contains('new contact request'));
       await until(() => bob.contacts.receivedRequests.isNotEmpty,
           what: 'Bob sees the request');
+      expect(bob.contacts.receivedRequests.single.fromNewAccount, isTrue,
+          reason: 'Alice signed up a moment ago: Bob is warned');
       expect(alice.contacts.sentRequests.single.receiverId, bob.id);
 
       final aliceNotified = alice.contacts.onNewRequest.first;

@@ -33,7 +33,7 @@ export async function hasBlocked(pool, blocker, blocked) {
 /**
  * @param {import('./http.js').Router} router
  */
-export function registerSafetyRoutes(router, { pool, hub, services, limits, config }) {
+export function registerSafetyRoutes(router, { pool, hub, services, limits, config, antiSpam }) {
   const tooMany = () => new HttpError(429, 'rate_limited', 'Too many requests, slow down');
 
   /**
@@ -63,6 +63,7 @@ export function registerSafetyRoutes(router, { pool, hub, services, limits, conf
       return removed.rowCount > 0;
     });
     await services.contactsChanged(user.id, target);
+    await antiSpam.evaluate(target);
     if (hadContact) {
       hub.sendTo(target, { type: 'contact_removed', user_id: user.id });
       hub.sendTo(user.id, { type: 'contact_removed', user_id: target });
@@ -118,6 +119,7 @@ export function registerSafetyRoutes(router, { pool, hub, services, limits, conf
       [user.id, target, body.reason, details, JSON.stringify(clean)],
     );
     if (!rows[0]) throw new HttpError(404, 'not_found', 'No such user');
+    await antiSpam.evaluate(target);
     return { status: 201, body: { id: rows[0].id } };
   });
 
@@ -199,6 +201,33 @@ export function registerSafetyRoutes(router, { pool, hub, services, limits, conf
     async ({ req, params }) => {
       requireAdmin(req);
       await pool.query('UPDATE users SET suspended_at = NULL WHERE id = $1', [v.uuid(params.id)]);
+    },
+    { auth: false },
+  );
+
+  /** Accounts restricted by the spam rules (src/spam.js). */
+  router.add(
+    'GET',
+    '/api/admin/restricted',
+    async ({ req }) => {
+      requireAdmin(req);
+      const { rows } = await pool.query(
+        `SELECT id, username, display_name, created_at, restricted_until, restricted_reason
+           FROM users WHERE restricted_until > now() ORDER BY restricted_until DESC LIMIT 200`,
+      );
+      return rows;
+    },
+    { auth: false },
+  );
+
+  router.add(
+    'DELETE',
+    '/api/admin/users/:id/restriction',
+    async ({ req, params }) => {
+      requireAdmin(req);
+      await pool.query('UPDATE users SET restricted_until = NULL, restricted_reason = NULL WHERE id = $1', [
+        v.uuid(params.id),
+      ]);
     },
     { auth: false },
   );
