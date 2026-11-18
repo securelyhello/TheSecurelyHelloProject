@@ -6,6 +6,7 @@ import { createCodes } from './codes.js';
 import { createBlobStore } from './blobstore.js';
 import { registerDeviceRoutes } from './devices.js';
 import { registerSafetyRoutes } from './safety.js';
+import { registerInviteRoutes } from './invites.js';
 import { createAntiSpam } from './spam.js';
 import { createTwoFactor, registerTwoFactorRoutes } from './twofactor.js';
 import { HotStore } from './hotstore.js';
@@ -49,6 +50,9 @@ export function loadConfig(env = process.env) {
     // bits of SHA-256; 0 turns it off). 18 takes about a second on a phone.
     powBits: int('POW_BITS', 18, { allowZero: true }),
     blockDisposableEmail: env.BLOCK_DISPOSABLE_EMAIL !== '0',
+    // Invite links: the token is appended. Point it at the website's /i/
+    // page (see web/), which opens the app or offers to install it.
+    inviteBaseUrl: env.INVITE_BASE_URL || 'securelyhello://invite/',
     attachmentMaxBytes: int('ATTACHMENT_MAX_MB', 16) * 1024 * 1024,
     attachmentTtlDays: int('ATTACHMENT_TTL_DAYS', 30),
     attachmentQuotaBytes: int('ATTACHMENT_QUOTA_MB', 512) * 1024 * 1024,
@@ -109,6 +113,7 @@ export function createApp({
   });
   registerAttachmentRoutes(router, { pool, services, limits, config, blobs });
   registerSafetyRoutes(router, { pool, hub, services, limits, config, antiSpam });
+  registerInviteRoutes(router, { pool, hub, services, limits, config, antiSpam });
 
   const server = http.createServer(async (req, res) => {
     const started = Date.now();

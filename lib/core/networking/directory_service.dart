@@ -418,6 +418,39 @@ class DirectoryService {
       'POST', '/api/devices/current/recover/confirm',
       body: {'code': code, if (otp != null) 'otp': otp});
 
+  // Invites and discovery
+
+  /// A new invite link: `{token, url, expires_in_days, max_uses}`.
+  Future<Map<String, dynamic>> createInvite() async =>
+      Map<String, dynamic>.from(await _request('POST', '/api/invites') as Map);
+
+  /// Revokes every open invite link of this account.
+  Future<void> revokeInvites() => _request('DELETE', '/api/invites');
+
+  /// `{inviter: {user_id, username, display_name}, own, already_contacts}`.
+  Future<Map<String, dynamic>> inviteInfo(String token) async => Map<String, dynamic>.from(
+      await _request('GET', '/api/invites/${Uri.encodeComponent(token)}') as Map);
+
+  /// Accepts an invite; returns the inviter's user id.
+  Future<String> acceptInvite(String token) async {
+    final res =
+        await _request('POST', '/api/invites/${Uri.encodeComponent(token)}/accept') as Map;
+    return res['contact_user_id'] as String;
+  }
+
+  Future<bool> emailDiscoverable() async =>
+      (await _request('GET', '/api/me/discovery') as Map)['email_discoverable'] == true;
+
+  Future<void> setEmailDiscoverable(bool value) =>
+      _request('PUT', '/api/me/discovery', body: {'email_discoverable': value});
+
+  /// Matches e-mail hashes against people who opted in to being found:
+  /// `[{hash, user: {user_id, username, display_name}, is_contact}]`.
+  Future<List<Map<String, dynamic>>> matchContacts(List<String> hashes) async {
+    final res = await _request('POST', '/api/discovery/match', body: {'hashes': hashes}) as List;
+    return [for (final r in res) Map<String, dynamic>.from(r as Map)];
+  }
+
   // Two-step verification
 
   Future<Map<String, dynamic>> twoFactorStatus() async =>
@@ -896,6 +929,7 @@ class DirectoryService {
         _prekeysLow.add(frame['remaining'] as int? ?? 0);
         break;
       case 'contact_removed':
+      case 'contact_added':
       case 'devices_changed':
         _contactEvents.add(ContactEvent(frame['type'] as String,
             userId: frame['user_id'] as String?));

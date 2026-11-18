@@ -34,6 +34,7 @@ Run **one** `app` instance: WebSocket routing is in-process.
    | `EMAIL_VERIFICATION` | no | `required` (default with SMTP) or `optional` |
    | `ADMIN_TOKEN` | no | at least 32 random characters; enables `/api/admin/*` (reports, suspensions) |
    | `TOTP_ENCRYPTION_KEY` | recommended | long random string; encrypts two-step verification secrets at rest. Keep it with your backups: changing or losing it locks out users who use two-step verification |
+   | `INVITE_BASE_URL` | recommended | invite link prefix, e.g. `https://securelyhello.example/i/` (the website's invite page); default `securelyhello://invite/` |
    | `POW_BITS` | no | proof-of-work difficulty for signup and reset e-mails; default `18` (about a second on a phone), `0` turns it off |
    | `BLOCK_DISPOSABLE_EMAIL` | no | `0` allows throwaway e-mail domains at signup (refused by default) |
    | `DISPOSABLE_DOMAINS_FILE` | no | extra domains to refuse, one per line |

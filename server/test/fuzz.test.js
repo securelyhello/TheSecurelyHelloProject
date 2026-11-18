@@ -86,7 +86,9 @@ describe('fuzz', () => {
     ['POST', '/api/relay/ack'], ['DELETE', '/api/relay/:p'], ['POST', '/api/attachments'],
     ['GET', '/api/attachments/:p'], ['DELETE', '/api/attachments/:p'], ['GET', '/api/blocks'],
     ['POST', '/api/blocks'], ['DELETE', '/api/blocks/:p'], ['POST', '/api/reports'], ['GET', '/api/admin/reports'],
-    ['POST', '/api/admin/users/:p/suspend'],
+    ['POST', '/api/admin/users/:p/suspend'], ['POST', '/api/invites'], ['GET', '/api/invites/:p'],
+    ['POST', '/api/invites/:p/accept'], ['PUT', '/api/me/discovery'], ['POST', '/api/discovery/match'],
+    ['GET', '/api/auth/challenge'],
   ];
 
   test(`random bodies and parameters never cause a 500 (seed ${SEED})`, async () => {

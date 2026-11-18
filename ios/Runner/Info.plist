@@ -66,6 +66,19 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>in.thenn.securelyhello.invite</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>securelyhello</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSContactsUsageDescription</key>
+	<string>Only when you ask: to see which of your contacts use Securely Hello. Addresses are hashed on your phone and never stored.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Securely Hello uses the camera for video calls and to scan safety-number codes.</string>
 	<key>NSAppTransportSecurity</key>

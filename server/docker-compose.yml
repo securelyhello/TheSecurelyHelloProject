@@ -29,6 +29,9 @@ services:
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       # Encrypts two-step verification secrets at rest; keep it with your backups.
       TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:-}
+      # Invite link prefix: the website's /i/ page.
+      INVITE_BASE_URL: ${INVITE_BASE_URL:-}
+      POW_BITS: ${POW_BITS:-18}
       # Where encrypted attachments are kept: postgres | filesystem | s3.
       # filesystem stores them on this VPS in the "attachments" volume below.
       ATTACHMENT_STORAGE: ${ATTACHMENT_STORAGE:-filesystem}

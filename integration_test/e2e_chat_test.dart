@@ -18,6 +18,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:securelyhello/core/chat/chat_service.dart';
+import 'package:securelyhello/core/invites/invites.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
 import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
@@ -569,6 +570,43 @@ void main() {
       expect((await alice.directory.searchUsers(bob.username)).length, 1);
     });
   }, timeout: const Timeout(Duration(minutes: 4)));
+
+  testWidgets('invite links and finding people by e-mail', (tester) async {
+    await tester.runAsync(() async {
+      final dan = Stack('dan');
+      final erin = Stack('erin');
+      await dan.signUp();
+      await erin.signUp();
+
+      // Dan shares a link; Erin pastes the whole message he sent.
+      final invite = await dan.contacts.createInvite();
+      final shared = "Let's chat on Securely Hello: ${invite['url']}";
+      final token = inviteTokenFrom(shared)!;
+      final info = await erin.contacts.inviteInfo(token);
+      expect((info['inviter'] as Map)['user_id'], dan.id);
+      final danTold = dan.contacts.onNewRequest.first;
+      expect(await erin.contacts.acceptInvite(token), dan.id);
+      expect(erin.contacts.getContact(dan.id), isNotNull);
+      expect(await danTold.timeout(const Duration(seconds: 10)), contains('is now a contact'));
+      expect(dan.contacts.getContact(erin.id), isNotNull);
+
+      // They can message straight away.
+      final hi = await erin.chat.sendMessage(dan.id, 'hi from your invite');
+      await until(() async => (await dan.messagesWith(erin)).any((m) => m.id == hi.id),
+          what: 'Dan receives the first message');
+
+      // Discovery is off by default; once Erin opts in, Dan's address book finds her.
+      expect(await dan.contacts.matchAddressBook({erin.email: 'Erin from work'}), isEmpty);
+      await erin.contacts.setEmailDiscoverable(true);
+      final found = await dan.contacts.matchAddressBook({erin.email.toUpperCase(): 'Erin from work'});
+      expect(found.single.user.userId, erin.id);
+      expect(found.single.bookName, 'Erin from work');
+      expect(found.single.isContact, isTrue);
+
+      await dan.dispose();
+      await erin.dispose();
+    });
+  });
 
   testWidgets('two-step verification at sign-in', (tester) async {
     await tester.runAsync(() async {

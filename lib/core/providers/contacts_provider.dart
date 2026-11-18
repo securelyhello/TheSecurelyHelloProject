@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:securelyhello/core/invites/invites.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
 import 'package:securelyhello/core/storage/local_storage.dart';
 
@@ -162,7 +163,6 @@ class ContactsProvider extends ChangeNotifier {
 
   final List<StreamSubscription<dynamic>> _subs = [];
   String? _myUserId;
-  bool _loading = false;
   bool _reloadQueued = false;
   final _newRequestController = StreamController<String>.broadcast();
   Stream<String> get onNewRequest => _newRequestController.stream;
@@ -185,6 +185,10 @@ class ContactsProvider extends ChangeNotifier {
   Future<void> _onContactEvent(ContactEvent event) async {
     if (event.type == 'devices_changed') return; // ChatService handles it
     await loadContacts(silent: true);
+    if (event.type == 'contact_added') {
+      final name = getContact(event.userId ?? '')?.displayLabel ?? 'Someone';
+      _newRequestController.add('$name is now a contact');
+    }
     if (event.type == 'contact_request') {
       _newRequestController.add('You have a new contact request');
     } else if (event.type == 'contact_request_update' &&
@@ -245,12 +249,21 @@ class ContactsProvider extends ChangeNotifier {
   /// Load contacts and pending requests from the server.
   ///
   /// [silent] skips the loading flag (background refreshes after a push).
-  Future<void> loadContacts({bool silent = false}) async {
-    if (_loading) {
+  /// Reloads contacts and requests. A call made while a load is running
+  /// queues one more pass and completes when that pass is done, so callers
+  /// always see data fetched after they asked.
+  Future<void> loadContacts({bool silent = false}) {
+    final running = _inFlight;
+    if (running != null) {
       _reloadQueued = true;
-      return;
+      return running;
     }
-    _loading = true;
+    return _inFlight = _load(silent).whenComplete(() => _inFlight = null);
+  }
+
+  Future<void>? _inFlight;
+
+  Future<void> _load(bool silent) async {
     if (!silent) {
       _isLoading = true;
       _errorMessage = null;
@@ -273,7 +286,6 @@ class ContactsProvider extends ChangeNotifier {
       debugPrint('loadContacts failed: $e');
     }
 
-    _loading = false;
     _isLoading = false;
     notifyListeners();
   }
@@ -450,6 +462,42 @@ class ContactsProvider extends ChangeNotifier {
   }
 
   /// Send a contact request to a user.
+  // Invites and suggestions
+
+  Future<Map<String, dynamic>> createInvite() => _directoryService.createInvite();
+  Future<void> revokeInvites() => _directoryService.revokeInvites();
+  Future<Map<String, dynamic>> inviteInfo(String token) => _directoryService.inviteInfo(token);
+
+  /// Accepts an invite and returns the new contact's id.
+  Future<String> acceptInvite(String token) async {
+    final id = await _directoryService.acceptInvite(token);
+    await loadContacts(silent: true);
+    return id;
+  }
+
+  Future<bool> emailDiscoverable() => _directoryService.emailDiscoverable();
+  Future<void> setEmailDiscoverable(bool v) => _directoryService.setEmailDiscoverable(v);
+
+  /// People from the address book who use Securely Hello and agreed to be
+  /// found by e-mail. [book] maps each address to the name saved for it.
+  Future<List<({String bookName, UserSearchResult user, bool isContact})>> matchAddressBook(
+      Map<String, String> book) async {
+    final byHash = {for (final e in book.entries) emailHash(e.key): e.value};
+    final hashes = byHash.keys.toList();
+    final out = <({String bookName, UserSearchResult user, bool isContact})>[];
+    for (var i = 0; i < hashes.length; i += 500) {
+      final chunk = hashes.sublist(i, i + 500 > hashes.length ? hashes.length : i + 500);
+      for (final m in await _directoryService.matchContacts(chunk)) {
+        out.add((
+          bookName: byHash[m['hash']] ?? '',
+          user: UserSearchResult.fromMap(Map<String, dynamic>.from(m['user'] as Map)),
+          isContact: m['is_contact'] == true,
+        ));
+      }
+    }
+    return out;
+  }
+
   Future<bool> sendContactRequest(String receiverUserId) async {
     _errorMessage = null;
     try {

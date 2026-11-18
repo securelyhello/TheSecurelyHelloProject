@@ -27,6 +27,12 @@ export const DEFAULT_LIMITS = {
   contactRequest: { capacity: 30, perMs: 60 * MIN },
   // contact requests from accounts less than a day old, per sender
   contactRequestNew: { capacity: 10, perMs: 24 * 60 * MIN },
+  // invite links created, per user
+  invite: { capacity: 20, perMs: 24 * 60 * MIN },
+  // invite lookups and accepts, per user
+  inviteLookup: { capacity: 30, perMs: 60 * MIN },
+  // address-book matching, per user (each call up to 500 hashes)
+  discovery: { capacity: 5, perMs: 60 * MIN },
   // new accounts, per client IP
   signupIp: { capacity: 10, perMs: 24 * 60 * MIN },
   // WebSocket frames (signaling, acks, presence), per user

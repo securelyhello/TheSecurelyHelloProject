@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/core/invites/invites.dart';
 import 'package:securelyhello/core/config/app_config.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/core/storage/local_storage.dart';
@@ -116,6 +117,8 @@ Future<void> main() async {
   final appLock = AppLockService(store: keyStore)
     ..onWipe = authProvider.wipeThisDevice;
   await appLock.init();
+  final invites = PendingInvites();
+  unawaited(invites.init());
   unawaited(authProvider.init());
 
   runApp(SecurelyHelloApp(
@@ -126,6 +129,7 @@ Future<void> main() async {
     notifications: notifications,
     push: push,
     appLock: appLock,
+    invites: invites,
   ));
 }
 
@@ -162,6 +166,7 @@ class SecurelyHelloApp extends StatelessWidget {
   final NotificationService? notifications;
   final PushService? push;
   final AppLockService? appLock;
+  final PendingInvites? invites;
 
   const SecurelyHelloApp({
     super.key,
@@ -172,6 +177,7 @@ class SecurelyHelloApp extends StatelessWidget {
     this.notifications,
     this.push,
     this.appLock,
+    this.invites,
   });
 
   @override
@@ -185,6 +191,7 @@ class SecurelyHelloApp extends StatelessWidget {
         Provider<NotificationService>.value(
             value: notifications ?? NotificationService()),
         Provider<PushService?>.value(value: push),
+        ChangeNotifierProvider<PendingInvites?>.value(value: invites),
         ChangeNotifierProvider<AppLockService>.value(
             value: appLock ?? AppLockService(store: SecureKeyStore(storage: MemorySecretStorage()))),
       ],

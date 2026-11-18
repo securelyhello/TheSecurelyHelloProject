@@ -1,8 +1,13 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/features/contacts/screens/suggestions_screen.dart';
+import 'package:securelyhello/features/contacts/screens/invite_screen.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
@@ -289,6 +294,25 @@ class _SearchIntro extends StatelessWidget {
           textAlign: TextAlign.center,
           style: t.bodyMedium?.copyWith(color: p.textSecondary, height: 1.45),
         ),
+        const SizedBox(height: 24),
+        _EntryTile(
+          key: const ValueKey('find-invite'),
+          icon: LucideIcons.qrCode,
+          title: 'Invite friends',
+          subtitle: 'Share a link or show your QR code',
+          onTap: () => Navigator.of(context)
+              .push(MaterialPageRoute<void>(builder: (_) => const InviteScreen())),
+        ),
+        if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) ...[
+          const SizedBox(height: 10),
+          _EntryTile(
+            icon: LucideIcons.contact,
+            title: 'From your contacts',
+            subtitle: 'See who you know on Securely Hello',
+            onTap: () => Navigator.of(context)
+                .push(MaterialPageRoute<void>(builder: (_) => const SuggestionsScreen())),
+          ),
+        ],
         if (username.isNotEmpty) ...[
           const SizedBox(height: 28),
           Container(
@@ -338,6 +362,41 @@ class _SearchIntro extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+class _EntryTile extends StatelessWidget {
+  const _EntryTile({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Material(
+      color: p.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        side: BorderSide(color: p.divider),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        leading: Icon(icon, color: p.accent),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: Text(subtitle),
+        trailing: Icon(LucideIcons.chevronRight, size: 18, color: p.textMuted),
+        onTap: onTap,
+      ),
     );
   }
 }

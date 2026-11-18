@@ -508,6 +508,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         }
                       },
                     ),
+                    const _EmailDiscoveryTile(),
                     ListTile(
                       leading: const Icon(LucideIcons.shieldCheck),
                       title: const Text('Verify a safety number'),
@@ -948,4 +949,45 @@ class _ContactPickerState extends State<_ContactPicker> {
       ],
     );
   }
+}
+
+/// "Let people who have my e-mail find me" (off by default).
+class _EmailDiscoveryTile extends StatefulWidget {
+  const _EmailDiscoveryTile();
+
+  @override
+  State<_EmailDiscoveryTile> createState() => _EmailDiscoveryTileState();
+}
+
+class _EmailDiscoveryTileState extends State<_EmailDiscoveryTile> {
+  bool? _on;
+
+  @override
+  void initState() {
+    super.initState();
+    context.read<ContactsProvider>().emailDiscoverable().then((v) {
+      if (mounted) setState(() => _on = v);
+    }, onError: (_) {});
+  }
+
+  @override
+  Widget build(BuildContext context) => SwitchListTile(
+        key: const ValueKey('settings-email-discovery'),
+        secondary: const Icon(LucideIcons.contact),
+        title: const Text('Findable by e-mail'),
+        subtitle: const Text('People who have your address in their contacts can see you here'),
+        value: _on ?? false,
+        onChanged: _on == null
+            ? null
+            : (v) async {
+                setState(() => _on = v);
+                try {
+                  await context.read<ContactsProvider>().setEmailDiscoverable(v);
+                } catch (e) {
+                  if (!context.mounted) return;
+                  setState(() => _on = !v);
+                  showAppSnackBar(context, friendlyError(e.toString()), error: true);
+                }
+              },
+      );
 }

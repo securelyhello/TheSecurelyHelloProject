@@ -4,6 +4,7 @@
 // is always taken from the session, never from the request body.
 import { withTransaction } from './db.js';
 import { createCodes } from './codes.js';
+import { emailHash } from './invites.js';
 import { hasBlocked } from './safety.js';
 import { burnPasswordCheck, hashPassword, hashToken, newSessionToken, verifyPassword } from './security.js';
 import * as v from './validate.js';
@@ -145,10 +146,10 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       try {
         const { row, token } = await withTransaction(pool, async (client) => {
           const { rows } = await client.query(
-            `INSERT INTO users AS u (email, username, display_name, password_hash)
-             VALUES ($1, $2, $3, $4)
+            `INSERT INTO users AS u (email, username, display_name, password_hash, email_hash)
+             VALUES ($1, $2, $3, $4, $5)
              RETURNING ${USER_COLUMNS}`,
-            [email, username, displayName, passwordHash],
+            [email, username, displayName, passwordHash, emailHash(email)],
           );
           return { row: rows[0], token: await createSession(client, rows[0].id) };
         });

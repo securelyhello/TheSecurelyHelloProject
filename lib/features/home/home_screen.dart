@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import 'package:securelyhello/features/contacts/widgets/invite_prompt.dart';
+import 'package:securelyhello/core/invites/invites.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
 import 'package:securelyhello/core/crypto/device_manager.dart';
 import 'package:securelyhello/core/notifications/notification_service.dart';
@@ -80,6 +82,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final deviceId = _auth.deviceId;
     if (identity == null || myUserId == null || deviceId == null) return;
     final push = context.read<PushService?>();
+    _invites = context.read<PendingInvites?>();
 
     // Subscribe before the socket opens so no presence or request push is
     // missed, then start messaging and load the lists.
@@ -99,6 +102,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
     unawaited(_notifications.requestPermission());
     unawaited(push?.start());
+
+    _invites?.addListener(_onInvite);
+    unawaited(_onInvite());
 
     _deviceSub ??= _auth.deviceEvents.listen((e) {
       if (e['type'] == 'device_pending') unawaited(_askApproval(e['device_id'] as String?));
@@ -135,8 +141,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  PendingInvites? _invites;
+
+  /// An invite link was opened (now, or before signing in).
+  Future<void> _onInvite() async {
+    if (_invites?.token == null || !mounted) return;
+    final token = await _invites!.take();
+    if (token != null && mounted) await openInvite(context, token);
+  }
+
   @override
   void dispose() {
+    _invites?.removeListener(_onInvite);
     WidgetsBinding.instance.removeObserver(this);
     _auth.removeListener(_onAuthChanged);
     _newRequestSub?.cancel();
