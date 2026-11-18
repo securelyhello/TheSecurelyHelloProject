@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:securelyhello/features/auth/screens/welcome_screen.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 
@@ -74,14 +75,15 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     }
   }
 
-  void _navigate(AuthStatus status) {
+  Future<void> _navigate(AuthStatus status) async {
     if (!mounted) return;
     if (status == AuthStatus.authenticated) {
       Navigator.of(context)
           .pushReplacementNamed(context.read<AuthProvider>().homeRoute);
-    } else {
-      Navigator.of(context).pushReplacementNamed('/login');
+      return;
     }
+    final seen = await WelcomeScreen.seen();
+    if (mounted) Navigator.of(context).pushReplacementNamed(seen ? '/login' : '/welcome');
   }
 
   @override

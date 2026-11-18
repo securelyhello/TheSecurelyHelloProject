@@ -186,7 +186,19 @@ void main() {
       ));
       await settle(800);
       await shot('01_splash');
+      // First launch: the welcome pages.
+      await waitFor(find.byKey(const ValueKey('welcome-next')), 'welcome screen');
+      await settle(600);
+      await shot('01b_welcome');
+      await tester.tap(find.byKey(const ValueKey('welcome-next')));
+      await settle(700);
+      await tester.tap(find.byKey(const ValueKey('welcome-next')));
+      await settle(700);
+      await shot('01c_welcome_last');
+      await tester.tap(find.byKey(const ValueKey('welcome-login')));
       await waitFor(find.text('Welcome back'), 'login screen');
+      expect(Theme.of(tester.element(find.text('Welcome back'))).brightness, Brightness.dark,
+          reason: 'the chosen theme reaches the app');
       await shot('02_login');
 
       // Wrong password shows an inline error.
@@ -401,6 +413,7 @@ void main() {
       // ---- the light theme -------------------------------------------------
       await theme.set(ThemeMode.light);
       await settle(900);
+      expect(Theme.of(tester.element(find.text('Chats').first)).brightness, Brightness.light);
       await shot('20_light_wide_chat');
       setWindow(412, 892);
       await settle(900);

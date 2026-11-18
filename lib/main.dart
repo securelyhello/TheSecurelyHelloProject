@@ -26,6 +26,7 @@ import 'package:securelyhello/core/security/app_lock.dart';
 import 'package:securelyhello/features/security/lock_screen.dart';
 import 'package:securelyhello/features/auth/screens/splash_screen.dart';
 import 'package:securelyhello/features/auth/screens/login_screen.dart';
+import 'package:securelyhello/features/auth/screens/welcome_screen.dart';
 import 'package:securelyhello/features/auth/screens/signup_screen.dart';
 import 'package:securelyhello/features/auth/screens/verify_email_screen.dart';
 import 'package:securelyhello/features/auth/screens/forgot_password_screen.dart';
@@ -45,7 +46,6 @@ Future<void> main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-
   // Load environment variables gracefully
   try {
     await dotenv.load(fileName: '.env');
@@ -62,9 +62,10 @@ Future<void> main() async {
   final DirectoryService directoryService;
   try {
     directoryService = DirectoryService(
-        baseUrl: AppConfig.apiBaseUrl,
-        tokenStore: keyStore,
-        pinning: TlsPinning.parse(AppConfig.certPins));
+      baseUrl: AppConfig.apiBaseUrl,
+      tokenStore: keyStore,
+      pinning: TlsPinning.parse(AppConfig.certPins),
+    );
   } on ArgumentError catch (e) {
     runApp(_ConfigErrorApp(message: e.message.toString()));
     return;
@@ -72,8 +73,8 @@ Future<void> main() async {
   final connectionManager = P2PConnectionManager();
   try {
     await connectionManager.init(
-        iceServers:
-            AppConfig.iceServers(P2PConnectionManager.defaultStunServers));
+      iceServers: AppConfig.iceServers(P2PConnectionManager.defaultStunServers),
+    );
   } catch (e) {
     debugPrint('P2P Connection Manager init failed: $e');
   }
@@ -96,8 +97,7 @@ Future<void> main() async {
   );
   final notifications = NotificationService();
   await notifications.init();
-  final push = PushService(
-      directory: directoryService, onWake: chatService.drainRelayQueue);
+  final push = PushService(directory: directoryService, onWake: chatService.drainRelayQueue);
   final connectionProvider = ConnectionProvider(
     connectionManager: connectionManager,
     chatService: chatService,
@@ -111,26 +111,27 @@ Future<void> main() async {
     ..addSignOutHook(() async => connectionProvider.reset());
   final theme = ThemeController();
   await theme.load();
-  final appLock = AppLockService(store: keyStore)
-    ..onWipe = authProvider.wipeThisDevice;
+  final appLock = AppLockService(store: keyStore)..onWipe = authProvider.wipeThisDevice;
   await appLock.init();
   unawaited(appLock.resumePendingWipe());
   final invites = PendingInvites();
   unawaited(invites.init());
   unawaited(authProvider.init());
 
-  runApp(SecurelyHelloApp(
-    authProvider: authProvider,
-    chatProvider: chatProvider,
-    contactsProvider: contactsProvider,
-    connectionProvider: connectionProvider,
-    notifications: notifications,
-    push: push,
-    appLock: appLock,
-    invites: invites,
-    profiles: chatService.profiles,
-    theme: theme,
-  ));
+  runApp(
+    SecurelyHelloApp(
+      authProvider: authProvider,
+      chatProvider: chatProvider,
+      contactsProvider: contactsProvider,
+      connectionProvider: connectionProvider,
+      notifications: notifications,
+      push: push,
+      appLock: appLock,
+      invites: invites,
+      profiles: chatService.profiles,
+      theme: theme,
+    ),
+  );
 }
 
 /// Shown instead of the app when it was built without a server address.
@@ -168,9 +169,9 @@ class SecurelyHelloApp extends StatelessWidget {
   final AppLockService? appLock;
   final PendingInvites? invites;
   final ProfileService? profiles;
-  final ThemeController? theme;
+  final ThemeController theme;
 
-  const SecurelyHelloApp({
+  SecurelyHelloApp({
     super.key,
     required this.authProvider,
     required this.chatProvider,
@@ -181,8 +182,8 @@ class SecurelyHelloApp extends StatelessWidget {
     this.appLock,
     this.invites,
     this.profiles,
-    this.theme,
-  });
+    ThemeController? theme,
+  }) : theme = theme ?? ThemeController();
 
   @override
   Widget build(BuildContext context) {
@@ -192,52 +193,57 @@ class SecurelyHelloApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: contactsProvider),
         ChangeNotifierProvider.value(value: chatProvider),
         ChangeNotifierProvider.value(value: connectionProvider),
-        Provider<NotificationService>.value(
-            value: notifications ?? NotificationService()),
+        Provider<NotificationService>.value(value: notifications ?? NotificationService()),
         Provider<PushService?>.value(value: push),
         ChangeNotifierProvider<PendingInvites?>.value(value: invites),
-        ChangeNotifierProvider<ThemeController>.value(value: theme ?? ThemeController()),
+        ChangeNotifierProvider<ThemeController>.value(value: theme),
         if (profiles != null) ChangeNotifierProvider<ProfileService>.value(value: profiles!),
         ChangeNotifierProvider<AppLockService>.value(
-            value: appLock ?? AppLockService(store: SecureKeyStore(storage: MemorySecretStorage()))),
+          value: appLock ?? AppLockService(store: SecureKeyStore(storage: MemorySecretStorage())),
+        ),
       ],
-      child: MaterialApp(
-        title: 'Securely Hello',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.light,
-        darkTheme: AppTheme.dark,
-        themeMode: context.select<ThemeController?, ThemeMode>((t) => t?.mode ?? ThemeMode.system),
-        builder: (context, child) => AppLockGate(child: child ?? const SizedBox()),
-        initialRoute: '/splash',
-        routes: {
-          '/splash': (context) => const SplashScreen(),
-          '/login': (context) => const LoginScreen(),
-          '/signup': (context) => const SignupScreen(),
-          '/verify-email': (context) => const VerifyEmailScreen(),
-          '/device-pending': (context) => const DevicePendingScreen(),
-          '/home': (context) => const HomeScreen(),
-          '/add-contact': (context) => const AddContactScreen(),
-          '/contact-requests': (context) => const ContactRequestsScreen(),
-          '/devices': (context) => const LinkedDevicesScreen(),
-        },
-        onGenerateRoute: (settings) {
-          // Handle routes with arguments
-          if (settings.name == '/forgot-password') {
-            return MaterialPageRoute(
-              builder: (context) => ForgotPasswordScreen(
-                  initialEmail: settings.arguments as String?),
-              settings: settings,
-            );
-          }
-          if (settings.name == '/chat') {
-            final contactUserId = settings.arguments as String;
-            return MaterialPageRoute(
-              builder: (context) => ChatScreen(contactUserId: contactUserId),
-              settings: settings,
-            );
-          }
-          return null;
-        },
+      // Listens to the controller itself: this context is above the providers.
+      child: ListenableBuilder(
+        listenable: theme,
+        builder: (context, _) => MaterialApp(
+          title: 'Securely Hello',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: theme.mode,
+          builder: (context, child) => AppLockGate(child: child ?? const SizedBox()),
+          initialRoute: '/splash',
+          routes: {
+            '/splash': (context) => const SplashScreen(),
+            '/welcome': (context) => const WelcomeScreen(),
+            '/login': (context) => const LoginScreen(),
+            '/signup': (context) => const SignupScreen(),
+            '/verify-email': (context) => const VerifyEmailScreen(),
+            '/device-pending': (context) => const DevicePendingScreen(),
+            '/home': (context) => const HomeScreen(),
+            '/add-contact': (context) => const AddContactScreen(),
+            '/contact-requests': (context) => const ContactRequestsScreen(),
+            '/devices': (context) => const LinkedDevicesScreen(),
+          },
+          onGenerateRoute: (settings) {
+            // Handle routes with arguments
+            if (settings.name == '/forgot-password') {
+              return MaterialPageRoute(
+                builder: (context) =>
+                    ForgotPasswordScreen(initialEmail: settings.arguments as String?),
+                settings: settings,
+              );
+            }
+            if (settings.name == '/chat') {
+              final contactUserId = settings.arguments as String;
+              return MaterialPageRoute(
+                builder: (context) => ChatScreen(contactUserId: contactUserId),
+                settings: settings,
+              );
+            }
+            return null;
+          },
+        ),
       ),
     );
   }
