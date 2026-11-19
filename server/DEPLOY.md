@@ -43,6 +43,9 @@ host works.
    | `ATTACHMENT_MAX_MB` / `ATTACHMENT_TTL_DAYS` / `ATTACHMENT_QUOTA_MB` | no | `16` / `30` / `512` |
    | `METRICS_TOKEN` | no | 32+ random characters; enables `GET /metrics` (see Metrics) |
    | `TURN_URLS` / `TURN_SECRET` / `TURN_TTL_HOURS` | no | TURN relay for calls (see Calls and TURN); TTL default `12`, production uses `1` |
+   | `MIN_ANDROID_VERSION_CODE` | no | default `0` (off). Android builds below this `versionCode` show a blocking "Update to continue" screen. Sent in `/api/config` as `min_android_version_code`; 1.0 ignores it (see Upgrading to 1.1) |
+   | `STORIES_PER_DAY` | no | most stories one account may post in 24 h; default `30` |
+   | `AUTH_PER_IP_PER_10MIN` | no | sign-in, sign-up and reset attempts per IP in 10 minutes; default `0`, which means the built-in `20`. Raise it only behind a NAT shared by many users (CI uses `200`) |
 
    `REDIS_URL`, `PORT` and `HOST` are set by the compose file.
 4. Health check: `GET /healthz` returns 200 only when Postgres and Redis both
@@ -318,6 +321,37 @@ codes only, never ids or names.
   If the key ever changes to one that isn't pinned, every installed app
   stops connecting until it is updated.
 
+## Upgrading to 1.1
+
+The 1.1 server works with the 1.0 app (`versionCode 1`): new payload kinds
+(stories, data pushes) go only to devices that announce the capability, and
+1.0 ignores the new `/api/config` fields and acknowledgement receipts.
+
+1. **Back up the database** (a Neon branch or `pg_dump`).
+2. Redeploy. Three migrations run at boot, all additive (new tables and
+   nullable or defaulted columns, nothing dropped or rewritten):
+
+   | Migration | Adds |
+   |---|---|
+   | `016_stories.sql` | `devices.capabilities`; tables `stories` and `story_keys` (ciphertext and per-device sealed keys; rows expire after 24 h and are swept) |
+   | `017_privacy.sql` | `users.show_presence` (default `true`: nothing changes until a user turns it off) |
+   | `018_account.sql` | `users.pending_email`; the `email` purpose for e-mail codes |
+
+3. New variables, all optional; the defaults are right for now:
+   `MIN_ANDROID_VERSION_CODE=0`, `STORIES_PER_DAY=30`,
+   `AUTH_PER_IP_PER_10MIN=0` (built-in 20).
+4. Publish the app: build the APKs and run `tools/release_apk.py` (see its
+   header and `website/README.md`). It writes `website/download/` with the
+   APKs and `latest.json`, which 1.1 checks every 12 hours. Deploy the
+   website with that folder.
+5. **Only once most users run 1.1**, set `MIN_ANDROID_VERSION_CODE=2` to
+   make 1.1 the minimum. 1.0 has no update screen, so it is not blocked by
+   this; it keeps working against this server.
+
+Smoke test as below, plus: post a story and see it on a contact's phone,
+change a profile photo while a contact is offline, and hang up a call (the
+other phone should end it within a second).
+
 ## Upgrading production from 0d52749
 
 Production runs commit `0d52749`. Going to this version:
@@ -329,7 +363,7 @@ Production runs commit `0d52749`. Going to this version:
    users with two-step verification would be locked out.
 2. **Add**: `INVITE_BASE_URL=https://securelyhello.thenn.in/i/`.
 3. **Back up the database first** (a Neon branch or `pg_dump`). Migrations
-   `002` to `015` are applied automatically at boot (`MIGRATE_ON_START=1`,
+   `002` to `018` are applied automatically at boot (`MIGRATE_ON_START=1`,
    under an advisory lock, so several instances are fine).
 4. **Keep the `attachments` volume** (`/data/attachments` with
    `ATTACHMENT_STORAGE=filesystem`): it must persist across redeploys, or

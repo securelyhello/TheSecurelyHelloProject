@@ -32,6 +32,9 @@ list current: move an item to "Fixed" with the commit that fixed it.
 | Calls | The other side dropped 4–5 s after a hang-up. | The hang-up goes over the call's own data channel first (about 130 ms locally). A connection that's lost ends the call after 1 s. |
 | Calls | When one side vanished (app killed, network gone), the other side only noticed after about 6 s. | Its control channel closing is noticed: about 1 s. |
 | Chat header | On a small phone with large text, the "online" / "last seen" line was squeezed to nothing (with a 3 px overflow). | The status and the connection badge share the line. |
+| Fonts | The app downloaded its fonts from fonts.gstatic.com on first use, a request to Google that showed the user's IP address. Text fell back to the system font when it failed. | Plus Jakarta Sans, Inter and Source Code Pro are bundled in the app (`assets/fonts/`). `google_fonts` is gone. |
+| Drafts | Signing out with a chat open crashed: the chat saved its draft into storage sign-out had already closed. Found by the UI walkthrough. | The draft is dropped once storage is closed (`test/chat_organisation_test.dart`). |
+| Linked devices | A device added to your own account was trusted as soon as the server listed it. | Your own devices must carry an approval signed by one of your devices, checked on the phone. Unsigned ones are shown with a "Confirm" button and get nothing until confirmed. |
 
 ## Android versions (checked 19 Nov 2026)
 
@@ -76,9 +79,33 @@ If someone still can't install, the exact message tells the cause:
 
 | Area | Problem | Notes |
 |---|---|---|
-| Translations | Many screens are still English when Hindi is chosen: settings rows, the chat header ("online", "typing"), call records ("Incoming voice call · 0:02") and dialogs. | The strings are hard-coded. They're being moved to the ARB files with Gujarati. |
+| Translations | Hindi and Gujarati cover sign-in, the tabs, chat list, composer, contacts and the main settings headings. Newer screens are still English in both: stories ("My story"), the "Groups" filter, call records ("Incoming voice call · 0:02"), the account screen, notification settings and most dialogs. | The strings are hard-coded. Move them to the ARB files screen by screen. `test/l10n_test.dart` checks that every ARB key exists in all three languages. |
 | RTL | There is no right-to-left language, so RTL layout is only covered by widget tests of single widgets. | Layouts use `EdgeInsetsDirectional` where it matters. |
 | Attachments | Closing the app while an attachment uploads drops it silently. The message is only stored once the upload finishes. | Resend it by hand. A pending row with a retry is planned. |
 | Long messages | Very long messages are shown in full; there is no "Read more". | Cosmetic. |
-| Fonts | The app downloads Inter, Manrope and Source Code Pro from fonts.gstatic.com on first use. That's a request to Google that shows the user's IP address, and text falls back to the system font where it fails. | The fonts are being bundled with the redesign. |
 | Invites (Android) | The full-screen takeover hasn't been reproduced on a device. An `am start` from the shell (Android 7.0 emulator) doesn't show it, because the shell isn't a link tapped inside another app's task. The launch-mode fix is based on how Android routes `VIEW` intents. | Check on a phone: open an invite link from WhatsApp or Chrome while the app is running. |
+
+## Not done in 1.1 (section 7 of the brief)
+
+Built: pin, archive, mute (with durations), star, search inside messages,
+forward, drafts; the calls tab with history and missed-call badge, audio
+output picker (earpiece, speaker, Bluetooth, wired), a low-bandwidth call
+mode; last-seen/online visibility, profile-photo visibility, a default
+disappearing-message timer, per-chat screenshot blocking; username and
+e-mail change, sign out other sessions, download your data; Gujarati,
+haptics, notification sounds, and a "What's new" sheet.
+
+Left for later, and why:
+
+| Item | Why it was left |
+|---|---|
+| Link previews | Fetching a preview leaks the link to the site (from the sender's IP) or needs a server-side fetcher that sees links. Needs a design decision on which side fetches, and an opt-in. |
+| Chat wallpapers | Lower value than the rest; the new theme had to settle first. |
+| View-once media | Can't be enforced against screenshots or a modified client. Needs careful wording so it doesn't promise more than it does. |
+| Image editor (crop, draw, blur) | A large UI on its own. Sending already strips metadata. |
+| Shared media gallery per chat | Needs an index of attachments by chat in local storage (a migration) and thumbnails. Next on the list. |
+| Media quality options | Images are sent at a fixed size and quality today; a setting needs the encoder work done first. |
+| Group roles, @mentions, invite links, polls, announcement-only groups, group description and photo | Each one changes the signed group state that every member checks. They need a group-state version bump that 1.0 members can live with, so they go together in one release. |
+| Group calls | Calls are one-to-one peer-to-peer. Group calls need a mesh (fine up to about 4) or an SFU on the server, which can't be end-to-end encrypted without insertable streams. |
+| Screen sharing | Needs a `mediaProjection` foreground service type and its own Play declaration; left out to keep the 1.1 review simple. |
+| In-app sounds (send/receive) | Notification sounds are done. In-chat sounds were left so the app stays quiet by default. |

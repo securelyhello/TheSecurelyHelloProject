@@ -41,6 +41,22 @@ up. Private keys and chat history never leave the device.
   wake-ups (Firebase Cloud Messaging) never carry content.
 - **Direct P2P when possible**, with a relay queue otherwise. Includes
   delivered/read receipts, typing indicators and presence.
+- **Stories** (1.1): text, photo or video for 24 hours, for all contacts,
+  chosen people or everyone but some. Each story has its own key, sealed to
+  each viewer's devices; the server stores ciphertext only. Seen-by,
+  replies and reactions.
+- **Calls that keep going** (1.1, Android): a foreground service with an
+  ongoing notification (mute, hang up), a full-screen incoming-call screen,
+  picture-in-picture, Bluetooth and earpiece routing, proximity screen-off.
+- **Notifications** (1.1): reply and mark as read from the notification,
+  conversations grouped per chat, per-chat mute, sounds, and message text
+  hidden unless you turn it on.
+- **Organising chats** (1.1): pin, archive, mute, star, forward, drafts and
+  search inside messages. A calls tab with history.
+- **In-app updates** (1.1, website APK only): the app checks
+  `latest.json`, downloads the APK for its CPU, and installs it only if
+  the SHA-256 and the signing certificate match. Off in Play builds
+  (`--dart-define=DISTRIBUTION=play`).
 
 ## How a message travels
 
@@ -238,8 +254,11 @@ flutter build appbundle --release    # AAB for Play
 static files that load nothing from other hosts. Its screenshots and test
 results come from the real test runs. See [website/README.md](website/README.md).
 It is served at `https://securelyhello.thenn.in`. The privacy and terms
-pages still contain `[placeholders]` (hosting, mail provider, …), which must
-be filled in before publishing; `website/config.js` holds the store links.
+pages are built from `docs/legal/` by `tools/build_site.py`;
+`website/config.js` holds the download links and the APK certificate
+fingerprint. Releases: `tools/release_apk.py` writes the APKs and
+`latest.json` into `website/download/` (git-ignored). App icons come from
+`assets/brand/` via `tools/make_icons.py`; see [docs/BRAND.md](docs/BRAND.md).
 
 ## Languages
 
@@ -292,6 +311,9 @@ unlinking.
 
 ## Known limits
 
+See also [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) (open issues, and what
+1.1 left out) and [docs/RELEASE_NOTES_1.1.md](docs/RELEASE_NOTES_1.1.md).
+
 - **Older history reaches a new device only when you send it.** After you
   approve a device, the app offers to copy your chats to it; otherwise it
   receives messages from the moment it is linked. Disappearing and deleted
@@ -313,10 +335,9 @@ unlinking.
 - **Groups send one copy per member.** Fine up to the 64-member cap, but each
   message costs one relay call per member. New members see messages from
   when they joined, not earlier ones.
-- **Android 14+: calls work only while the app is in the foreground.** There
-  is no foreground service for calls yet.
-- **Calls are 1:1 and ring while the app runs.** There's no CallKit or
-  ConnectionService integration yet: with the app closed, a push wake-up
-  shows a notification, and a call offer older than a minute is recorded as
-  missed rather than ringing. Behind strict NATs, calls need a TURN server
+- **Calls are 1:1.** On Android a running call is kept alive by a
+  foreground service, and an incoming call rings full-screen even with the
+  app closed, but only once push is set up (the app must be woken). There's
+  no CallKit on iOS. A call offer older than a minute is recorded as missed
+  rather than ringing. Behind strict NATs, calls need a TURN server
   (`TURN_URLS`, see Setup).
