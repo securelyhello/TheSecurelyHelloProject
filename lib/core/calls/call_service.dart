@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -126,6 +127,7 @@ class CallService extends ChangeNotifier {
     List<Map<String, dynamic>> iceServers = const [],
     CallMedia media = const DeviceCallMedia(),
     this.ringTimeout = const Duration(seconds: 45),
+    this.disconnectGrace = const Duration(seconds: 1),
   })  : _chat = chat,
         _canCall = canCall,
         _iceServers = iceServers,
@@ -139,6 +141,15 @@ class CallService extends ChangeNotifier {
   final CallMedia _media;
   final Duration ringTimeout;
 
+  /// How long a connected call may stay disconnected before it ends. The
+  /// other side usually says it hung up; this covers when it can't (the app
+  /// was killed, the network went).
+  final Duration disconnectGrace;
+
+  /// The id of the call's control channel: negotiated by both sides (no
+  /// extra signaling), so a 1.0 app simply never opens it.
+  static const controlChannelId = 0;
+
   /// Offers older than this are reported as missed rather than ringing
   /// (e.g. queued while the app was closed).
   static const maxOfferAge = Duration(seconds: 60);
@@ -151,6 +162,8 @@ class CallService extends ChangeNotifier {
   Timer? _ringTimer;
   Timer? _iceTimer;
   Timer? _clearTimer;
+  Timer? _dropTimer;
+  RTCDataChannel? _ctl;
   String? _offerSdp;
   bool _remoteSet = false;
   final List<RTCIceCandidate> _pendingRemote = [];
@@ -416,6 +429,7 @@ class CallService extends ChangeNotifier {
       'sdpSemantics': 'unified-plan',
     });
     _pc = pc;
+    await _openControlChannel(c, pc);
     pc.onIceCandidate = (cand) {
       if (cand.candidate == null || !identical(_call, c)) return;
       _pendingLocal.add({'c': cand.candidate, 'm': cand.sdpMid, 'i': cand.sdpMLineIndex});
@@ -427,6 +441,8 @@ class CallService extends ChangeNotifier {
       if (!identical(_call, c)) return;
       switch (state) {
         case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
+          _dropTimer?.cancel();
+          _dropTimer = null;
           if (c.phase != CallPhase.active) {
             c.phase = CallPhase.active;
             c.connectedAt = DateTime.now();
@@ -434,11 +450,75 @@ class CallService extends ChangeNotifier {
           }
         case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
           unawaited(_end(c, CallEnd.failed, tell: true));
+        case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
+        case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
+          _linkLost(c);
         default:
           break;
       }
     };
     return pc;
+  }
+
+  /// Once connected, losing the link for longer than [disconnectGrace]
+  /// ends the call rather than waiting for ICE to give up.
+  void _linkLost(ActiveCall c) {
+    if (!identical(_call, c) || c.connectedAt == null || c.phase == CallPhase.ended || _dropTimer != null) {
+      return;
+    }
+    _dropTimer = Timer(disconnectGrace, () {
+      _dropTimer = null;
+      unawaited(_end(c, CallEnd.hungUp, tell: true));
+    });
+  }
+
+  Future<void> _openControlChannel(ActiveCall c, RTCPeerConnection pc) async {
+    try {
+      final ch = await pc.createDataChannel(
+          'ctl',
+          RTCDataChannelInit()
+            ..negotiated = true
+            ..id = controlChannelId
+            ..ordered = true);
+      _ctl = ch;
+      ch.onMessage = (m) {
+        if (m.isBinary || !identical(_call, c)) return;
+        final why = parseControlHangUp(m.text, c.id);
+        if (why != null) unawaited(_end(c, why, tell: false));
+      };
+      // The other side closing its connection closes this channel at once,
+      // seconds before ICE notices.
+      ch.onDataChannelState = (state) {
+        if (state == RTCDataChannelState.RTCDataChannelClosed && identical(_ctl, ch)) _linkLost(c);
+      };
+    } catch (e) {
+      debugPrint('No call control channel: $e');
+    }
+  }
+
+  /// A control-channel message that ends call [callId], or null.
+  @visibleForTesting
+  static CallEnd? parseControlHangUp(String text, String callId) {
+    if (text.length > 256) return null;
+    try {
+      final m = jsonDecode(text);
+      if (m is Map && m['t'] == 'end' && m['id'] == callId) return CallEnd.fromWire(m['r']);
+    } on FormatException {
+      // Not ours.
+    }
+    return null;
+  }
+
+  /// Sends the hang-up over the call's own channel. Returns whether it went.
+  Future<bool> _sendControlHangUp(ActiveCall c, CallEnd why) async {
+    final ch = _ctl;
+    if (ch == null || ch.state != RTCDataChannelState.RTCDataChannelOpen) return false;
+    try {
+      await ch.send(RTCDataChannelMessage(jsonEncode({'t': 'end', 'id': c.id, 'r': why.wire})));
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _onTrack(ActiveCall c, RTCTrackEvent e) async {
@@ -498,7 +578,14 @@ class CallService extends ChangeNotifier {
     c.endedBy = why;
     c.phase = CallPhase.ended;
     notifyListeners();
+    // Microphone and camera off at once.
+    await _dispose(c.localStream);
+    c.localStream = null;
+    var sentDirect = false;
     if (tell) {
+      // Over the live call first: it arrives in milliseconds, where the
+      // encrypted signal below can take seconds through the relay.
+      sentDirect = await _sendControlHangUp(c, why);
       unawaited(_chat
           .sendCallSignal(c.peer, {'id': c.id, 't': 'end', 'r': why.wire},
               devices: c.peerDevice == null ? null : {c.peerDevice!})
@@ -507,6 +594,8 @@ class CallService extends ChangeNotifier {
         return false;
       }));
     }
+    // Give the hang-up a moment to leave before the connection closes.
+    if (sentDirect) await Future<void>.delayed(const Duration(milliseconds: 100));
     await _close(c);
     final notice = callNotice(c, why, wasActive: wasActive, ringing: phase == CallPhase.incoming);
     try {
@@ -527,6 +616,13 @@ class CallService extends ChangeNotifier {
     _ringTimer?.cancel();
     _iceTimer?.cancel();
     _iceTimer = null;
+    _dropTimer?.cancel();
+    _dropTimer = null;
+    final ctl = _ctl;
+    _ctl = null;
+    try {
+      await ctl?.close();
+    } catch (_) {}
     final pc = _pc;
     _pc = null;
     try {

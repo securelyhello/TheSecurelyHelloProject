@@ -53,4 +53,18 @@ void main() {
       expect(() => WirePayload.decode(wire(bad)), throwsFormatException, reason: '$bad');
     }
   });
+
+  // Regression: the other side dropped 4–5 s after a hang-up. The hang-up
+  // now also goes over the call's own data channel.
+  test('control-channel hang-ups', () {
+    expect(CallService.parseControlHangUp('{"t":"end","id":"c1","r":"hangup"}', 'c1'), CallEnd.hungUp);
+    expect(CallService.parseControlHangUp('{"t":"end","id":"c1","r":"declined"}', 'c1'), CallEnd.declined);
+    expect(CallService.parseControlHangUp('{"t":"end","id":"c2","r":"hangup"}', 'c1'), isNull,
+        reason: 'another call');
+    expect(CallService.parseControlHangUp('{"t":"ice","id":"c1"}', 'c1'), isNull);
+    expect(CallService.parseControlHangUp('not json', 'c1'), isNull);
+    expect(CallService.parseControlHangUp('[1]', 'c1'), isNull);
+    expect(CallService.parseControlHangUp('{"t":"end","id":"c1","pad":"${'x' * 300}"}', 'c1'), isNull,
+        reason: 'oversized');
+  });
 }

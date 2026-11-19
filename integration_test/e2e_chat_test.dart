@@ -873,14 +873,51 @@ void main() {
           what: 'the tablet stops ringing');
       await until(() => notice(tablet, jan.id, 'Voice call answered on another device'), what: 'and says why');
       await Future<void>.delayed(const Duration(milliseconds: 1200));
+      // Regression: the other side used to drop 4–5 s after a hang-up.
+      final hungUpAt = DateTime.now();
       await janCalls.hangUp();
-      await until(() => kimCalls.call == null || kimCalls.call!.endedBy == CallEnd.hungUp, what: 'Kim sees the hang-up');
+      await until(() => kimCalls.call == null || kimCalls.call!.endedBy == CallEnd.hungUp,
+          timeout: const Duration(seconds: 1), what: 'Kim sees the hang-up within a second');
+      debugPrint('hang-up reached the other side in ${DateTime.now().difference(hungUpAt).inMilliseconds} ms');
       await until(() => notice(jan, kim.id, RegExp(r'Outgoing voice call · 0:0\d')), what: "Jan's call record");
       await until(() => notice(kim, jan.id, RegExp(r'Incoming voice call · 0:0\d')), what: "Kim's call record");
 
+      // ---- hang-up while the message path is down -------------------------
+      // Only the call's own channel can carry it now.
+      await until(() => !janCalls.busy && !kimCalls.busy && !tabletCalls.busy, what: 'all idle first');
+      final ring2 = kimCalls.onIncoming.first;
+      await janCalls.start(kim.id);
+      await ring2.timeout(const Duration(seconds: 10));
+      await kimCalls.accept();
+      await until(() => janCalls.call?.phase == CallPhase.active && kimCalls.call?.phase == CallPhase.active,
+          what: 'connected again');
+      await kim.directory.stopRealtime();
+      await kim.p2p.closeConnectionsWithPrefix('${jan.id}:');
+      await jan.p2p.closeConnectionsWithPrefix('${kim.id}:');
+      await janCalls.hangUp();
+      await until(() => kimCalls.call == null || kimCalls.call!.phase == CallPhase.ended,
+          timeout: const Duration(seconds: 1), what: 'Kim sees the hang-up over the call itself');
+      await kim.directory.startRealtime();
+      await kim.chat.drainRelayQueue();
+
+      // ---- the other side vanishes without a word ---------------------------
+      await until(() => !janCalls.busy && !kimCalls.busy && !tabletCalls.busy, what: 'idle before vanishing');
+      final ring3 = kimCalls.onIncoming.first;
+      await janCalls.start(kim.id);
+      await ring3.timeout(const Duration(seconds: 10));
+      await kimCalls.accept();
+      await until(() => janCalls.call?.phase == CallPhase.active && kimCalls.call?.phase == CallPhase.active,
+          what: 'connected a third time');
+      final vanishedAt = DateTime.now();
+      janCalls.dispose(); // closes the connection, sends nothing
+      await until(() => kimCalls.call == null || kimCalls.call!.phase == CallPhase.ended,
+          timeout: const Duration(seconds: 3), what: 'Kim notices Jan is gone');
+      debugPrint('a vanished peer was noticed in ${DateTime.now().difference(vanishedAt).inMilliseconds} ms');
+      final janCalls2 = calls(jan, ring: const Duration(seconds: 4));
+
       // ---- declined ---------------------------------------------------------
-      await until(() => !janCalls.busy && !kimCalls.busy && !tabletCalls.busy, what: 'all idle');
-      await janCalls.start(kim.id, video: true);
+      await until(() => !janCalls2.busy && !kimCalls.busy && !tabletCalls.busy, what: 'all idle');
+      await janCalls2.start(kim.id, video: true);
       await until(() => tabletCalls.call?.phase == CallPhase.incoming, what: 'the video call rings');
       expect(tabletCalls.call!.video, isTrue);
       await tabletCalls.decline();
@@ -890,16 +927,16 @@ void main() {
       await until(() => notice(kim, jan.id, 'Declined video call'), what: "the phone's record");
 
       // ---- nobody answers ---------------------------------------------------
-      await until(() => !janCalls.busy && !kimCalls.busy && !tabletCalls.busy, what: 'all idle again');
-      await janCalls.start(kim.id);
+      await until(() => !janCalls2.busy && !kimCalls.busy && !tabletCalls.busy, what: 'all idle again');
+      await janCalls2.start(kim.id);
       await until(() => notice(jan, kim.id, 'Outgoing voice call · No answer'),
           timeout: const Duration(seconds: 15), what: 'the call times out');
       await until(() => notice(kim, jan.id, 'Missed voice call'), what: 'Kim has a missed call');
 
       // ---- only contacts can call -------------------------------------------
-      expect(() => janCalls.start('00000000-0000-4000-8000-000000000000'), throwsStateError);
+      expect(() => janCalls2.start('00000000-0000-4000-8000-000000000000'), throwsStateError);
 
-      for (final c in [janCalls, kimCalls, tabletCalls]) {
+      for (final c in [janCalls2, kimCalls, tabletCalls]) {
         c.dispose();
       }
       await tablet.chat.stop();
