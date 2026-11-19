@@ -14,7 +14,7 @@ const notFound = (what = 'Not found') => new HttpError(404, 'not_found', what);
 const tooMany = () => new HttpError(429, 'rate_limited', 'Too many requests, slow down');
 
 const USER_COLUMNS =
-  'u.id, u.email, u.username, u.display_name, u.created_at, u.email_verified_at, u.discoverable';
+  'u.id, u.email, u.username, u.display_name, u.created_at, u.email_verified_at, u.discoverable, u.show_presence';
 
 
 
@@ -40,9 +40,15 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     last_seen: presence ? presence.last_seen : null,
   });
 
-  /** Serializes rows, attaching presence for ids in [visible]. */
-  async function profiles(rows, visible) {
-    const ids = rows.map((r) => r.id).filter((id) => visible.has(id));
+  /**
+   * Serializes rows, attaching presence for ids in [visible], except for
+   * people who hide it, and for nobody when [viewer] hides their own.
+   */
+  async function profiles(rows, visible, viewer) {
+    let ids = rows.map((r) => r.id).filter((id) => visible.has(id));
+    const hidden = await services.presenceHidden(viewer ? [...ids, viewer] : ids);
+    if (viewer && hidden.has(viewer)) ids = ids.filter((id) => id === viewer);
+    ids = ids.filter((id) => id === viewer || !hidden.has(id));
     const pres = await services.presence(ids);
     return rows.map((r) => profile(r, pres.get(r.id) ?? null));
   }
@@ -55,6 +61,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       email_verified: row.email_verified_at != null,
       email_verification_required: verificationRequired,
       discoverable: row.discoverable,
+      show_presence: row.show_presence !== false,
       created_at: row.created_at,
     };
   }
@@ -208,6 +215,21 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     await pool.query('DELETE FROM sessions WHERE token_hash = $1', [hash]);
     await services.revokeCachedSessions(user.id, [hash]);
     hub.disconnectSessions(user.id, [hash]);
+  });
+
+  /** Signs out every other session of this account (password needed). */
+  router.add('POST', '/api/auth/signout-others', async ({ body, user, token }) => {
+    v.requireObject(body);
+    await requireFreshCredentials(user.id, body);
+    const current = hashToken(token);
+    const { rows } = await pool.query(
+      'DELETE FROM sessions WHERE user_id = $1 AND token_hash <> $2 RETURNING token_hash',
+      [user.id, current],
+    );
+    const hashes = rows.map((r) => r.token_hash);
+    await services.revokeCachedSessions(user.id, hashes);
+    hub.disconnectSessions(user.id, hashes);
+    return { signed_out: hashes.length };
   });
 
   router.add('POST', '/api/auth/change-password', async ({ body, user, token }) => {
@@ -407,6 +429,11 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       args.push(body.discoverable);
       sets.push(`discoverable = $${args.length}`);
     }
+    if (body.show_presence !== undefined) {
+      if (typeof body.show_presence !== 'boolean') throw bad('show_presence must be true or false');
+      args.push(body.show_presence);
+      sets.push(`show_presence = $${args.length}`);
+    }
     if (sets.length === 0) throw bad('Nothing to update');
     try {
       const { rows } = await pool.query(
@@ -416,6 +443,100 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       return me(rows[0]);
     } catch (err) {
       if (err.code === '23505') throw new HttpError(409, 'username_taken', 'That username is already taken');
+      throw err;
+    }
+  });
+
+  /**
+   * Everything the server holds about you, as JSON (data portability). Never
+   * secrets: no password hash, tokens, codes or two-step secrets.
+   */
+  router.add('GET', '/api/me/export', async ({ user }) => {
+    await limit('authAccount', `export:${user.id}`);
+    const q = async (sql, args = [user.id]) => (await pool.query(sql, args)).rows;
+    const [account] = await q(`SELECT ${USER_COLUMNS}, u.updated_at FROM users u WHERE u.id = $1`);
+    if (!account) throw notFound();
+    return {
+      exported_at: new Date().toISOString(),
+      about:
+        'What the Securely Hello server stores about your account. Your messages, calls, files and stories are ' +
+        'end-to-end encrypted and are not here: the server never had them in a form it can read.',
+      account: {
+        user_id: account.id,
+        email: account.email,
+        email_verified: account.email_verified_at != null,
+        username: account.username,
+        display_name: account.display_name,
+        findable_by_email: account.discoverable,
+        show_presence: account.show_presence !== false,
+        created_at: account.created_at,
+        updated_at: account.updated_at,
+      },
+      devices: await q(
+        `SELECT id AS device_id, name, created_at, last_seen_at, approved_at, capabilities,
+                (push_token IS NOT NULL) AS push_enabled
+           FROM devices WHERE user_id = $1 ORDER BY created_at`,
+      ),
+      sessions: (await q('SELECT count(*)::int AS count, max(last_used_at) AS last_used_at FROM sessions WHERE user_id = $1'))[0],
+      contacts: await q(
+        `SELECT u.id AS user_id, u.username, u.display_name, c.nickname, c.added_at
+           FROM contacts c JOIN users u ON u.id = c.contact_id WHERE c.owner_id = $1 ORDER BY c.added_at`,
+      ),
+      contact_requests: await q(
+        `SELECT r.id, CASE WHEN r.sender_id = $1 THEN 'sent' ELSE 'received' END AS direction,
+                u.username, r.status, r.created_at, r.updated_at
+           FROM contact_requests r JOIN users u ON u.id = CASE WHEN r.sender_id = $1 THEN r.receiver_id ELSE r.sender_id END
+          WHERE r.sender_id = $1 OR r.receiver_id = $1 ORDER BY r.created_at`,
+      ),
+      blocks: await q(
+        `SELECT u.username, b.created_at FROM blocks b JOIN users u ON u.id = b.blocked_id
+          WHERE b.blocker_id = $1 ORDER BY b.created_at`,
+      ),
+      reports_made: await q('SELECT reason, status, created_at FROM reports WHERE reporter_id = $1 ORDER BY created_at'),
+      invites: await q('SELECT created_at, expires_at, max_uses, uses, revoked_at FROM invites WHERE inviter_id = $1'),
+      groups: await q('SELECT group_id, admin FROM group_members WHERE user_id = $1'),
+      stories: await q('SELECT id, created_at, expires_at FROM stories WHERE owner_id = $1 AND expires_at > now()'),
+      pending_files: (
+        await q(
+          'SELECT count(*)::int AS count, COALESCE(sum(size), 0)::bigint AS bytes FROM attachments WHERE uploader_id = $1 AND expires_at > now()',
+        )
+      )[0],
+    };
+  });
+
+  /** Starts an e-mail change: password (and 2FA), then a code to the new address. */
+  router.add('POST', '/api/me/email', async ({ body, user }) => {
+    v.requireObject(body);
+    const email = v.email(body.email);
+    await requireFreshCredentials(user.id, body);
+    const { rows } = await pool.query('SELECT email FROM users WHERE id = $1', [user.id]);
+    if (rows[0]?.email === email) throw bad('That is already your e-mail address');
+    const taken = await pool.query('SELECT 1 FROM users WHERE email = $1', [email]);
+    if (taken.rows[0]) throw new HttpError(409, 'email_taken', 'That e-mail address is already in use');
+    if (!mailer.enabled) throw new HttpError(503, 'email_unavailable', 'E-mail is not configured on this server');
+    if (!(await canSend('email'))) throw emailCapReached();
+    await limit('emailSend', `change:${user.id}`);
+    await pool.query('UPDATE users SET pending_email = $2 WHERE id = $1', [user.id, email]);
+    await issueCode(user.id, email, 'email');
+    return { status: 202, body: { sent: true } };
+  });
+
+  /** Confirms the new e-mail with the code it received. */
+  router.add('POST', '/api/me/email/confirm', async ({ body, user }) => {
+    v.requireObject(body);
+    if (!(await consumeCode(user.id, 'email', body.code))) {
+      throw new HttpError(400, 'invalid_code', 'That code is wrong or has expired');
+    }
+    try {
+      const { rows } = await pool.query(
+        `UPDATE users u SET email = pending_email, pending_email = NULL, email_verified_at = now(), updated_at = now()
+          WHERE u.id = $1 AND pending_email IS NOT NULL RETURNING ${USER_COLUMNS}`,
+        [user.id],
+      );
+      if (!rows[0]) throw new HttpError(400, 'invalid_code', 'There is no e-mail change to confirm');
+      return me(rows[0]);
+    } catch (err) {
+      if (err.code === '23505') throw new HttpError(409, 'email_taken', 'That e-mail address is already in use');
       throw err;
     }
   });
@@ -467,7 +588,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
         LIMIT 20`,
       [v.escapeLike(q), user.id, q, verificationRequired],
     );
-    return profiles(rows, new Set(await services.contactIds(user.id)));
+    return profiles(rows, new Set(await services.contactIds(user.id)), user.id);
   });
 
   async function lookup(user, where, arg) {
@@ -477,7 +598,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     if (rows[0].id !== user.id && (await hasBlocked(pool, rows[0].id, user.id))) throw notFound('No such user');
     const visible = new Set(await services.contactIds(user.id));
     visible.add(user.id);
-    return (await profiles(rows, visible))[0];
+    return (await profiles(rows, visible, user.id))[0];
   }
 
   router.add('GET', '/api/users/by-username/:username', ({ params, user }) =>
@@ -706,7 +827,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
         ORDER BY c.added_at`,
       [user.id],
     );
-    const profs = await profiles(rows, new Set(rows.map((r) => r.id)));
+    const profs = await profiles(rows, new Set(rows.map((r) => r.id)), user.id);
     return rows.map((r, i) => ({
       contact_user_id: r.contact_id,
       nickname: r.nickname,

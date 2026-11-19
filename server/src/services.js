@@ -125,4 +125,11 @@ export class Services {
   async presence(ids) {
     return this.store.presence(ids);
   }
+
+  /** Those of [ids] who hide their online status and last seen. */
+  async presenceHidden(ids) {
+    if (ids.length === 0) return new Set();
+    const { rows } = await this.pool.query('SELECT id FROM users WHERE id = ANY($1::uuid[]) AND NOT show_presence', [ids]);
+    return new Set(rows.map((r) => r.id));
+  }
 }

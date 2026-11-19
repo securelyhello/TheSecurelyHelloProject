@@ -8,7 +8,7 @@ import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 import { codeEmail } from './mail.js';
 import { HttpError } from './validate.js';
 
-export const CODE_TTL_MINUTES = { verify: 30, reset: 15, device: 15 };
+export const CODE_TTL_MINUTES = { verify: 30, reset: 15, device: 15, email: 30 };
 export const CODE_MAX_ATTEMPTS = 5;
 const CODE_RE = /^\d{6}$/;
 

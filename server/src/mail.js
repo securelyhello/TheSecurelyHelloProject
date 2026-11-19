@@ -97,6 +97,10 @@ const PURPOSE_TEXT = {
     subject: 'Your Securely Hello verification code',
     intro: 'Use this code to confirm your e-mail address:',
   },
+  email: {
+    subject: 'Confirm your new e-mail for Securely Hello',
+    intro: 'Use this code to make this your Securely Hello e-mail address:',
+  },
   reset: {
     subject: 'Reset your Securely Hello password',
     intro: 'Use this code to choose a new password:',

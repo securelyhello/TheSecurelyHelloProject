@@ -136,11 +136,13 @@ export class RealtimeHub {
         !wasOnline && this.isOnline(userId) && (await this.store.markOnline([userId], this.instanceId)).length > 0;
       const contacts = await this.services.contactIds(userId);
       const presence = await this.services.presence(contacts);
+      // Hidden presence works both ways (see services.presenceHidden).
+      const hidden = await this.services.presenceHidden([...contacts, userId]);
       this.#send(ws, {
         type: 'hello',
         user_id: userId,
         device_id: ws.deviceId,
-        online: contacts.filter((id) => presence.get(id)?.online),
+        online: hidden.has(userId) ? [] : contacts.filter((id) => presence.get(id)?.online && !hidden.has(id)),
       });
       if (cameOnline) this.#broadcastPresence(userId, contacts, true, null);
     } catch (err) {
@@ -168,8 +170,14 @@ export class RealtimeHub {
   }
 
   #broadcastPresence(userId, contacts, online, lastSeen) {
-    const frame = { type: 'presence', user_id: userId, online, last_seen: lastSeen };
-    for (const id of contacts) this.sendTo(id, frame);
+    this.services
+      .presenceHidden([userId, ...contacts])
+      .then((hidden) => {
+        if (hidden.has(userId)) return;
+        const frame = { type: 'presence', user_id: userId, online, last_seen: lastSeen };
+        for (const id of contacts) if (!hidden.has(id)) this.sendTo(id, frame);
+      })
+      .catch((err) => this.log.warn('presence broadcast failed', { error: err.message }));
   }
 
   #beat() {
