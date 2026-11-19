@@ -6,7 +6,7 @@ class LocaleController extends ChangeNotifier {
   static const _key = 'sh_locale';
 
   /// Languages with translations (lib/l10n/app_*.arb), by code.
-  static const names = {'en': 'English', 'hi': 'हिन्दी'};
+  static const names = {'en': 'English', 'hi': 'हिन्दी', 'gu': 'ગુજરાતી'};
 
   Locale? _locale;
 

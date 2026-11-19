@@ -210,6 +210,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _send() async {
     final text = _input.text.trim();
     if (text.isEmpty) return;
+    unawaited(HapticFeedback.lightImpact());
     _input.clear();
     final editing = _editing;
     if (editing != null) {
@@ -290,6 +291,7 @@ class _ChatScreenState extends State<ChatScreen> {
       ],
     );
     if (emoji == null) return;
+    unawaited(HapticFeedback.selectionClick());
     await _chat.react(_id, m.id, emoji == mine ? '' : emoji);
   }
 

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -241,7 +242,10 @@ class _Controls extends StatelessWidget {
             icon: LucideIcons.phoneOff,
             label: 'Decline',
             color: const Color(0xFFE5484D),
-            onPressed: service.decline,
+            onPressed: () {
+              HapticFeedback.mediumImpact();
+              service.decline();
+            },
           ),
           if (c.video)
             _RoundButton(
@@ -256,7 +260,10 @@ class _Controls extends StatelessWidget {
             icon: c.video ? LucideIcons.video : LucideIcons.phone,
             label: 'Accept',
             color: const Color(0xFF1FA463),
-            onPressed: () => service.accept(),
+            onPressed: () {
+              HapticFeedback.mediumImpact();
+              service.accept();
+            },
           ),
         ],
       );
@@ -306,7 +313,10 @@ class _Controls extends StatelessWidget {
           icon: LucideIcons.phoneOff,
           label: 'End',
           color: const Color(0xFFE5484D),
-          onPressed: service.hangUp,
+          onPressed: () {
+            HapticFeedback.mediumImpact();
+            service.hangUp();
+          },
         ),
       ],
     );

@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:securelyhello/features/whats_new/whats_new.dart';
+
 import 'package:securelyhello/shared/widgets/brand_logo.dart';
 
 import 'package:securelyhello/core/update/app_updater.dart';
@@ -133,6 +135,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _chat.init(identity: identity, myUserId: myUserId, deviceId: deviceId);
     unawaited(stories?.start(myUserId, deviceId: deviceId));
     await _contacts.loadContacts();
+    // After an update (not a fresh sign-up): what's new, once.
+    final hadAccount = _contacts.contacts.isNotEmpty || _chat.conversations.isNotEmpty;
+    if (await WhatsNew.due(hadAccountBefore: hadAccount) && mounted) {
+      unawaited(WhatsNew.show(context));
+    }
     _callLogSub ??= _chat.service.onCallLogChanged.listen((_) => unawaited(_countMissed()));
     unawaited(_countMissed());
     // A call that rang while the app was closed (push): pick it up.
@@ -390,7 +397,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
             NavigationDestination(
               icon: _badgeIcon(LucideIcons.phone, _missed),
-              label: 'Calls',
+              label: L10n.of(context).tabCalls,
               tooltip: '',
             ),
             NavigationDestination(
@@ -449,7 +456,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                       NavigationRailDestination(
                         icon: _badgeIcon(LucideIcons.phone, _missed),
-                        label: const Text('Calls'),
+                        label: Text(L10n.of(context).tabCalls),
                       ),
                       NavigationRailDestination(
                         icon: Icon(LucideIcons.settings),

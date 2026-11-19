@@ -42,6 +42,7 @@
   "haveAccount": "Already have an account?",
   "tabChats": "Chats",
   "tabContacts": "Contacts",
+  "tabCalls": "Calls",
   "tabSettings": "Settings",
   "e2eNote": "Your messages are end-to-end encrypted",
   "messageHint": "Message",

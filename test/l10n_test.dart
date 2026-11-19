@@ -14,7 +14,7 @@ Set<String> placeholders(String s) => RegExp(r'\{(\w+)\}').allMatches(s).map((m)
 void main() {
   final en = arb('en');
 
-  for (final code in ['hi']) {
+  for (final code in ['hi', 'gu']) {
     test('$code has every string, with the same placeholders', () {
       final other = arb(code);
       for (final key in en.keys.where((k) => !k.startsWith('@'))) {
@@ -32,5 +32,13 @@ void main() {
     expect(hi.logIn, 'लॉग इन करें');
     expect(hi.wrongPinLeft(3), contains('3'));
     expect(lookupL10n(const Locale('en')).logIn, 'Log in');
+  });
+
+  test('Gujarati is offered and used (1.1)', () {
+    expect(L10n.supportedLocales.map((l) => l.languageCode), contains('gu'));
+    final gu = lookupL10n(const Locale('gu'));
+    expect(gu.logIn, 'લૉગ ઇન કરો');
+    expect(gu.tabCalls, 'કૉલ');
+    expect(gu.waitSeconds(9), contains('9'));
   });
 }

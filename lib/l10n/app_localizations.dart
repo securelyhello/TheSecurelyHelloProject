@@ -6,6 +6,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart' as intl;
 
 import 'app_localizations_en.dart';
+import 'app_localizations_gu.dart';
 import 'app_localizations_hi.dart';
 
 // ignore_for_file: type=lint
@@ -94,6 +95,7 @@ abstract class L10n {
   /// A list of this localizations delegate's supported locales.
   static const List<Locale> supportedLocales = <Locale>[
     Locale('en'),
+    Locale('gu'),
     Locale('hi'),
   ];
 
@@ -348,6 +350,12 @@ abstract class L10n {
   /// In en, this message translates to:
   /// **'Contacts'**
   String get tabContacts;
+
+  /// No description provided for @tabCalls.
+  ///
+  /// In en, this message translates to:
+  /// **'Calls'**
+  String get tabCalls;
 
   /// No description provided for @tabSettings.
   ///
@@ -720,7 +728,7 @@ class _L10nDelegate extends LocalizationsDelegate<L10n> {
 
   @override
   bool isSupported(Locale locale) =>
-      <String>['en', 'hi'].contains(locale.languageCode);
+      <String>['en', 'gu', 'hi'].contains(locale.languageCode);
 
   @override
   bool shouldReload(_L10nDelegate old) => false;
@@ -731,6 +739,8 @@ L10n lookupL10n(Locale locale) {
   switch (locale.languageCode) {
     case 'en':
       return L10nEn();
+    case 'gu':
+      return L10nGu();
     case 'hi':
       return L10nHi();
   }
