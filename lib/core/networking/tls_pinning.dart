@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as hash;
 
+import 'package:securelyhello/core/networking/app_trust.dart';
+
 /// Certificate pinning: the server's public key must be one of [pins]
 /// (base64 SHA-256 of the SubjectPublicKeyInfo, the format `openssl` and
 /// HPKP use). The check runs on the TLS socket right after the handshake,
@@ -15,7 +17,8 @@ import 'package:crypto/crypto.dart' as hash;
 class TlsPinning {
   final Set<String> pins;
 
-  /// Trust store for the handshake; null means the platform's roots.
+  /// Trust store for the handshake; null means the platform's roots plus
+  /// [AppTrust]'s.
   final SecurityContext? context;
   const TlsPinning(this.pins, {this.context});
 
@@ -34,7 +37,7 @@ class TlsPinning {
   /// An HttpClient that connects directly and checks the pin on every new
   /// connection. Without pins, a plain client.
   HttpClient httpClient() {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    final client = HttpClient(context: context ?? AppTrust.context)..connectionTimeout = const Duration(seconds: 15);
     if (!enabled) return client;
     client.findProxy = (_) => 'DIRECT';
     client.connectionFactory = (uri, proxyHost, proxyPort) async {
@@ -42,7 +45,7 @@ class TlsPinning {
         throw const TlsException('Pinned connections must use TLS');
       }
       final task = await SecureSocket.startConnect(uri.host, uri.port == 0 ? 443 : uri.port,
-          context: context);
+          context: context ?? AppTrust.context);
       return ConnectionTask.fromSocket(
         task.socket.then((socket) {
           if (!accepts(socket.peerCertificate)) {

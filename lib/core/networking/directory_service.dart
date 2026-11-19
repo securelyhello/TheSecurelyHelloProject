@@ -866,7 +866,7 @@ class DirectoryService {
     try {
       final socket = await WebSocket.connect(
         _wsUri.toString(),
-        customClient: _pinning.enabled ? _pinning.httpClient() : null,
+        customClient: _pinning.httpClient(),
         headers: {
           'Authorization': 'Bearer ${session.token}',
           'User-Agent': _userAgent,
