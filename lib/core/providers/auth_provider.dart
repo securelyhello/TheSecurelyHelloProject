@@ -574,6 +574,75 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  /// Whether contacts see our online status and last seen (and we theirs).
+  bool get showPresence => _profile?['show_presence'] != false;
+
+  Future<bool> setShowPresence(bool value) async {
+    final userId = _user?.id;
+    if (userId == null) return false;
+    try {
+      await _directoryService.setShowPresence(value);
+      _profile = {...?_profile, 'show_presence': value};
+      await _cacheProfile(userId, _profile!);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = _describe(e, 'Could not change this setting');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// A new username: needs the password (and a 2FA code when it is on).
+  /// Returns null on success, or what went wrong.
+  Future<String?> changeUsername(String username, {required String password, String? otp}) async {
+    final userId = _user?.id;
+    if (userId == null) return 'Not signed in';
+    try {
+      await _directoryService.updateProfile(
+          username: username.trim().toLowerCase(), currentPassword: password, otp: otp?.trim().isEmpty == true ? null : otp);
+      _profile = {...?_profile, 'username': username.trim().toLowerCase()};
+      await _cacheProfile(userId, _profile!);
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return _describe(e, 'Could not change your username');
+    }
+  }
+
+  /// Starts an e-mail change; a code goes to [newEmail]. Null on success.
+  Future<String?> startEmailChange(String newEmail, {required String password, String? otp}) async {
+    try {
+      await _directoryService.startEmailChange(newEmail, currentPassword: password, otp: otp);
+      return null;
+    } catch (e) {
+      return _describe(e, 'Could not change your e-mail');
+    }
+  }
+
+  /// Confirms the change with the code. Null on success.
+  Future<String?> confirmEmailChange(String code) async {
+    final userId = _user?.id;
+    if (userId == null) return 'Not signed in';
+    try {
+      final profile = await _directoryService.confirmEmailChange(code);
+      _profile = {...?_profile, ...profile};
+      _user = AuthUser(id: userId, email: profile['email'] as String? ?? email);
+      await _cacheProfile(userId, _profile!);
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return _describe(e, 'That code did not work');
+    }
+  }
+
+  /// Signs out every other session. Returns how many, or throws.
+  Future<int> signOutOthers({required String password, String? otp}) =>
+      _directoryService.signOutOthers(currentPassword: password, otp: otp);
+
+  /// What the server holds about this account (data export).
+  Future<Map<String, dynamic>> exportData() => _directoryService.exportData();
+
   /// Whether people can find us by typing part of our username.
   bool get discoverable => _profile?['discoverable'] != false;
 

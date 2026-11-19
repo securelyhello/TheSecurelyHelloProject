@@ -32,6 +32,19 @@ void main() {
       await lock.init();
     });
 
+    test('screenshots can be blocked per chat, and it is remembered', () async {
+      expect(lock.isChatSecure('bob'), isFalse);
+      await lock.setChatSecure('bob', true);
+      await lock.setChatSecure('carol', true);
+      await lock.setChatSecure('carol', false);
+      final again = AppLockService(store: store);
+      await again.init();
+      expect(again.isChatSecure('bob'), isTrue);
+      expect(again.isChatSecure('carol'), isFalse);
+      await again.chatOpened('bob');
+      await again.chatOpened(null);
+    });
+
     test('off by default; PIN turns it on and is stored only as a hash', () async {
       expect(lock.enabled, isFalse);
       expect(lock.locked, isFalse);

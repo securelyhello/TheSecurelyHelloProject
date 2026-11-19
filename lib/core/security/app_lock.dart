@@ -124,6 +124,7 @@ class AppLockService extends ChangeNotifier {
     _biometrics = await _store.readSetting('lock_bio') == '1';
     _wipeOnFailures = await _store.readSetting('lock_wipe') == '1';
     _screenSecurity = await _store.readSetting('screen_secure') != '0';
+    _secureChats = {...?(await _store.readSetting('secure_chats'))?.split(',').where((c) => c.isNotEmpty)};
     _incognitoKeyboard = await _store.readSetting('incognito_kb') != '0';
     _timeout = int.tryParse(await _store.readSetting('lock_timeout') ?? '') ?? 60;
     _failures = int.tryParse(await _store.readSetting('lock_failures') ?? '') ?? 0;
@@ -280,6 +281,26 @@ class AppLockService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Screenshot blocking per chat (1.1): on while that chat is open.
+  Set<String> _secureChats = {};
+  String? _openChat;
+
+  bool isChatSecure(String chatId) => _secureChats.contains(chatId);
+
+  Future<void> setChatSecure(String chatId, bool v) async {
+    v ? _secureChats.add(chatId) : _secureChats.remove(chatId);
+    await _store.writeSetting('secure_chats', _secureChats.join(','));
+    await _applyScreenFlag();
+    notifyListeners();
+  }
+
+  /// The chat on screen (null when none), for per-chat blocking.
+  Future<void> chatOpened(String? chatId) async {
+    _openChat = chatId;
+    if (_secureChats.isEmpty) return;
+    await _applyScreenFlag();
+  }
+
   Future<void> setIncognitoKeyboard(bool v) async {
     _incognitoKeyboard = v;
     await _store.writeSetting('incognito_kb', v ? '1' : '0');
@@ -316,7 +337,8 @@ class AppLockService extends ChangeNotifier {
   Future<void> _applyScreenFlag() async {
     if (kIsWeb || !Platform.isAndroid) return;
     try {
-      await _screenChannel.invokeMethod<void>('setSecure', _screenSecurity);
+      await _screenChannel.invokeMethod<void>(
+          'setSecure', _screenSecurity || (_openChat != null && _secureChats.contains(_openChat)));
     } on MissingPluginException {
       // Older native shell; the in-app cover still applies.
     } on PlatformException {

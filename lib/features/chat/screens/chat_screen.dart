@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:securelyhello/core/security/app_lock.dart';
 import 'package:securelyhello/features/chat/widgets/forward_sheet.dart';
 import 'package:securelyhello/features/chat/screens/message_search_screen.dart';
 import 'package:securelyhello/shared/widgets/mute_picker.dart';
@@ -67,7 +69,7 @@ enum _MsgAction { reply, react, copy, star, forward, edit, delete, info, retry }
 /// Quick reactions offered in the message menu.
 const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
-enum _MenuAction { info, search, mute, timer, connect, clear }
+enum _MenuAction { info, search, mute, secure, timer, connect, clear }
 
 class _ChatScreenState extends State<ChatScreen> {
   /// The provider pages history in steps of this size.
@@ -77,6 +79,7 @@ class _ChatScreenState extends State<ChatScreen> {
   static const _groupGap = Duration(minutes: 5);
 
   late final TextEditingController _input = TextEditingController();
+  AppLockService? _lock;
   final FocusNode _focus = FocusNode();
   final ScrollController _scroll = ScrollController();
   late final ChatProvider _chat;
@@ -153,6 +156,10 @@ class _ChatScreenState extends State<ChatScreen> {
         _input.selection = TextSelection.collapsed(offset: draft.length);
       }
       await _chat.openConversation(_id);
+      if (mounted) {
+        _lock = context.read<AppLockService>();
+        unawaited(_lock!.chatOpened(_id));
+      }
       _chat.addListener(_loadTimer);
       await _loadTimer();
       if (mounted) setState(() => _opened = true);
@@ -161,6 +168,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    unawaited(_lock?.chatOpened(null));
     // Unsent text is kept per chat (sealed on this device) until sent.
     if (_editing == null) unawaited(_chat.saveDraft(_id, _input.text));
     _input.dispose();
@@ -651,6 +659,11 @@ class _ChatScreenState extends State<ChatScreen> {
                       builder: (_) => MessageSearchScreen(chatId: _id, title: name)));
                 case _MenuAction.mute:
                   _toggleMute();
+                case _MenuAction.secure:
+                  final lock = context.read<AppLockService>();
+                  final on = !lock.isChatSecure(_id);
+                  lock.setChatSecure(_id, on).then((_) => lock.chatOpened(_id));
+                  showAppSnackBar(context, on ? 'Screenshots blocked in this chat' : 'Screenshots allowed in this chat');
                 case _MenuAction.timer:
                   _chooseTimer();
                 case _MenuAction.connect:
@@ -674,6 +687,12 @@ class _ChatScreenState extends State<ChatScreen> {
                 context.read<NotificationService>().isMuted(_id) ? LucideIcons.bell : LucideIcons.bellOff,
                 context.read<NotificationService>().isMuted(_id) ? 'Unmute notifications' : 'Mute notifications',
               ),
+              if (defaultTargetPlatform == TargetPlatform.android)
+                _menuItem(
+                  _MenuAction.secure,
+                  LucideIcons.scanEye,
+                  context.read<AppLockService>().isChatSecure(_id) ? 'Allow screenshots' : 'Block screenshots',
+                ),
               _menuItem(
                 _MenuAction.timer,
                 LucideIcons.timer,

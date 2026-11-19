@@ -848,6 +848,48 @@ void main() {
     });
   });
 
+  testWidgets('privacy and account: photo visibility, default timer, presence, sessions, export', (tester) async {
+    await tester.runAsync(() async {
+      final jo = Stack('jo');
+      final kai = Stack('kai');
+      for (final s in [jo, kai]) {
+        await s.signUp();
+      }
+      await kai.contacts.acceptInvite(inviteTokenFrom((await jo.contacts.createInvite())['url'] as String)!);
+      await jo.contacts.loadContacts();
+
+      // Jo's photo reaches Kai; with "Nobody" Kai gets a version without it.
+      final png = Uint8List.fromList(img.encodePng(img.Image(width: 80, height: 80)));
+      await jo.chat.setMyProfile([kai.id], photo: png, about: 'hello there');
+      await until(() => kai.chat.profiles.photoOf(jo.id) != null, what: 'photo arrives');
+      await jo.chat.setProfileVisible(false);
+      await until(() => kai.chat.profiles.photoOf(jo.id) == null && kai.chat.profiles.aboutOf(jo.id).isEmpty,
+          what: 'photo and about withdrawn');
+      expect(jo.chat.profiles.photoOf(jo.id), isNotNull, reason: 'Jo keeps their own');
+
+      // A default timer applies to a new chat only.
+      await kai.chat.setDefaultDisappearing(86400);
+      final m = await kai.chat.sendMessage(jo.id, 'first words');
+      expect(m.expiresAt, isNotNull);
+      expect(await kai.chat.disappearAfter(jo.id), 86400);
+
+      // Presence privacy reaches the server.
+      expect(await jo.auth.setShowPresence(false), isTrue);
+      expect(jo.auth.showPresence, isFalse);
+      await kai.contacts.loadContacts();
+      expect(kai.contacts.getContact(jo.id)!.isOnline, isFalse);
+
+      // Export and other sessions.
+      final data = await jo.auth.exportData();
+      expect((data['account'] as Map)['username'], jo.username);
+      expect(await jo.auth.signOutOthers(password: Stack.password), 0);
+
+      for (final s in [jo, kai]) {
+        await s.dispose();
+      }
+    });
+  });
+
   testWidgets('a group where not everyone knows each other', (tester) async {
     await tester.runAsync(() async {
       final gail = Stack('gail');

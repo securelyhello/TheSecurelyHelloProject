@@ -587,9 +587,11 @@ class ChatService {
     final me = _myUserId;
     final sessions = _sessions;
     if (me == null || sessions == null || !_started) return;
-    final p = await profiles.mine(me);
-    if (p == null) return;
-    final v = p['v'] as int;
+    final mine = await profiles.mine(me);
+    if (mine == null) return;
+    final v = mine['v'] as int;
+    // "Nobody": contacts get the version without photo or about line.
+    final p = await profileVisible() ? mine : <String, dynamic>{'about': '', 'v': v};
     for (final id in contactIds) {
       if (id == me) continue;
       try {
@@ -643,6 +645,27 @@ class ChatService {
     } catch (e) {
       debugPrint('Profile acknowledgement to $contactId not sent: $e');
     }
+  }
+
+  // Privacy (1.1)
+
+  /// Disappearing-message timer new chats start with (0: off).
+  Future<int> defaultDisappearing() async => int.tryParse(await _storage.kvGet('default_timer') ?? '') ?? 0;
+
+  Future<void> setDefaultDisappearing(int seconds) => _storage.kvSet('default_timer', '$seconds');
+
+  /// Whether contacts get our profile photo and about line ("My contacts"),
+  /// or nothing ("Nobody").
+  Future<bool> profileVisible() async => await _storage.kvGet('profile_visible') != '0';
+
+  /// Changes who sees our photo and about line; contacts get the update.
+  Future<void> setProfileVisible(bool visible) async {
+    await _storage.kvSet('profile_visible', visible ? '1' : '0');
+    final me = _myUserId;
+    if (me == null) return;
+    // A new version, so every contact receives what they may now see.
+    await profiles.setMine(me);
+    await sendProfileIfNeeded(const []);
   }
 
   // Organising chats (1.1)
@@ -933,6 +956,11 @@ class ChatService {
     final now = DateTime.now();
     final attachmentJson = attachment == null ? null : jsonEncode(attachment);
     final reply = replyTo == null ? null : _replyRef(replyTo);
+    // A new chat starts with the default timer, if one is set.
+    if (await _storage.getConversation(contactId) == null) {
+      final fallback = await defaultDisappearing();
+      if (fallback > 0) await setDisappearing(contactId, fallback);
+    }
     final timer = await _storage.disappearAfter(contactId);
     final expiresAt = timer > 0 ? now.millisecondsSinceEpoch + timer * 1000 : null;
 

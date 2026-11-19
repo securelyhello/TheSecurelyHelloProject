@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:securelyhello/core/chat/chat_service.dart';
+
+import 'package:securelyhello/features/settings/screens/account_screen.dart';
 
 import 'package:securelyhello/core/calls/call_service.dart';
 import 'package:securelyhello/core/calls/call_system.dart';
@@ -596,6 +599,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onChanged: chat.setSendReadReceipts,
                     ),
                     SwitchListTile(
+                      key: const ValueKey('settings-presence'),
+                      secondary: const Icon(LucideIcons.eye),
+                      title: const Text('Last seen & online'),
+                      subtitle: const Text('Off: nobody sees when you’re online, and you don’t see theirs'),
+                      value: auth.showPresence,
+                      onChanged: (v) async {
+                        final ok = await auth.setShowPresence(v);
+                        if (!ok && context.mounted) {
+                          showAppSnackBar(context, friendlyError(auth.errorMessage), error: true);
+                        }
+                      },
+                    ),
+                    FutureBuilder<bool>(
+                      future: chat.service.profileVisible(),
+                      builder: (context, snap) => ListTile(
+                        key: const ValueKey('settings-profile-visible'),
+                        leading: const Icon(LucideIcons.circleUser),
+                        title: const Text('Profile photo & about'),
+                        trailing: DropdownButton<bool>(
+                          value: snap.data ?? true,
+                          underline: const SizedBox(),
+                          items: const [
+                            DropdownMenuItem(value: true, child: Text('My contacts')),
+                            DropdownMenuItem(value: false, child: Text('Nobody')),
+                          ],
+                          onChanged: (v) async {
+                            if (v == null) return;
+                            await chat.service.setProfileVisible(v);
+                            setState(() {});
+                          },
+                        ),
+                      ),
+                    ),
+                    FutureBuilder<int>(
+                      future: chat.service.defaultDisappearing(),
+                      builder: (context, snap) => ListTile(
+                        key: const ValueKey('settings-default-timer'),
+                        leading: const Icon(LucideIcons.timer),
+                        title: const Text('Disappearing messages for new chats'),
+                        trailing: DropdownButton<int>(
+                          value: snap.data ?? 0,
+                          underline: const SizedBox(),
+                          items: [
+                            for (final s in const [0, 86400, 604800])
+                              DropdownMenuItem(value: s, child: Text(ChatService.disappearLabel(s))),
+                          ],
+                          onChanged: (v) async {
+                            if (v == null) return;
+                            await chat.service.setDefaultDisappearing(v);
+                            setState(() {});
+                          },
+                        ),
+                      ),
+                    ),
+                    SwitchListTile(
                       key: const ValueKey('settings-discoverable'),
                       secondary: const Icon(LucideIcons.search),
                       title: const Text('Find me by username'),
@@ -766,6 +824,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 Navigator.of(context).pushNamed('/verify-email');
                               }
                             },
+                    ),
+                    ListTile(
+                      key: const ValueKey('settings-account'),
+                      leading: const Icon(LucideIcons.userCog),
+                      title: const Text('Account'),
+                      subtitle: const Text('Username, e-mail, sessions, your data'),
+                      trailing: Icon(LucideIcons.chevronRight, size: 18, color: p.textMuted),
+                      onTap: () => Navigator.of(context)
+                          .push(MaterialPageRoute<void>(builder: (_) => const AccountScreen())),
                     ),
                     ListTile(
                       key: const ValueKey('settings-2fa'),

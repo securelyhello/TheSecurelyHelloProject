@@ -575,6 +575,31 @@ class DirectoryService {
   Future<void> clearPushToken() =>
       _request('DELETE', '/api/devices/current/push');
 
+  // Account (1.1)
+
+  /// Shows or hides our online status and last seen (both ways).
+  Future<Map<String, dynamic>> setShowPresence(bool show) async =>
+      Map<String, dynamic>.from(await _request('PATCH', '/api/me', body: {'show_presence': show}) as Map);
+
+  /// Ends every other session of this account. Returns how many.
+  Future<int> signOutOthers({required String currentPassword, String? otp}) async {
+    final r = await _request('POST', '/api/auth/signout-others',
+        body: {'current_password': currentPassword, if (otp != null && otp.isNotEmpty) 'otp': otp}) as Map;
+    return r['signed_out'] as int? ?? 0;
+  }
+
+  /// Everything the server holds about this account.
+  Future<Map<String, dynamic>> exportData() async =>
+      Map<String, dynamic>.from(await _request('GET', '/api/me/export') as Map);
+
+  /// Sends a code to [email]; [confirmEmailChange] with it makes it ours.
+  Future<void> startEmailChange(String email, {required String currentPassword, String? otp}) => _request(
+      'POST', '/api/me/email',
+      body: {'email': email.trim(), 'current_password': currentPassword, if (otp != null && otp.isNotEmpty) 'otp': otp});
+
+  Future<Map<String, dynamic>> confirmEmailChange(String code) async =>
+      Map<String, dynamic>.from(await _request('POST', '/api/me/email/confirm', body: {'code': code.trim()}) as Map);
+
   // Stories (server/src/stories.js)
 
   /// Posts a story: its key sealed for each audience device.
