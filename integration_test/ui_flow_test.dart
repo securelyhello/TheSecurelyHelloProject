@@ -34,7 +34,10 @@ import 'package:securelyhello/core/providers/connection_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/core/storage/local_storage.dart';
 import 'package:securelyhello/core/storage/secure_key_store.dart';
+import 'package:securelyhello/features/chat/widgets/conversation_tile.dart';
 import 'package:securelyhello/main.dart';
+import 'package:securelyhello/l10n/app_localizations.dart';
+import 'package:securelyhello/core/stories/story_service.dart';
 import 'package:securelyhello/shared/theme/locale_controller.dart';
 import 'package:securelyhello/shared/theme/theme_controller.dart';
 
@@ -191,6 +194,7 @@ void main() {
           chat: me.chat, canCall: (u) => me.contacts.getContact(u) != null, media: const NoCallMedia());
       final miraCalls = CallService(
           chat: mira.chat, canCall: (u) => mira.contacts.getContact(u) != null, media: const NoCallMedia());
+      final myStories = StoryService(chat: me.chat, directory: me.directory, storage: me.storage);
       await tester.pumpWidget(SecurelyHelloApp(
         authProvider: me.auth,
         chatProvider: me.chatProvider,
@@ -200,6 +204,7 @@ void main() {
         calls: myCalls,
         theme: theme,
         language: language,
+        stories: myStories,
       ));
       await settle(800);
       await shot('01_splash');
@@ -481,6 +486,51 @@ void main() {
       await waitFor(find.byKey(const ValueKey('calls-list')), 'call history');
       await settle(900);
       await shot('16b_calls');
+
+      // ---- stories ----------------------------------------------------------
+      final miraStories = StoryService(chat: mira.chat, directory: mira.directory, storage: mira.storage);
+      await miraStories.start(miraId, deviceId: mira.auth.deviceId!);
+      await miraStories.postText('Sunset walk by the lake 🌅', 0xFF5B3FD0, contacts: [me.auth.myUserId!]);
+      await tester.tap(find.text('Chats').last);
+      await settle(600);
+      final storyEnd = DateTime.now().add(const Duration(seconds: 20));
+      while (find.byKey(ValueKey('story-owner-$miraId')).evaluate().isEmpty) {
+        if (DateTime.now().isAfter(storyEnd)) fail("Mira's story never showed");
+        await myStories.refresh();
+        await settle(300);
+      }
+      await settle(600);
+      await shot('16c_stories_row');
+      await tester.tap(find.byKey(ValueKey('story-owner-$miraId')));
+      await waitFor(find.byKey(const ValueKey('story-viewer')), 'story viewer');
+      await settle(1200);
+      await shot('16d_story_viewer');
+      await tester.tap(find.byTooltip('Close'));
+      await settle(900);
+      await tester.tap(find.byKey(const ValueKey('my-story')));
+      await waitFor(find.byKey(const ValueKey('story-new-text')), 'new story sheet');
+      await settle(500);
+      await tester.tap(find.byKey(const ValueKey('story-new-text')));
+      await waitFor(find.byKey(const ValueKey('story-text')), 'story composer');
+      await tester.enterText(find.byKey(const ValueKey('story-text')), 'Trying out stories ✨');
+      await settle(700);
+      await shot('16e_story_composer');
+      await tester.tap(find.byKey(const ValueKey('story-post')));
+      await settle(1500);
+      expect(myStories.mine, hasLength(1), reason: 'my story was posted');
+
+      // ---- message search ---------------------------------------------------
+      await tester.tap(find.byTooltip(L10n.of(tester.element(find.text('Chats').last)).moreOptions).first);
+      await settle(500);
+      await tester.tap(find.text('Search messages'));
+      await waitFor(find.byKey(const ValueKey('message-search')), 'message search');
+      await tester.enterText(find.byKey(const ValueKey('message-search')), 'encrypted');
+      await settle(1500);
+      await shot('16f_message_search');
+      nav().pop();
+      await settle(700);
+      await tester.tap(find.text('Calls').last);
+      await settle(500);
       await tester.tap(find.text('Settings').last);
       await settle(900);
       await shot('17_settings');
@@ -498,6 +548,8 @@ void main() {
       await settle(600);
       await tester.dragUntilVisible(find.byKey(const ValueKey('settings-backup')),
           find.byType(ListView).last, const Offset(0, 250));
+      await tester.ensureVisible(find.byKey(const ValueKey('settings-backup')));
+      await settle(400);
       await tester.tap(find.byKey(const ValueKey('settings-backup')));
       await waitFor(find.byKey(const ValueKey('backup-export')), 'backup screen');
       await tester.tap(find.byKey(const ValueKey('backup-export')));
@@ -519,6 +571,16 @@ void main() {
       await shot('17b_linked_devices');
       nav().pop();
       await settle(700);
+      await tester.dragUntilVisible(find.byKey(const ValueKey('settings-account')),
+          find.byType(ListView).last, const Offset(0, -300));
+      await tester.ensureVisible(find.byKey(const ValueKey('settings-account')));
+      await settle(400);
+      await tester.tap(find.byKey(const ValueKey('settings-account')));
+      await waitFor(find.byKey(const ValueKey('account-export')), 'account screen');
+      await settle(700);
+      await shot('17f_account');
+      nav().pop();
+      await settle(700);
 
       // ---- wide window: two panes ----------------------------------------
       setWindow(1280, 800);
@@ -526,7 +588,7 @@ void main() {
       await tester.tap(find.text('Chats').last, warnIfMissed: false);
       await settle(700);
       await shot('18_wide_no_chat');
-      await tester.tap(find.text('Mira Kapoor').first);
+      await tester.tap(find.widgetWithText(ConversationTile, 'Mira Kapoor').first);
       await settle(1500);
       await shot('19_wide_chat_open');
 
@@ -545,6 +607,12 @@ void main() {
       await settle(1200);
       expect(find.text('चैट'), findsWidgets, reason: 'tab labels follow the language');
       await shot('22_hindi_chats');
+      await language.set(const Locale('gu'));
+      await settle(1000);
+      expect(find.text('ચૅટ'), findsWidgets, reason: 'Gujarati');
+      await shot('23_gujarati_chats');
+      await language.set(const Locale('hi'));
+      await settle(600);
 
       // ---- stress: long names and messages, big text, small and big screens
       // Any overflow or layout error here fails the test. Shots are named
@@ -568,7 +636,7 @@ void main() {
         await tapTab(LucideIcons.messageCircle);
         await waitFor(find.text(longName), 'long name in the chat list');
         await shot('zz_${tag}_chats');
-        await tester.tap(find.text(longName).first);
+        await tester.tap(find.widgetWithText(ConversationTile, longName).first);
         await settle(1500);
         await shot('zz_${tag}_chat');
         // The keyboard is up: the composer must stay visible above it.
@@ -602,7 +670,7 @@ void main() {
       setWindow(1280, 800);
       await settle(900);
       await tapTab(LucideIcons.messageCircle);
-      await tester.tap(find.text(longName).first);
+      await tester.tap(find.widgetWithText(ConversationTile, longName).first);
       await settle(1500);
       await shot('zz_wide_long_name');
       setWindow(412, 892);
