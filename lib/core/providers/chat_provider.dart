@@ -405,7 +405,7 @@ class ChatProvider extends ChangeNotifier {
       _chatService.setMyProfile(contactIds, photo: photo, removePhoto: removePhoto, about: about);
 
   /// Sends our profile to contacts that don't have the current one.
-  Future<void> syncProfiles(List<String> contactIds) => _chatService.sendProfileIfNeeded(contactIds);
+  Future<void> syncProfiles(List<String> contactIds) => _chatService.sendProfileIfNeeded(contactIds, replace: true);
 
   Future<Verification> verificationOf(String contactId) =>
       _chatService.verificationOf(contactId);

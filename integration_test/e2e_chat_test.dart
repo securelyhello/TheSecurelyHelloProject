@@ -10,9 +10,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as hash;
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:integration_test/integration_test.dart';
@@ -670,6 +670,66 @@ void main() {
 
       await dan.dispose();
       await erin.dispose();
+    });
+  });
+
+  // Regression: a changed profile photo reached new contacts but not
+  // existing ones (it went over a direct link with nothing to retry it).
+  testWidgets('a changed profile photo reaches a contact who was offline', (tester) async {
+    await tester.runAsync(() async {
+      final fay = Stack('fay');
+      final gus = Stack('gus');
+      await fay.signUp();
+      await gus.signUp();
+      final invite = await fay.contacts.createInvite();
+      await gus.contacts.acceptInvite(inviteTokenFrom(invite['url'] as String)!);
+      await until(() => fay.contacts.getContact(gus.id) != null, what: 'Fay sees Gus as a contact');
+
+      Uint8List photo(int red) => Uint8List.fromList(img.encodePng(
+          img.fill(img.Image(width: 120, height: 120), color: img.ColorRgb8(red, 60, 140))));
+      bool sameAsFays(Stack who) {
+        final theirs = who.chat.profiles.photoOf(fay.id);
+        final hers = fay.chat.profiles.photoOf(fay.id);
+        return theirs != null && hers != null && listEquals(theirs, hers);
+      }
+
+      // An existing contact, both online, with a direct link up.
+      await fay.chat.connect(gus.id);
+      await until(() => fay.p2p.hasConnectionWithPrefix('${gus.id}:'),
+          timeout: const Duration(seconds: 30), what: 'direct link');
+      await fay.chat.setMyProfile([gus.id], photo: photo(20), about: 'first');
+      await until(() => sameAsFays(gus), what: 'Gus gets the first photo');
+
+      // Gus goes offline; Fay changes her photo twice.
+      await gus.chat.stop();
+      await fay.chat.setMyProfile([gus.id], photo: photo(120), about: 'second');
+      await fay.chat.setMyProfile([gus.id], photo: photo(230), about: 'third');
+
+      // Gus comes back and sees the newest one.
+      await gus.startChat();
+      await until(() => sameAsFays(gus), what: 'Gus gets the new photo after coming online');
+      expect(gus.chat.profiles.aboutOf(fay.id), 'third');
+      // ...and says so, so Fay stops sending it.
+      final v3 = (await fay.chat.profiles.mine(fay.id))!['v'] as int;
+      await until(() async => (await fay.chat.profiles.devicesNeeding(gus.id, v3, [gus.auth.deviceId!],
+              now: DateTime.now().add(const Duration(days: 2)))).isEmpty,
+          what: 'Fay gets the acknowledgement');
+
+      // Gus is away longer than the relay keeps things: Fay's next change
+      // expires unread. Once Gus is back and talks to her, she sends it again.
+      await gus.chat.stop();
+      await fay.chat.setMyProfile([gus.id], photo: photo(60), about: 'fourth');
+      final expired = await gus.directory.fetchRelayMessages();
+      await gus.directory.ackRelayMessages([for (final r in expired) r['id'] as String]);
+      fay.chat.profileResendAfter = Duration.zero; // "more than a day later"
+      await gus.startChat();
+      await gus.chat.sendMessage(fay.id, 'back from holiday');
+      await until(() => gus.chat.profiles.aboutOf(fay.id) == 'fourth',
+          what: 'Gus gets the photo that expired in the relay');
+      expect(sameAsFays(gus), isTrue);
+
+      await fay.dispose();
+      await gus.dispose();
     });
   });
 

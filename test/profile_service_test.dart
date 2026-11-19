@@ -86,9 +86,72 @@ void main() {
     expect(profiles.photoOf('me'), isNotNull);
     final second = await profiles.setMine('me', about: 'Busy');
     expect(second['photo'], first['photo'], reason: 'photo kept');
-    expect(second['v'], greaterThanOrEqualTo(first['v'] as int));
+    expect(second['v'], greaterThan(first['v'] as int), reason: 'receivers drop versions that are not newer');
     await profiles.setMine('me', removePhoto: true);
     expect(profiles.photoOf('me'), isNull);
     expect(profiles.aboutOf('me'), 'Busy');
+  });
+
+  // Regression: photo changes didn't reach existing contacts. "Sent" was
+  // one version number per contact, so a contact's later devices never got
+  // the photo, and a send lost on a dying direct link was never retried.
+  group('which devices still need our profile', () {
+    final t0 = DateTime(2026, 11, 1, 9);
+
+    test('everything is needed before anything was sent', () async {
+      expect(await profiles.devicesNeeding('mira', 5, ['m1', 'm2'], now: t0), {'m1', 'm2'});
+    });
+
+    test('queued devices wait; a device added later gets it', () async {
+      await profiles.markSent('mira', 5, {'m1'}, now: t0);
+      expect(await profiles.devicesNeeding('mira', 5, ['m1', 'm2'], now: t0), {'m2'});
+      await profiles.markSent('mira', 5, {'m2'}, now: t0);
+      expect(await profiles.devicesNeeding('mira', 5, ['m1', 'm2'], now: t0), isEmpty);
+      expect(await profiles.devicesNeeding('mira', 5, ['m1', 'm2', 'm3'], now: t0), {'m3'});
+      expect(await profiles.devicesNeeding('mira', 6, ['m1', 'm2'], now: t0), {'m1', 'm2'},
+          reason: 'a newer profile goes to every device again');
+    });
+
+    test('unacknowledged sends are repeated before the relay drops them', () async {
+      await profiles.markSent('mira', 5, {'m1', 'm2'}, now: t0);
+      expect(await profiles.confirm('mira', 5, 'm1'), isTrue);
+      expect(await profiles.confirm('mira', 5, 'm1'), isFalse);
+      final later = t0.add(ProfileService.resendAfter);
+      expect(ProfileService.resendAfter, lessThan(const Duration(hours: 24)));
+      expect(await profiles.devicesNeeding('mira', 5, ['m1', 'm2'], now: later), {'m2'},
+          reason: 'm1 acknowledged; m2 may have been offline past the relay lifetime');
+    });
+
+    test('an acknowledgement for an older version changes nothing', () async {
+      await profiles.markSent('mira', 6, {'m1'}, now: t0);
+      expect(await profiles.confirm('mira', 5, 'm1'), isFalse);
+      expect(await profiles.devicesNeeding('mira', 6, ['m1'], now: t0), isEmpty,
+          reason: 'version 6 is still on its way');
+    });
+
+    test('markers from 1.0 (just a version) count as not sent', () async {
+      await storage.kvSet('profile_sent:mira', '5');
+      expect(await profiles.devicesNeeding('mira', 5, ['m1'], now: t0), {'m1'});
+    });
+
+    test('ack ids', () {
+      expect(ProfileService.ackedVersion(ProfileService.ackId(42)), 42);
+      expect(ProfileService.ackedVersion('3f1c2b9e-0000-4000-8000-000000000000'), isNull);
+      expect(ProfileService.ackedVersion('profile:x'), isNull);
+    });
+  });
+
+  test('a received newer photo replaces the shown one', () async {
+    Uint8List filled(int r) => Uint8List.fromList(
+        img.encodePng(img.fill(img.Image(width: 64, height: 64), color: img.ColorRgb8(r, 40, 90))));
+    final a = fts(ProfileService.squareJpeg(filled(20)));
+    final b = fts(ProfileService.squareJpeg(filled(230)));
+    var notified = 0;
+    profiles.addListener(() => notified++);
+    expect(await profiles.receive('mira', {'photo': a, 'about': '', 'v': 1}), isTrue);
+    final first = profiles.photoOf('mira');
+    expect(await profiles.receive('mira', {'photo': b, 'about': '', 'v': 2}), isTrue);
+    expect(profiles.photoOf('mira'), isNot(equals(first)));
+    expect(notified, 2, reason: 'avatars rebuild');
   });
 }

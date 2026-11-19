@@ -377,6 +377,7 @@ class ChatService {
   void _onRealtimeState(bool up) {
     if (!up || !_started) return;
     unawaited(drainRelayQueue().then((_) => resendUnsent()));
+    unawaited(sendProfileIfNeeded(const []));
     final active = _activeConversationId;
     if (active != null) unawaited(connect(active));
   }
@@ -394,7 +395,8 @@ class ChatService {
     if (event.type == 'devices_changed') {
       unawaited(_sessions
           ?.devices(userId, refresh: true)
-          .then<void>((_) {})
+          // A new device of theirs gets our profile photo too.
+          .then<void>((_) => sendProfileIfNeeded(const []))
           .catchError((Object e) => debugPrint('Device refresh failed: $e')));
     } else if (event.type == 'contact_removed') {
       for (final neg in _negotiations.values.toList()) {
@@ -419,6 +421,8 @@ class ChatService {
   Future<void> stop() async {
     _started = false;
     profiles.reset();
+    _profileTargets.clear();
+    _profileChecked.clear();
     _groups.clear();
     _memberNames.clear();
     _sweeper?.cancel();
@@ -514,27 +518,103 @@ class ChatService {
       {Uint8List? photo, bool removePhoto = false, String? about}) async {
     final me = _requireUserId();
     final p = await profiles.setMine(me, photo: photo, removePhoto: removePhoto, about: about);
+    _profileTargets.addAll(contactIds);
     await _deliver(me, WirePayload.profile(
-        from: me, to: me, timestampMs: DateTime.now().millisecondsSinceEpoch, profile: p));
+        from: me, to: me, timestampMs: DateTime.now().millisecondsSinceEpoch, profile: p),
+        relayOnly: true);
     await sendProfileIfNeeded(contactIds);
   }
 
-  /// Sends our current profile to each contact that doesn't have it yet.
-  Future<void> sendProfileIfNeeded(List<String> contactIds) async {
+  /// Everyone our profile goes to (the contacts list); kept so a reconnect
+  /// or a contact's new device can catch up without the UI asking.
+  final Set<String> _profileTargets = {};
+  Future<void>? _profileSync;
+  bool _profileSyncAgain = false;
+
+  /// Sends our current profile to every device of [contactIds] that doesn't
+  /// have it yet. Profile updates always go through the relay: it stores
+  /// them until the device collects them, whereas a write to a direct link
+  /// that is about to drop is lost with nothing to retry it.
+  ///
+  /// With [replace], [contactIds] is the whole contacts list.
+  Future<void> sendProfileIfNeeded(List<String> contactIds, {bool replace = false}) {
+    if (replace) _profileTargets.clear();
+    _profileTargets.addAll(contactIds);
+    if (_profileSync != null) {
+      _profileSyncAgain = true;
+      return _profileSync!;
+    }
+    return _profileSync = () async {
+      try {
+        do {
+          _profileSyncAgain = false;
+          await _sendProfileOnce(_profileTargets.toList());
+        } while (_profileSyncAgain);
+      } finally {
+        _profileSync = null;
+      }
+    }();
+  }
+
+  Future<void> _sendProfileOnce(List<String> contactIds) async {
     final me = _myUserId;
-    if (me == null || !_started) return;
+    final sessions = _sessions;
+    if (me == null || sessions == null || !_started) return;
     final p = await profiles.mine(me);
     if (p == null) return;
     final v = p['v'] as int;
     for (final id in contactIds) {
-      if (await profiles.sentVersion(id) >= v) continue;
+      if (id == me) continue;
       try {
+        final devices = (await sessions.devices(id)).map((d) => d.deviceId);
+        final need = await profiles.devicesNeeding(id, v, devices, resendAfter: profileResendAfter);
+        if (need.isEmpty) continue;
         final ok = await _deliver(id, WirePayload.profile(
-            from: me, to: id, timestampMs: DateTime.now().millisecondsSinceEpoch, profile: p));
-        if (ok) await profiles.markSent(id, v);
+            from: me, to: id, timestampMs: DateTime.now().millisecondsSinceEpoch, profile: p),
+            onlyDevices: need, relayOnly: true);
+        if (ok) await profiles.markSent(id, v, need);
       } catch (e) {
         debugPrint('Profile to $id not sent: $e');
       }
+    }
+  }
+
+  /// How long a queued profile counts as on its way; see
+  /// [ProfileService.resendAfter].
+  @visibleForTesting
+  Duration profileResendAfter = ProfileService.resendAfter;
+
+  final Map<String, DateTime> _profileChecked = {};
+
+  /// [contactId] is active: if one of their devices may have missed our
+  /// profile (it sat in the relay longer than the relay keeps things), send
+  /// it again. At most every few minutes per contact.
+  void _heardFrom(String contactId) {
+    if (!_profileTargets.contains(contactId)) return;
+    final last = _profileChecked[contactId];
+    final now = DateTime.now();
+    final every = profileResendAfter < const Duration(minutes: 5)
+        ? profileResendAfter
+        : const Duration(minutes: 5);
+    if (last != null && now.difference(last) < every) return;
+    _profileChecked[contactId] = now;
+    unawaited(_sendProfileOnce([contactId]));
+  }
+
+  /// Tells the device that sent us version `v` of a profile that we have it
+  /// (or a newer one), so it stops re-sending. A receipt for an id that is
+  /// no message: 1.0 apps ignore it.
+  Future<void> _ackProfile(String contactId, String device, Map<String, dynamic> profile) async {
+    final v = profile['v'];
+    final me = _myUserId;
+    if (v is! int || me == null) return;
+    try {
+      await _deliver(contactId, WirePayload.receipt(
+          from: me, to: contactId, timestampMs: DateTime.now().millisecondsSinceEpoch,
+          ids: [ProfileService.ackId(v)], status: ReceiptStatus.delivered),
+          onlyDevices: {device});
+    } catch (e) {
+      debugPrint('Profile acknowledgement to $contactId not sent: $e');
     }
   }
 
@@ -1160,6 +1240,7 @@ class ChatService {
     WirePayload payload, {
     String? envelopeId,
     Set<String>? onlyDevices,
+    bool relayOnly = false,
   }) async {
     final sessions = _sessions;
     if (sessions == null) throw StateError('ChatService.start() has not been called');
@@ -1183,7 +1264,7 @@ class ChatService {
       for (final d in targets) {
         final env = sealed[d.deviceId];
         if (env == null) continue; // no session (device vanished); 409 sorts it out
-        if (await _p2p.sendMessage(d.address, env.encode())) continue;
+        if (!relayOnly && await _p2p.sendMessage(d.address, env.encode())) continue;
         viaRelay[d.deviceId] = env.encodeJson();
       }
       try {
@@ -1254,9 +1335,14 @@ class ChatService {
     'read': 3,
   };
 
-  Future<void> _applyReceipt(String contactId, WirePayload payload) async {
+  Future<void> _applyReceipt(String contactId, WirePayload payload, String fromDevice) async {
     final newStatus = payload.receiptStatus!.name;
     for (final id in payload.receiptIds) {
+      final profileVersion = ProfileService.ackedVersion(id);
+      if (profileVersion != null) {
+        await profiles.confirm(contactId, profileVersion, fromDevice);
+        continue;
+      }
       final row = await _storage.getMessage(id);
       if (row == null ||
           row['is_from_me'] != 1 ||
@@ -1324,15 +1410,17 @@ class ChatService {
         await _applyAction(payload.conversation!, me, payload);
       }
     } else if (payload.groupId != null && payload.kind != PayloadKind.group) {
+      _heardFrom(envelope.senderId);
       await _receiveForGroup(envelope.senderId, payload);
     } else {
       final contactId = envelope.senderId;
+      _heardFrom(contactId);
       switch (payload.kind) {
         case PayloadKind.message:
           await _storeIncomingMessage(contactId, payload);
           break;
         case PayloadKind.receipt:
-          await _applyReceipt(contactId, payload);
+          await _applyReceipt(contactId, payload, envelope.senderDevice);
           break;
         case PayloadKind.typing:
           if (!_typingController.isClosed) {
@@ -1349,6 +1437,7 @@ class ChatService {
           break;
         case PayloadKind.profile:
           await profiles.receive(contactId, payload.profile!);
+          unawaited(_ackProfile(contactId, envelope.senderDevice, payload.profile!));
           break;
         case PayloadKind.history:
           break; // only our own devices may send history

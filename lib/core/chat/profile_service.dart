@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
@@ -69,7 +70,8 @@ class ProfileService extends ChangeNotifier {
       if (photo != null)
         'photo': FileStringCodec.encode(await compute(squareJpeg, photo), filename: 'photo.jpg'),
       'about': (about ?? current['about'] as String? ?? '').trim(),
-      'v': DateTime.now().millisecondsSinceEpoch,
+      // Strictly newer than the last version, or receivers would drop it.
+      'v': max(DateTime.now().millisecondsSinceEpoch, (current['v'] as int? ?? 0) + 1),
     };
     if ((next['about'] as String).length > maxAbout) {
       next['about'] = (next['about'] as String).substring(0, maxAbout);
@@ -93,12 +95,78 @@ class ProfileService extends ChangeNotifier {
     return true;
   }
 
-  /// Which version of our profile [contactId] has last been sent.
-  Future<int> sentVersion(String contactId) async =>
-      int.tryParse(await _storage.kvGet('profile_sent:$contactId') ?? '') ?? 0;
+  /// How long a queued profile counts as on its way before it is sent
+  /// again. The relay keeps envelopes for 24 hours (RELAY_TTL_HOURS), so a
+  /// device that was offline longer than that never got it.
+  static const resendAfter = Duration(hours: 20);
 
-  Future<void> markSent(String contactId, int version) =>
-      _storage.kvSet('profile_sent:$contactId', '$version');
+  /// The receipt id that acknowledges version [v] of a profile.
+  static String ackId(int v) => 'profile:$v';
+
+  /// The version in a [ackId] receipt id, or null for any other id.
+  static int? ackedVersion(String receiptId) =>
+      receiptId.startsWith('profile:') ? int.tryParse(receiptId.substring(8)) : null;
+
+  /// The devices of [contactId] (of [current]) that need version [v] of our
+  /// profile: never sent, or sent more than [resendAfter] ago and not
+  /// acknowledged. Tracked per device, so devices a contact adds later get
+  /// it too. Markers from 1.0 held only a version and may stand for a
+  /// send that was lost; they count as not sent.
+  Future<Set<String>> devicesNeeding(String contactId, int v, Iterable<String> current,
+      {DateTime? now, Duration resendAfter = resendAfter}) async {
+    final t = (now ?? DateTime.now()).millisecondsSinceEpoch;
+    final s = await _sent(contactId, v);
+    return current.where((d) {
+      if (s.acked.contains(d)) return false;
+      final at = s.queued[d];
+      return at == null || t - at >= resendAfter.inMilliseconds;
+    }).toSet();
+  }
+
+  /// Records that version [v] was queued for [devices] of [contactId].
+  Future<void> markSent(String contactId, int v, Set<String> devices, {DateTime? now}) async {
+    final s = await _sent(contactId, v);
+    final t = (now ?? DateTime.now()).millisecondsSinceEpoch;
+    for (final d in devices) {
+      s.queued[d] = t;
+    }
+    await _saveSent(contactId, v, s.queued, s.acked);
+  }
+
+  /// [device] of [contactId] acknowledged version [v]. Returns whether
+  /// that was news.
+  Future<bool> confirm(String contactId, int v, String device) async {
+    final raw = await _storage.kvGet('profile_sent:$contactId');
+    // Only for the version we are sending now; an old one changes nothing.
+    if (raw == null || !raw.startsWith('{') || (jsonDecode(raw) as Map)['v'] != v) return false;
+    final s = await _sent(contactId, v);
+    if (s.acked.contains(device)) return false;
+    s.acked.add(device);
+    s.queued.remove(device);
+    await _saveSent(contactId, v, s.queued, s.acked);
+    return true;
+  }
+
+  Future<({Map<String, int> queued, Set<String> acked})> _sent(String contactId, int v) async {
+    final raw = await _storage.kvGet('profile_sent:$contactId');
+    try {
+      final m = raw == null ? null : jsonDecode(raw);
+      if (m is Map && m['v'] == v) {
+        return (
+          queued: {for (final e in (m['q'] as Map? ?? {}).entries) '${e.key}': e.value as int},
+          acked: {for (final d in m['ok'] as List? ?? const []) '$d'},
+        );
+      }
+    } on FormatException {
+      // Unreadable: start over.
+    }
+    // Nothing yet, an older version, or a 1.0 marker (just a version).
+    return (queued: <String, int>{}, acked: <String>{});
+  }
+
+  Future<void> _saveSent(String contactId, int v, Map<String, int> queued, Set<String> acked) =>
+      _storage.kvSet('profile_sent:$contactId',
+          jsonEncode({'v': v, 'q': queued, 'ok': acked.toList()..sort()}));
 
   Future<void> _store(String userId, Map<String, dynamic> p) async {
     await _storage.kvSetSealed('profile:$userId', jsonEncode(p));
