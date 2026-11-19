@@ -68,6 +68,9 @@ export function loadConfig(env = process.env) {
     // New accounts per client IP a day (raise it behind carrier-grade NAT,
     // where many people share an address).
     signupsPerIp: int('SIGNUPS_PER_IP_PER_DAY', 0),
+    // Sign-ups and sign-ins per client address per 10 minutes (0: the
+    // default, 20). Raise only for test runs that create many accounts.
+    authPerIp: int('AUTH_PER_IP_PER_10MIN', 0, { allowZero: true }),
     // Prometheus scrape token for GET /metrics; unset turns the route off.
     metricsToken: env.METRICS_TOKEN || '',
     // TURN relay for calls and direct links (see turn.js and DEPLOY.md).
@@ -124,6 +127,7 @@ export function createApp({
   const limits = new RateLimits(store, {
     ...emailLimits(config.emailDailyCap),
     ...(config.signupsPerIp ? { signupIp: { capacity: config.signupsPerIp, perMs: 24 * 60 * 60_000 } } : {}),
+    ...(config.authPerIp ? { authIp: { capacity: config.authPerIp, perMs: 10 * 60_000 } } : {}),
     ...limitOverrides,
   });
   const instanceId = randomUUID();

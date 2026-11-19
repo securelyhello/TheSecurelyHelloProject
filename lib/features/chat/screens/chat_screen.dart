@@ -249,6 +249,18 @@ class _ChatScreenState extends State<ChatScreen> {
           ? 'You'
           : (contact?.displayLabel ?? 'Them');
 
+  /// What a reply quotes. The sender says what they quoted; where this
+  /// device has that message, its own copy is shown instead (audit run 1:
+  /// "quoted replies show what the sender claims was quoted").
+  String _quotedText(Map<String, dynamic> r) {
+    final id = r['id'];
+    final local = _chat.getMessages(_id).where((m) => m.id == id).firstOrNull;
+    if (local != null && !local.deleted) {
+      return local.content.isNotEmpty ? local.content : (r['preview'] as String? ?? '');
+    }
+    return r['preview'] as String? ?? '';
+  }
+
   Widget _quote(Map<String, dynamic> r, Contact? contact, {VoidCallback? onClose}) {
     final p = context.palette;
     return Container(
@@ -264,7 +276,7 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(_authorName(r['from'] as String? ?? '', contact),
                 style: TextStyle(color: p.accent, fontWeight: FontWeight.w600, fontSize: 12.5)),
-            Text(r['preview'] as String? ?? '',
+            Text(_quotedText(r),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(color: p.textSecondary, fontSize: 13)),

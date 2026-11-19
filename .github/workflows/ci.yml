@@ -80,6 +80,7 @@ jobs:
       MAIL_FILE_DIR: /tmp/sh_mail
       # Both integration suites sign up from this one address.
       SIGNUPS_PER_IP_PER_DAY: '100'
+      AUTH_PER_IP_PER_10MIN: '200'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

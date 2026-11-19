@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/shared/theme/app_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -26,6 +28,21 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
       context.read<AuthProvider>().listDevices();
 
   void _reload() => setState(() => _devices = _load());
+
+  /// A device of ours that no trusted device approved (with a signature):
+  /// confirm only if the code matches what that device shows.
+  Future<void> _confirm(Map<String, dynamic> d) async {
+    final ok = await showConfirmDialog(
+      context,
+      title: 'Is ${_nameOf(d)} yours?',
+      message: 'This device didn’t approve it, so it gets no copies of your messages yet. '
+          'Confirm only if it shows this code in Settings → Linked devices:\n\n${_fingerprint(d)}',
+      confirmLabel: 'It’s mine',
+    );
+    if (!ok || !mounted) return;
+    await context.read<ChatProvider>().service.trustOwnDevice(d['device_id'] as String);
+    if (mounted) _reload();
+  }
 
   Future<void> _remove(Map<String, dynamic> d) async {
     final name = _nameOf(d);
@@ -133,6 +150,9 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
               ]);
             }
             final devices = snap.data!;
+            final unconfirmed = {
+              for (final d in context.read<ChatProvider>().service.untrustedOwnDevices) d['device_id'] as String,
+            };
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
               children: [
@@ -185,7 +205,9 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
                       subtitle: Padding(
                         padding: const EdgeInsets.only(top: 4),
                         child: Text.rich(TextSpan(children: [
-                          TextSpan(text: d['approved'] == false
+                          TextSpan(text: d['approved'] != false && d['current'] != true && unconfirmed.contains(d['device_id'])
+                              ? 'not confirmed on this device: gets no copies of your messages'
+                              : d['approved'] == false
                               ? 'waiting for approval'
                               : d['current'] == true
                                   ? 'active now'
@@ -197,7 +219,15 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
                           ),
                         ])),
                       ),
-                      trailing: d['approved'] == false
+                      trailing: d['approved'] != false &&
+                              d['current'] != true &&
+                              unconfirmed.contains(d['device_id'])
+                          ? TextButton(
+                              key: ValueKey('confirm-${d['device_id']}'),
+                              onPressed: () => _confirm(d),
+                              child: const Text('Confirm'),
+                            )
+                          : d['approved'] == false
                           ? Row(mainAxisSize: MainAxisSize.min, children: [
                               TextButton(
                                 key: ValueKey('approve-${d['device_id']}'),

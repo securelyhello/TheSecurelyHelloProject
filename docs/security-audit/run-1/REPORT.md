@@ -82,16 +82,16 @@ raised two more:
 As recorded at the end of run 1; items marked **Fixed** were fixed afterwards
 (see "Fixed after run 1" below).
 
-- The verification guard protects sending only. Messages from a verified
-  contact's new, unverified device are still shown (marked by the
-  safety-number notice).
-- The app doesn't check device-approval signatures itself, so a malicious
-  server can add a device to your own account. Copies of what you send then
-  reach it. SECURITY.md documents this limitation, and verified contacts are
-  protected.
-- Typing indicators and direct-connection setup don't go through the
-  verification guard.
-- Quoted replies show what the sender claims was quoted.
+- **Open (by design).** The verification guard protects sending only.
+  Messages from a verified contact's new, unverified device are still shown,
+  marked by the safety-number notice. Hiding them would hide a real person's
+  new phone. The user decides after comparing numbers.
+- **Fixed in 1.1.** The app doesn't check device-approval signatures itself,
+  so a malicious server can add a device to your own account. Copies of what
+  you send then reach it.
+- **Fixed in 1.1.** Typing indicators and direct-connection setup don't go
+  through the verification guard.
+- **Fixed in 1.1.** Quoted replies show what the sender claims was quoted.
 - **Fixed.** Incoming attachment names aren't sanitized before the save dialog.
 - **Fixed.** The session cache can keep a revoked token for up to 5 minutes in a narrow
   race. `authenticate` doesn't check suspension.
@@ -130,6 +130,23 @@ Fixed on branch `cloud-integration` after this audit; not re-audited yet.
   exclude all app data from cloud backup and device-to-device transfer; the
   release network security config no longer allows cleartext to local
   hosts (debug builds only).
+
+### Fixed in 1.1
+
+Not re-audited yet.
+
+- Own devices: the server now lists `approved_by` and `approval_signature`
+  for your own devices. The app (`lib/core/crypto/own_device_trust.dart`)
+  trusts the devices it sees on 1.1's first run. After that it trusts a new
+  device only when a trusted device's Ed25519 signature over the approval
+  message checks out (chains included). A device the server merely lists
+  gets no copies of what you send until you confirm it in Linked devices,
+  after comparing its code. Tests: `test/own_device_trust_test.dart`.
+- Typing indicators and direct (WebRTC) connections to a verified contact
+  whose keys have changed are not sent or set up. This is the same guard as
+  for messages.
+- A quoted reply shows this device's own copy of the quoted message when it
+  has one, and the sender's preview only otherwise.
 
 ## Final state
 

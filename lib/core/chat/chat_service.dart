@@ -8,6 +8,7 @@ import 'package:securelyhello/core/backup/chat_backup.dart';
 import 'package:securelyhello/core/chat/attachment_service.dart';
 import 'package:securelyhello/core/chat/group_state.dart';
 import 'package:securelyhello/core/chat/profile_service.dart';
+import 'package:securelyhello/core/crypto/own_device_trust.dart';
 import 'package:securelyhello/core/media/voice.dart';
 import 'package:securelyhello/core/chat/wire_protocol.dart';
 import 'package:securelyhello/core/crypto/crypto_core.dart';
@@ -388,6 +389,7 @@ class ChatService {
     // Opens the socket; if we are offline it keeps retrying on its own and
     // `_onRealtimeState(true)` picks up from there.
     // What this app can take beyond 1.0 (stories; data-only push wake-ups).
+    unawaited(refreshOwnTrust());
     unawaited(_directory
         .setCapabilities(const ['data_push', 'stories'])
         .catchError((Object e) => debugPrint('Capabilities not sent: $e')));
@@ -422,8 +424,12 @@ class ChatService {
     if (event.type == 'devices_changed') {
       unawaited(_sessions
           ?.devices(userId, refresh: true)
-          // A new device of theirs gets our profile photo too.
-          .then<void>((_) => sendProfileIfNeeded(const []))
+          // A new device of theirs gets our profile photo too; a new one of
+          // ours is checked before it gets anything.
+          .then<void>((_) async {
+            if (userId == _myUserId) await refreshOwnTrust();
+            await sendProfileIfNeeded(const []);
+          })
           .catchError((Object e) => debugPrint('Device refresh failed: $e')));
     } else if (event.type == 'contact_removed') {
       for (final neg in _negotiations.values.toList()) {
@@ -448,6 +454,8 @@ class ChatService {
   Future<void> stop() async {
     _started = false;
     profiles.reset();
+    _ownTrusted = null;
+    _ownDevices = const [];
     _profileTargets.clear();
     _profileChecked.clear();
     _groups.clear();
@@ -647,6 +655,63 @@ class ChatService {
     }
   }
 
+  // Our own devices (audit run 1: approval signatures are checked here)
+
+  /// Devices of our account that get copies of what we send: device id →
+  /// signing key. Null until the first check.
+  Map<String, String>? _ownTrusted;
+  List<Map<String, dynamic>> _ownDevices = const [];
+
+  /// Devices of our account that this device hasn't confirmed: listed by the
+  /// server, but not approved (with a valid signature) by a trusted device.
+  /// They get nothing until confirmed (see [trustOwnDevice]).
+  List<Map<String, dynamic>> get untrustedOwnDevices => [
+        for (final d in _ownDevices)
+          if (d['device_id'] != _myDeviceId && d['approved_at'] != null && !(_ownTrusted?.containsKey(d['device_id']) ?? true)) d,
+      ];
+
+  Stream<void> get onOwnDevicesChanged => _ownDevicesChanged.stream;
+  final _ownDevicesChanged = StreamController<void>.broadcast();
+
+  /// Re-checks which of our devices are trusted. The first time (1.1's first
+  /// run) every device we have is trusted; after that only by signatures.
+  Future<void> refreshOwnTrust() async {
+    final me = _myUserId;
+    if (me == null) return;
+    try {
+      final rows = await _directory.getUserDevices(me);
+      final stored = OwnDeviceTrust.decode(await _storage.kvGet('own_trusted'));
+      final start = stored ??
+          {for (final d in rows) d['device_id'] as String: d['signing_public_key'] as String};
+      final mine = _identity;
+      if (mine != null && _myDeviceId != null) start[_myDeviceId!] = mine.publicSigningKeyBase64;
+      final trusted = OwnDeviceTrust.evaluate(userId: me, trusted: start, devices: rows);
+      _ownTrusted = trusted;
+      _ownDevices = rows;
+      await _storage.kvSet('own_trusted', OwnDeviceTrust.encode(trusted));
+      if (!_ownDevicesChanged.isClosed) _ownDevicesChanged.add(null);
+    } catch (e) {
+      debugPrint('Own device check failed: $e');
+    }
+  }
+
+  /// The user compared this device's code and confirms it is theirs.
+  Future<void> trustOwnDevice(String deviceId) async {
+    final d = _ownDevices.where((x) => x['device_id'] == deviceId).firstOrNull;
+    if (d == null) return;
+    _ownTrusted = {...?_ownTrusted, deviceId: d['signing_public_key'] as String};
+    await _storage.kvSet('own_trusted', OwnDeviceTrust.encode(_ownTrusted!));
+    if (!_ownDevicesChanged.isClosed) _ownDevicesChanged.add(null);
+    unawaited(resendUnsent());
+  }
+
+  bool _ownDeviceTrusted(DeviceKeys d) {
+    final t = _ownTrusted;
+    // Before the first check (offline start) nothing is withheld that 1.0
+    // would have sent; the check runs at start.
+    return t == null || t[d.deviceId] == d.signingKey;
+  }
+
   // Privacy (1.1)
 
   /// Disappearing-message timer new chats start with (0: off).
@@ -823,8 +888,10 @@ class ChatService {
   /// many messages it carried.
   Future<int> sendHistoryToMyDevices() async {
     final me = _requireUserId();
-    // A device approved a moment ago isn't in our cached list yet.
+    // A device approved a moment ago isn't in our cached list yet, nor
+    // checked as one of ours.
     await devicesOf(me, refresh: true);
+    await refreshOwnTrust();
     final history = await _storage.exportHistory();
     final bytes = ChatBackup.packTransfer(history);
     final meta = await attachments.upload(bytes, name: 'history.json.gz', mime: 'application/gzip');
@@ -1327,9 +1394,10 @@ class ChatService {
     final sessions = _sessions;
     if (!_started || me == null || sessions == null || GroupState.isGroup(contactId)) return;
     try {
-      final devices = (await sessions.devices(contactId))
-          .where((d) => _p2p.isConnected(d.address))
-          .toList();
+      final all = await sessions.devices(contactId);
+      // Like messages: nothing to keys that changed since verification.
+      if (!await _keysTrusted(contactId, all)) return;
+      final devices = all.where((d) => _p2p.isConnected(d.address)).toList();
       if (devices.isEmpty) return;
       final payload = WirePayload.typing(
         from: me,
@@ -1462,8 +1530,10 @@ class ChatService {
         debugPrint('Not sending to $userId: keys changed since verification');
         return false;
       }
-      final targets =
+      var targets =
           onlyDevices == null ? devices : devices.where((d) => onlyDevices.contains(d.deviceId)).toList();
+      // Copies for our own devices go only to ones this device trusts.
+      if (userId == _myUserId) targets = targets.where(_ownDeviceTrusted).toList();
       if (targets.isEmpty) return false;
       final sealed =
           await sessions.seal(userId, targets, payload, envelopeId: envId);
@@ -1886,6 +1956,8 @@ class ChatService {
       debugPrint('P2P connect: no device list for $contactId: $e');
       return;
     }
+    // No direct link to keys that changed since the user verified them.
+    if (!await _keysTrusted(contactId, devices)) return;
     for (final d in devices) {
       unawaited(_connectDevice(contactId, d.deviceId));
     }

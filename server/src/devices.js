@@ -120,7 +120,16 @@ const deviceJson = (row, { withName }) => ({
   identity_public_key: row.identity_public_key,
   created_at: row.created_at,
   capabilities: row.capabilities ?? [],
-  ...(withName ? { name: row.name, last_seen_at: row.last_seen_at } : {}),
+  // Your own devices also say who approved them and the approver's
+  // signature, so the app can check the chain itself (audit run 1).
+  ...(withName
+    ? {
+        name: row.name,
+        last_seen_at: row.last_seen_at,
+        approved_by: row.approved_by ?? null,
+        approval_signature: row.approval_signature ?? null,
+      }
+    : {}),
 });
 
 /** What a device can take beyond 1.0, e.g. ['stories']. */

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 
+import { loadConfig } from '../src/app.js';
 import { api, startServer } from './helpers.js';
 
 // The app checks /api/config on start; a minimum version there makes old
@@ -27,4 +28,9 @@ describe('minimum app version in /api/config', () => {
     const r = await api(off.base, 'GET', '/api/config');
     assert.equal('min_android_version_code' in r.body, false);
   });
+});
+
+test('AUTH_PER_IP_PER_10MIN: 0 keeps the default limit; set it for test servers', () => {
+  assert.equal(loadConfig({}).authPerIp, 0);
+  assert.equal(loadConfig({ AUTH_PER_IP_PER_10MIN: '200' }).authPerIp, 200);
 });
