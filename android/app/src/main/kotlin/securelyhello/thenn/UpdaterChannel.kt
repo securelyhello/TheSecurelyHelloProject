@@ -31,7 +31,8 @@ class UpdaterChannel(private val activity: Activity, messenger: BinaryMessenger)
         channel.setMethodCallHandler { call, result ->
             try {
                 when (call.method) {
-                    "info" -> result.success(describe(installedInfo()))
+                    // The phone's preferred ABI picks the smaller per-ABI APK.
+                    "info" -> result.success(describe(installedInfo()) + ("abi" to Build.SUPPORTED_ABIS.firstOrNull()))
                     "apkInfo" -> {
                         val info = archiveInfo(call.argument<String>("path")!!)
                         if (info == null) result.error("bad_apk", "Not a readable APK", null)

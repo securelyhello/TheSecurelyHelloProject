@@ -18,6 +18,8 @@
     document.getElementById('apk-cert').textContent = site.apkCertSha256;
     apkNote.hidden = false;
   }
+  const apkHelp = document.getElementById('apk-help');
+  if (apkHelp && site.androidApk) apkHelp.hidden = false;
 
   const soon = document.getElementById('downloads-soon');
   if (soon && !anyDownload) soon.hidden = false;

@@ -71,6 +71,30 @@ void main() {
       }
     });
 
+    test('per-ABI downloads (smaller, for old and low-storage phones)', () {
+      final arm = sha256.convert(utf8.encode('arm')).toString();
+      final m = UpdateManifest.parse({
+        ...manifestJson(),
+        'abis': {
+          'armeabi-v7a': {'url': 'https://securelyhello.thenn.in/download/securelyhello-1.1.0-armeabi-v7a.apk', 'sha256': arm},
+        },
+      }, source: source);
+      expect(m.downloadFor('armeabi-v7a').url.path, endsWith('-armeabi-v7a.apk'));
+      expect(m.downloadFor('armeabi-v7a').sha256, arm);
+      expect(m.downloadFor('arm64-v8a').url, m.url, reason: 'no split for it: the universal APK');
+      expect(m.downloadFor(null).url, m.url);
+      for (final bad in [
+        {'armeabi-v7a': {'url': 'https://evil.example/x.apk', 'sha256': arm}},
+        {'armeabi-v7a': {'url': 'https://securelyhello.thenn.in/x.apk', 'sha256': 'nope'}},
+        {'armeabi-v7a': 'x'},
+        {'../../etc': {'url': 'https://securelyhello.thenn.in/x.apk', 'sha256': arm}},
+        'x',
+      ]) {
+        expect(() => UpdateManifest.parse({...manifestJson(), 'abis': bad}, source: source), throwsFormatException,
+            reason: '$bad');
+      }
+    });
+
     test('upper-case hashes are accepted and normalised', () {
       expect(UpdateManifest.parse(manifestJson(hash: apkSha.toUpperCase()), source: source).sha256, apkSha);
     });
@@ -167,6 +191,33 @@ void main() {
       expect(nativeCalls.map((c) => c.method), containsAllInOrder(['apkInfo', 'canInstall', 'install']));
       final installed = nativeCalls.firstWhere((c) => c.method == 'install');
       expect(File((installed.arguments as Map)['path'] as String).readAsBytesSync(), apkBytes);
+    });
+
+    test('a 32-bit phone downloads the 32-bit APK', () async {
+      native['info'] = {'versionCode': 1, 'versionName': '1.0.0', 'certSha256': 'AA:BB', 'abi': 'armeabi-v7a'};
+      final requested = <Uri>[];
+      final client = MockClient((r) async {
+        requested.add(r.url);
+        if (r.url == source) {
+          return http.Response(
+              jsonEncode({
+                ...manifestJson(hash: '0' * 64),
+                'abis': {
+                  'armeabi-v7a': {
+                    'url': 'https://securelyhello.thenn.in/download/securelyhello-1.1.0-armeabi-v7a.apk',
+                    'sha256': apkSha,
+                  },
+                },
+              }),
+              200);
+        }
+        return http.Response.bytes(apkBytes, 200);
+      });
+      final u = AppUpdater(client: client, manifestUrl: source, enabled: true, downloadDir: () async => dir);
+      await u.check();
+      await u.downloadAndInstall();
+      expect(u.error, isNull, reason: 'the 32-bit file and its own hash');
+      expect(requested.last.path, endsWith('-armeabi-v7a.apk'));
     });
 
     test('a wrong hash is refused and the file deleted', () async {

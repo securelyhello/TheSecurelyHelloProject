@@ -170,9 +170,11 @@ class AppUpdater extends ChangeNotifier {
     try {
       _installed ??= await _native('info');
       final dir = await _downloadDir();
+      // The smaller APK for this phone's CPU when the site has one.
+      final download = m.downloadFor(_installed?['abi'] as String?);
       file = File('${dir.path}/securelyhello-${m.versionCode}.apk');
-      if (!(file.existsSync() && await _sha256Of(file) == m.sha256)) {
-        if (!await _download(m, file)) return;
+      if (!(file.existsSync() && await _sha256Of(file) == download.sha256)) {
+        if (!await _download(download, file)) return;
       }
       _progress = 1;
       notifyListeners();
@@ -219,8 +221,8 @@ class AppUpdater extends ChangeNotifier {
 
   /// Streams the APK to [file], hashing as it goes. False (with [error]
   /// set) when it isn't the file the manifest describes.
-  Future<bool> _download(UpdateManifest m, File file) async {
-    final res = await _client.send(http.Request('GET', m.url)).timeout(const Duration(seconds: 30));
+  Future<bool> _download(UpdateDownload d, File file) async {
+    final res = await _client.send(http.Request('GET', d.url)).timeout(const Duration(seconds: 30));
     if (res.statusCode != 200) throw HttpException('APK: HTTP ${res.statusCode}');
     final total = res.contentLength;
     if (total != null && total > _maxApkBytes) throw const HttpException('APK too large');
@@ -243,7 +245,7 @@ class AppUpdater extends ChangeNotifier {
       await out.close();
     }
     hasher.close();
-    if (digest.value.toString() != m.sha256) {
+    if (digest.value.toString() != d.sha256) {
       _error = UpdateError.hashMismatch;
       return false;
     }
