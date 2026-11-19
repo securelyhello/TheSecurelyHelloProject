@@ -29,7 +29,7 @@ SITE = os.path.join(ROOT, 'website')
 # Screens the site shows (website/index.html references these names).
 SCREENS = [
     '10_chats_unread', '12c_reply_react_edit_delete', '15c_group_chat', '13b_incoming_call',
-    '16b_calls', '14_contact_info',
+    '16b_calls', '14_contact_info', '16d_story_viewer',
 ]
 
 
