@@ -33,6 +33,45 @@ list current: move an item to "Fixed" with the commit that fixed it.
 | Calls | When one side vanished (app killed, network gone), the other side only noticed after about 6 s. | Its control channel closing is noticed: about 1 s. |
 | Chat header | On a small phone with large text, the "online" / "last seen" line was squeezed to nothing (with a 3 px overflow). | The status and the connection badge share the line. |
 
+## Android versions (checked 19 Nov 2026)
+
+The owner reported that phones on Android 11 and older couldn't get the
+app. The APK published at securelyhello.thenn.in was downloaded the way a
+phone does and checked:
+
+| Check | Result |
+|---|---|
+| Lowest Android version | `minSdkVersion` 24, which is Android 7.0. No dependency asks for more. |
+| CPU types | arm64-v8a, armeabi-v7a (32-bit) and x86_64 are all included. |
+| Signature | APK Signature Scheme v2, RSA 4096, release key `78:8E:…:B6:E1`. `apksigner` verifies it for API 24, 26, 28 and 30. |
+| Packaging | 16 KB zip alignment; dense resource table (no newer-only encodings). |
+| Download | Chrome, Samsung Internet, Mi Browser, UC, Opera Mini, Firefox, WhatsApp's in-app browser and Android's DownloadManager (7, 9 and 11) all get the APK with the right MIME type. Only requests without a user agent are refused (the site's bot filter). |
+| Install and run | The live APK, installed with `adb` on Android 11 and Android 7.0 emulators: it installs, starts and shows the welcome screen on both. |
+| Root certificates | Android 7.0 has no ISRG Root X1 (`6187b673.0` is missing from its store), so 1.0 can't reach the server there. |
+
+What did not work, and what changed:
+
+- **Android 7.0** doesn't trust ISRG Root X1, which Let's Encrypt (the API
+  and the website) chains to. The app now bundles the ISRG roots for its
+  own connections (`lib/core/networking/app_trust.dart`). The *website*
+  still can't be opened in Android 7.0's browser; that needs a certificate
+  from another CA on the web server, or the APK shared another way.
+- **Size**: the universal APK is 125 MB, and 47 MB of that is x86_64 code
+  phones never use. On old phones with little free space or a slow
+  connection the download or install can fail. `tools/release_apk.py
+  --split` now publishes 64-bit (about 46 MB) and 32-bit (about 37 MB)
+  APKs, the site can offer them, and the updater picks the right one.
+
+If someone still can't install, the exact message tells the cause:
+
+| Message | Cause |
+|---|---|
+| "App not installed" / "package conflicts" | An older copy signed with another key (a test build) is installed. Uninstall it first. |
+| "There was a problem parsing the package" | The download is incomplete. Download again, or use the smaller APK. |
+| "Not enough storage" / "App not installed" on a nearly full phone | Too little space. Use the smaller APK. |
+| "Blocked by Play Protect" | Play Protect's warning for apps from outside Play. Tap "More details", then "Install anyway". Publishing on Play removes this. |
+| The site doesn't open (Android 7.0) | The certificate issue above. |
+
 ## Open
 
 | Area | Problem | Notes |
@@ -41,4 +80,5 @@ list current: move an item to "Fixed" with the commit that fixed it.
 | RTL | There is no right-to-left language, so RTL layout is only covered by widget tests of single widgets. | Layouts use `EdgeInsetsDirectional` where it matters. |
 | Attachments | Closing the app while an attachment uploads drops it silently. The message is only stored once the upload finishes. | Resend it by hand. A pending row with a retry is planned. |
 | Long messages | Very long messages are shown in full; there is no "Read more". | Cosmetic. |
-| Invites (Android) | The full-screen takeover couldn't be reproduced on a device in the cloud session (there's no emulator). The launch-mode fix is based on how Android routes `VIEW` intents. | Check on a phone: open an invite link from WhatsApp or Chrome while the app is running. |
+| Fonts | The app downloads Inter, Manrope and Source Code Pro from fonts.gstatic.com on first use. That's a request to Google that shows the user's IP address, and text falls back to the system font where it fails. | The fonts are being bundled with the redesign. |
+| Invites (Android) | The full-screen takeover hasn't been reproduced on a device. An `am start` from the shell (Android 7.0 emulator) doesn't show it, because the shell isn't a link tapped inside another app's task. The launch-mode fix is based on how Android routes `VIEW` intents. | Check on a phone: open an invite link from WhatsApp or Chrome while the app is running. |
