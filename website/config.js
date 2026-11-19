@@ -1,6 +1,11 @@
 // Fill these in before deploying. Empty links hide their button.
 window.SITE = {
-  playStore: '', // https://play.google.com/store/apps/details?id=securelyhello.thenn.in
+  playStore: '',
+  // Direct APK download, served from this site (not committed to git; copy it
+  // to website/download/ on the server). Remove once the Play Store link is live.
+  androidApk: '/download/securelyhello.apk',
+  // SHA-256 of the APK signing certificate, shown next to the APK link.
+  apkCertSha256: '78:8E:E6:48:86:1E:AF:80:39:49:6C:23:42:64:79:39:93:04:D5:F9:A3:C6:34:63:79:5A:4A:C2:5E:11:B6:E1', // https://play.google.com/store/apps/details?id=securelyhello.thenn.in
   appStore: '', // https://apps.apple.com/app/id…
   desktop: '', // releases page with Windows / macOS / Linux builds
   source: '', // https://github.com/<owner>/<repo>

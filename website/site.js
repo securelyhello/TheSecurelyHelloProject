@@ -13,6 +13,12 @@
       a.hidden = true;
     }
   });
+  const apkNote = document.getElementById('apk-note');
+  if (apkNote && site.androidApk && site.apkCertSha256) {
+    document.getElementById('apk-cert').textContent = site.apkCertSha256;
+    apkNote.hidden = false;
+  }
+
   const soon = document.getElementById('downloads-soon');
   if (soon && !anyDownload) soon.hidden = false;
 

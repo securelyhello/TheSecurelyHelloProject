@@ -55,3 +55,8 @@ GoogleService-Info.plist
 *firebase*adminsdk*.json
 *service-account*.json
 key.properties
+
+# Release binaries are copied to the server, never committed
+website/download/
+*.apk
+*.aab
