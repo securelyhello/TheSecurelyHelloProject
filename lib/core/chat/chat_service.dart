@@ -364,6 +364,10 @@ class ChatService {
 
     // Opens the socket; if we are offline it keeps retrying on its own and
     // `_onRealtimeState(true)` picks up from there.
+    // What this app can take beyond 1.0 (stories; data-only push wake-ups).
+    unawaited(_directory
+        .setCapabilities(const ['data_push', 'stories'])
+        .catchError((Object e) => debugPrint('Capabilities not sent: $e')));
     await _directory.startRealtime();
     await drainRelayQueue();
     unawaited(resendUnsent());
@@ -2016,6 +2020,20 @@ class CallSignal {
   final Map<String, dynamic> data;
 
   const CallSignal({required this.from, required this.fromDevice, required this.sentAt, required this.data});
+
+  Map<String, dynamic> toJson() =>
+      {'from': from, 'fromDevice': fromDevice, 'sentAt': sentAt.millisecondsSinceEpoch, 'data': data};
+
+  static CallSignal? fromJson(Object? j) {
+    if (j is! Map) return null;
+    final from = j['from'], device = j['fromDevice'], at = j['sentAt'], data = j['data'];
+    if (from is! String || device is! String || at is! int || data is! Map) return null;
+    return CallSignal(
+        from: from,
+        fromDevice: device,
+        sentAt: DateTime.fromMillisecondsSinceEpoch(at),
+        data: Map<String, dynamic>.from(data));
+  }
 }
 
 enum Verification {

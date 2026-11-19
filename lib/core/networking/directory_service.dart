@@ -563,6 +563,10 @@ class DirectoryService {
   Future<void> removeDevice(String deviceId) =>
       _request('DELETE', '/api/devices/${Uri.encodeComponent(deviceId)}');
 
+  /// Tells the server what this device can take beyond 1.0.
+  Future<void> setCapabilities(List<String> capabilities) =>
+      _request('PUT', '/api/devices/current/capabilities', body: {'capabilities': capabilities});
+
   /// Registers this device's FCM token for content-free wake-ups.
   Future<void> registerPushToken(String token) => _request(
       'PUT', '/api/devices/current/push',

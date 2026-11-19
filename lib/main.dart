@@ -1,8 +1,11 @@
 import 'dart:async';
 
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 
+import 'package:securelyhello/core/calls/call_system.dart';
 import 'package:securelyhello/core/notifications/notification_actions.dart';
+import 'package:securelyhello/core/notifications/push_background.dart';
 import 'package:securelyhello/core/update/app_updater.dart';
 import 'package:securelyhello/features/update/update_widgets.dart';
 import 'package:flutter/services.dart';
@@ -105,12 +108,21 @@ Future<void> main() async {
     directoryService: directoryService,
     localStorage: localStorage,
   );
+  await DeviceCallMedia.loadSettings();
   final calls = CallService(
     chat: chatService,
     canCall: (userId) => contactsProvider.getContact(userId) != null,
   );
+  // 1.1 gets data-only pushes: decrypt and notify (or ring) in the background.
+  if (PushService.configured) FirebaseMessaging.onBackgroundMessage(pushBackgroundHandler);
   final notifications = NotificationService();
   await notifications.init(backgroundHandler: notificationBackgroundHandler);
+  // Calls ring like a phone and keep going in the background (Android).
+  final callSystem = CallSystemHolder(
+    calls,
+    nameOf: (peer) => contactsProvider.getContact(peer)?.displayLabel ?? 'Securely Hello',
+    notifier: notifications,
+  );
   final push = PushService(directory: directoryService, onWake: chatService.drainRelayQueue);
   final connectionProvider = ConnectionProvider(
     connectionManager: connectionManager,
@@ -157,6 +169,7 @@ Future<void> main() async {
       theme: theme,
       language: language,
       updater: updater,
+      callSystem: callSystem,
     ),
   );
 }
@@ -209,6 +222,7 @@ class SecurelyHelloApp extends StatelessWidget {
   final ThemeController theme;
   final LocaleController language;
   final AppUpdater? updater;
+  final CallSystemHolder? callSystem;
 
   SecurelyHelloApp({
     super.key,
@@ -223,6 +237,7 @@ class SecurelyHelloApp extends StatelessWidget {
     this.profiles,
     this.calls,
     this.updater,
+    this.callSystem,
     ThemeController? theme,
     LocaleController? language,
   })  : theme = theme ?? ThemeController(),
@@ -241,6 +256,7 @@ class SecurelyHelloApp extends StatelessWidget {
         ChangeNotifierProvider<PendingInvites?>.value(value: invites),
         ChangeNotifierProvider<CallService?>.value(value: calls),
         ChangeNotifierProvider<AppUpdater?>.value(value: updater),
+        Provider<CallSystemHolder?>.value(value: callSystem),
         ChangeNotifierProvider<ThemeController>.value(value: theme),
         ChangeNotifierProvider<LocaleController>.value(value: language),
         if (profiles != null) ChangeNotifierProvider<ProfileService>.value(value: profiles!),

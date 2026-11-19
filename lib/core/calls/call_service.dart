@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:securelyhello/core/chat/chat_service.dart';
@@ -62,6 +63,9 @@ class ActiveCall {
   bool cameraOff = false;
   bool speakerOn = false;
 
+  /// The chosen audio output's device id, if one was picked.
+  String? audioOutput;
+
   /// No microphone or camera could be opened; the call still connects and
   /// we can hear and see them.
   bool mediaUnavailable = false;
@@ -81,12 +85,30 @@ abstract class CallMedia {
 class DeviceCallMedia implements CallMedia {
   const DeviceCallMedia();
 
+  /// Low-bandwidth mode (a setting): small, slow video for poor connections.
+  static bool lowBandwidth = false;
+  static const lowBandwidthPref = 'calls_low_bandwidth';
+
+  static Future<void> loadSettings() async {
+    lowBandwidth = (await SharedPreferences.getInstance()).getBool(lowBandwidthPref) ?? false;
+  }
+
+  static Future<void> setLowBandwidth(bool on) async {
+    lowBandwidth = on;
+    await (await SharedPreferences.getInstance()).setBool(lowBandwidthPref, on);
+  }
+
+  /// Camera constraints: 720p normally, 240p at 15 fps in low-bandwidth mode.
+  static Map<String, dynamic> videoConstraints({required bool low}) => low
+      ? {'facingMode': 'user', 'width': 320, 'height': 240, 'frameRate': 15}
+      : {'facingMode': 'user', 'width': 1280, 'height': 720};
+
   @override
   Future<MediaStream?> open({required bool video}) async {
     try {
       return await navigator.mediaDevices.getUserMedia({
         'audio': true,
-        'video': video ? {'facingMode': 'user', 'width': 1280, 'height': 720} : false,
+        'video': video ? videoConstraints(low: lowBandwidth) : false,
       });
     } catch (e) {
       debugPrint('No call media: $e');
@@ -311,6 +333,54 @@ class CallService extends ChangeNotifier {
       // Desktop: the system picks the output.
     }
     notifyListeners();
+  }
+
+  /// Where a call offer that arrived while the app was closed waits (the
+  /// push handler decrypts it and rings; see push_background.dart).
+  static const pendingOfferKey = 'pending_call_offer';
+
+  /// Remembers an offer received in the background, for the app to pick up.
+  static Future<void> stashOffer(CallSignal s) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(pendingOfferKey, jsonEncode(s.toJson()));
+  }
+
+  /// Rings for an offer stashed while the app was closed, if it is recent.
+  Future<void> replayStashedOffer() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(pendingOfferKey);
+    if (raw == null) return;
+    await prefs.remove(pendingOfferKey);
+    try {
+      final s = CallSignal.fromJson(jsonDecode(raw));
+      if (s != null && s.data['t'] == 'offer') await _onSignal(s);
+    } on FormatException {
+      // Ignore a damaged entry.
+    }
+  }
+
+  /// Where call audio can go (earpiece, speaker, Bluetooth, wired).
+  Future<List<MediaDeviceInfo>> audioOutputs() async {
+    try {
+      return await Helper.audiooutputs;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Sends call audio to [deviceId] (from [audioOutputs]).
+  Future<void> selectAudioOutput(String deviceId) async {
+    final c = _call;
+    try {
+      await Helper.selectAudioOutput(deviceId);
+      if (c != null) {
+        c.speakerOn = deviceId.toLowerCase().contains('speaker');
+        c.audioOutput = deviceId;
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Audio output not changed: $e');
+    }
   }
 
   // Signaling

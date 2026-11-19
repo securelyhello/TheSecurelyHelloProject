@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import 'package:securelyhello/core/calls/call_service.dart';
+import 'package:securelyhello/core/calls/call_system.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -541,6 +544,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               : null,
                         ),
                       ),
+                    ]);
+                  }),
+
+                  // Calls
+                  SectionHeader('Calls', padding: EdgeInsets.fromLTRB(28, 20, 28, 8)),
+                  Builder(builder: (context) {
+                    final system = context.read<CallSystemHolder?>()?.system;
+                    return group([
+                      SwitchListTile(
+                        key: const ValueKey('settings-low-bandwidth'),
+                        secondary: const Icon(LucideIcons.gauge),
+                        title: const Text('Low-bandwidth calls'),
+                        subtitle: const Text('Smaller video at 15 frames a second, for slow connections'),
+                        value: DeviceCallMedia.lowBandwidth,
+                        onChanged: (v) async {
+                          await DeviceCallMedia.setLowBandwidth(v);
+                          setState(() {});
+                        },
+                      ),
+                      if (system != null && system.enabled)
+                        FutureBuilder<bool>(
+                          future: system.canUseFullScreen(),
+                          builder: (context, snap) => snap.data == false
+                              ? ListTile(
+                                  leading: const Icon(LucideIcons.phoneIncoming),
+                                  title: const Text('Show calls on the lock screen'),
+                                  subtitle: const Text(
+                                      'Android has turned this off for Securely Hello. Allow it so calls ring like a phone call.'),
+                                  trailing: const Icon(LucideIcons.chevronRight),
+                                  onTap: system.openFullScreenSettings,
+                                )
+                              : const SizedBox.shrink(),
+                        ),
                     ]);
                   }),
 

@@ -7,6 +7,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import 'package:securelyhello/core/calls/call_service.dart';
+import 'package:securelyhello/core/calls/call_system.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/shared/widgets/avatar_widget.dart';
 
@@ -112,6 +113,27 @@ class _CallScreenState extends State<CallScreen> {
       if (_local.srcObject != c.localStream) _local.srcObject = c.localStream;
     }
     final remoteVideo = c.video && (c.remoteStream?.getVideoTracks().isNotEmpty ?? false);
+    // Picture-in-picture (Android, video calls): only their video.
+    final pip = context.watch<CallSystemHolder?>()?.system.inPictureInPicture;
+    if (pip != null) {
+      return ValueListenableBuilder<bool>(
+        valueListenable: pip,
+        builder: (context, inPip, child) => inPip ? _pipView(c, name, remoteVideo) : child!,
+        child: _fullView(context, calls, c, name, remoteVideo),
+      );
+    }
+    return _fullView(context, calls, c, name, remoteVideo);
+  }
+
+  Widget _pipView(ActiveCall c, String name, bool remoteVideo) => ColoredBox(
+        key: const ValueKey('call-pip'),
+        color: Colors.black,
+        child: remoteVideo && _renderersReady
+            ? RTCVideoView(_remote, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
+            : Center(child: AvatarWidget(displayName: name, seed: c.peer, size: AvatarSize.large)),
+      );
+
+  Widget _fullView(BuildContext context, CallService calls, ActiveCall c, String name, bool remoteVideo) {
     final localVideo = c.video && !c.cameraOff && (c.localStream?.getVideoTracks().isNotEmpty ?? false);
     final t = Theme.of(context).textTheme;
     const fg = Colors.white;
@@ -255,11 +277,12 @@ class _Controls extends StatelessWidget {
         ),
         if (mobile)
           _RoundButton(
-            icon: LucideIcons.volume2,
-            label: 'Speaker',
+            key: const ValueKey('call-audio'),
+            icon: c.speakerOn ? LucideIcons.volume2 : LucideIcons.ear,
+            label: c.speakerOn ? 'Speaker' : 'Audio',
             color: c.speakerOn ? Colors.white : Colors.white24,
             iconColor: c.speakerOn ? Colors.black : Colors.white,
-            onPressed: service.toggleSpeaker,
+            onPressed: () => _pickAudio(context),
           ),
         if (c.video) ...[
           _RoundButton(
@@ -287,6 +310,44 @@ class _Controls extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  /// Speaker, earpiece, Bluetooth or wired: a sheet when there is more
+  /// than a phone's two choices, otherwise a speaker toggle.
+  Future<void> _pickAudio(BuildContext context) async {
+    final outputs = await service.audioOutputs();
+    if (!context.mounted) return;
+    if (outputs.length <= 2) {
+      await service.toggleSpeaker();
+      return;
+    }
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final o in outputs)
+              ListTile(
+                leading: Icon(_audioIcon(o.deviceId, o.label)),
+                title: Text(o.label.isEmpty ? o.deviceId : o.label),
+                trailing: o.deviceId == call.audioOutput ? const Icon(LucideIcons.check) : null,
+                onTap: () => Navigator.pop(ctx, o.deviceId),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked != null) await service.selectAudioOutput(picked);
+  }
+
+  static IconData _audioIcon(String id, String label) {
+    final s = '$id $label'.toLowerCase();
+    if (s.contains('bluetooth')) return LucideIcons.bluetooth;
+    if (s.contains('speaker')) return LucideIcons.volume2;
+    if (s.contains('headset') || s.contains('wired')) return LucideIcons.headphones;
+    return LucideIcons.ear;
   }
 }
 

@@ -36,7 +36,26 @@ void notificationBackgroundHandler(NotificationResponse response) {
 
 /// Signs in from the saved session and performs [action]. Returns whether
 /// it was done.
-Future<bool> runHeadless(NotificationAction action) async {
+Future<bool> runHeadless(NotificationAction action) => withHeadlessChat((chat, _) async {
+      switch (action.kind) {
+        case NotificationActionKind.reply:
+          await chat.sendMessage(action.chatId, action.text);
+          await chat.markConversationRead(action.chatId);
+        case NotificationActionKind.markRead:
+          await chat.markConversationRead(action.chatId);
+        case NotificationActionKind.acceptCall:
+        case NotificationActionKind.declineCall:
+          // Answer opens the app; a ring from a closed app times out.
+          break;
+      }
+      // Receipts are sent in a short batch; let it go before stopping.
+      await Future<void>.delayed(const Duration(seconds: 2));
+    });
+
+/// Runs [body] with a signed-in [ChatService] on a background isolate (the
+/// app's own keys, storage and session), then stops it. Returns false when
+/// nobody is signed in or something failed.
+Future<bool> withHeadlessChat(Future<void> Function(ChatService chat, DirectoryService directory) body) async {
   WidgetsFlutterBinding.ensureInitialized();
   DartPluginRegistrant.ensureInitialized();
   try {
@@ -57,18 +76,10 @@ Future<bool> runHeadless(NotificationAction action) async {
     await auth.init();
     if (!auth.isAuthenticated || auth.identity == null) return false;
     await chat.start(identity: auth.identity!, myUserId: auth.myUserId!, deviceId: auth.deviceId!);
-    switch (action.kind) {
-      case NotificationActionKind.reply:
-        await chat.sendMessage(action.chatId, action.text);
-        await chat.markConversationRead(action.chatId);
-      case NotificationActionKind.markRead:
-        await chat.markConversationRead(action.chatId);
-    }
-    // Receipts are sent in a short batch; let it go before stopping.
-    await Future<void>.delayed(const Duration(seconds: 2));
+    await body(chat, directory);
     return true;
   } catch (e) {
-    debugPrint('Notification action in the background failed: $e');
+    debugPrint('Background work failed: $e');
     return false;
   } finally {
     try {

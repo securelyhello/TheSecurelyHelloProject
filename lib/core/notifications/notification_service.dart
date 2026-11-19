@@ -7,12 +7,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:securelyhello/core/calls/call_system.dart';
 import 'package:securelyhello/core/notifications/notification_model.dart';
 
 export 'package:securelyhello/core/notifications/notification_model.dart' show MuteRules;
 
 /// What a notification action asks for.
-enum NotificationActionKind { reply, markRead }
+enum NotificationActionKind { reply, markRead, acceptCall, declineCall }
 
 /// A Reply or Mark-as-read tapped on a message notification.
 class NotificationAction {
@@ -41,6 +42,10 @@ class NotificationAction {
         return text.isEmpty ? null : NotificationAction(NotificationActionKind.reply, chat, text);
       case NotificationService.markReadAction:
         return NotificationAction(NotificationActionKind.markRead, chat);
+      case NotificationService.acceptCallAction:
+        return NotificationAction(NotificationActionKind.acceptCall, chat);
+      case NotificationService.declineCallAction:
+        return NotificationAction(NotificationActionKind.declineCall, chat);
     }
     return null;
   }
@@ -55,7 +60,7 @@ class NotificationAction {
 /// photo, carry Reply and Mark-as-read actions (which work without opening
 /// the app, see notification_actions.dart), and a summary with the unread
 /// count drives the launcher badge. Chats can be muted.
-class NotificationService {
+class NotificationService implements IncomingCallNotifier {
   static const _enabledPref = 'notifications_enabled';
   static const _oldPreviewPref = 'notifications_preview';
   static const _showContentPref = 'notifications_show_content';
@@ -71,6 +76,8 @@ class NotificationService {
 
   static const replyAction = 'reply';
   static const markReadAction = 'mark_read';
+  static const acceptCallAction = 'call_accept';
+  static const declineCallAction = 'call_decline';
 
   /// The port the main isolate listens on for actions handled in the
   /// background.
@@ -90,6 +97,9 @@ class NotificationService {
 
   /// Set by the app lifecycle observer.
   bool appInForeground = true;
+
+  /// A push arrived while the app runs in the background (fetch the queue).
+  void Function()? onWake;
 
   /// Called with the contact id when a notification is tapped.
   void Function(String contactId)? onOpenChat;
@@ -175,6 +185,10 @@ class NotificationService {
     final port = ReceivePort();
     IsolateNameServer.registerPortWithName(port.sendPort, portName);
     port.listen((m) {
+      if (m is Map && m['k'] == 'wake') {
+        onWake?.call();
+        return;
+      }
       final a = NotificationAction.fromMessage(m);
       if (a != null) unawaited(_run(a));
     });
@@ -199,10 +213,14 @@ class NotificationService {
     }
     try {
       await handler(a);
-      if (a.kind == NotificationActionKind.markRead) {
-        await clearFor(a.chatId);
-      } else {
-        await _showReplied(a);
+      switch (a.kind) {
+        case NotificationActionKind.markRead:
+          await clearFor(a.chatId);
+        case NotificationActionKind.reply:
+          await _showReplied(a);
+        case NotificationActionKind.acceptCall:
+        case NotificationActionKind.declineCall:
+          await cancelIncomingCall();
       }
     } catch (e) {
       debugPrint('Notification action failed: $e');
@@ -220,6 +238,11 @@ class NotificationService {
       await android.createNotificationChannel(AndroidNotificationChannel(id, name,
           description: desc, importance: Importance.high, sound: sound, playSound: _sound != 'none'));
     }
+    await android.createNotificationChannel(const AndroidNotificationChannel(callsChannel, 'Incoming calls',
+        description: 'Rings for voice and video calls',
+        importance: Importance.max,
+        sound: UriAndroidNotificationSound('content://settings/system/ringtone'),
+        audioAttributesUsage: AudioAttributesUsage.notificationRingtone));
     await android.createNotificationChannel(const AndroidNotificationChannel(requestsChannel, 'Contact requests',
         description: 'People who want to chat with you', importance: Importance.defaultImportance));
     await android.createNotificationChannel(const AndroidNotificationChannel(systemChannel, 'App and account',
@@ -474,6 +497,52 @@ class NotificationService {
       debugPrint('Showing a notification failed: $e');
     }
   }
+
+  /// A call ringing: full screen on a locked phone (where Android allows
+  /// it), otherwise a heads-up notification, with Accept and Decline. It
+  /// rings until answered (insistent) and follows Do Not Disturb's rules
+  /// for calls. Names are shown only with "Show message text" on.
+  @override
+  Future<void> showIncomingCall({required String callId, required String name, required bool video}) async {
+    if (!_ready || !_enabled) return;
+    final kind = video ? 'video call' : 'voice call';
+    try {
+      await _plugin.show(
+        id: NotificationIds.call,
+        title: _showContent ? name : 'Securely Hello',
+        body: 'Incoming $kind',
+        payload: callId,
+        notificationDetails: NotificationDetails(
+          android: AndroidNotificationDetails(
+            callsChannel,
+            'Incoming calls',
+            importance: Importance.max,
+            priority: Priority.max,
+            category: AndroidNotificationCategory.call,
+            fullScreenIntent: true,
+            ongoing: true,
+            autoCancel: false,
+            visibility: NotificationVisibility.public,
+            timeoutAfter: 60000,
+            audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
+            additionalFlags: Int32List.fromList([4]), // FLAG_INSISTENT: keeps ringing
+            actions: const [
+              AndroidNotificationAction(declineCallAction, 'Decline', semanticAction: SemanticAction.delete),
+              AndroidNotificationAction(acceptCallAction, 'Answer', showsUserInterface: true),
+            ],
+          ),
+          iOS: const DarwinNotificationDetails(interruptionLevel: InterruptionLevel.timeSensitive),
+          macOS: const DarwinNotificationDetails(),
+          linux: const LinuxNotificationDetails(urgency: LinuxNotificationUrgency.critical),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Incoming-call notification failed: $e');
+    }
+  }
+
+  @override
+  Future<void> cancelIncomingCall() => _cancel(NotificationIds.call);
 
   /// The chat was opened (or marked read): clear its notification.
   Future<void> clearFor(String contactId) async {

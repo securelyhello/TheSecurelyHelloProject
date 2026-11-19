@@ -67,4 +67,11 @@ void main() {
     expect(CallService.parseControlHangUp('{"t":"end","id":"c1","pad":"${'x' * 300}"}', 'c1'), isNull,
         reason: 'oversized');
   });
+
+  test('low-bandwidth mode asks the camera for much less', () {
+    final low = DeviceCallMedia.videoConstraints(low: true);
+    final normal = DeviceCallMedia.videoConstraints(low: false);
+    expect(low['width'] as int, lessThan(normal['width'] as int));
+    expect(low['frameRate'], 15);
+  });
 }

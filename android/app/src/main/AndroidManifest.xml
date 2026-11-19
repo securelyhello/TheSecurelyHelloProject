@@ -18,6 +18,17 @@
     <!-- In-app updater (APK builds only; the Play build strips it, see
          src/play/AndroidManifest.xml). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Calls in the background: a foreground service while a call runs
+         (phone call + microphone, + camera for video), ringing over the lock
+         screen, and the proximity sensor. Play needs the foreground-service
+         declaration described in server/DEPLOY.md. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <application
@@ -40,6 +51,7 @@
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
+            android:supportsPictureInPicture="true"
             android:windowSoftInputMode="adjustResize">
             <!-- Specifies an Android theme to apply to this Activity as soon as
                  the Android process has started. This theme is visible to the user
@@ -63,6 +75,11 @@
                 <data android:scheme="securelyhello" android:host="invite" />
             </intent-filter>
         </activity>
+        <service
+            android:name=".OngoingCallService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall|microphone|camera" />
+        <receiver android:name=".CallActionReceiver" android:exported="false" />
         <!-- In-app updater: PackageInstaller reports here. -->
         <receiver android:name=".InstallResultReceiver" android:exported="false" />
         <!-- Small icon for notifications that Firebase Messaging displays

@@ -14,6 +14,7 @@ import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/features/contacts/widgets/invite_prompt.dart';
 import 'package:securelyhello/core/calls/call_service.dart';
 import 'package:securelyhello/core/invites/invites.dart';
+import 'package:securelyhello/core/calls/call_system.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
 import 'package:securelyhello/core/chat/profile_service.dart';
 import 'package:securelyhello/core/crypto/device_manager.dart';
@@ -50,6 +51,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   StreamSubscription<Message>? _messageSub;
   StreamSubscription<Map<String, dynamic>>? _deviceSub;
   late final NotificationService _notifications;
+  CallService? _calls;
+  CallSystemHolder? _callSystem;
   ProfileService? _profiles;
   late final AuthProvider _auth;
   late final ChatProvider _chat;
@@ -93,13 +96,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (identity == null || myUserId == null || deviceId == null) return;
     final push = context.read<PushService?>();
     _invites = context.read<PendingInvites?>();
-    _callSub ??= context.read<CallService?>()?.onIncoming.listen(_onIncomingCall);
+    _calls = context.read<CallService?>();
+    _callSystem = context.read<CallSystemHolder?>();
+    _callSub ??= _calls?.onIncoming.listen(_onIncomingCall);
 
     // Subscribe before the socket opens so no presence or request push is
     // missed, then start messaging and load the lists.
     _contacts.init();
     await _chat.init(identity: identity, myUserId: myUserId, deviceId: deviceId);
     await _contacts.loadContacts();
+    // A call that rang while the app was closed (push): pick it up.
+    unawaited(_calls?.replayStashedOffer());
     _contacts.addListener(_syncProfiles);
     _syncProfiles();
 
@@ -129,7 +136,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           await _chat.markRead(a.chatId);
         case NotificationActionKind.markRead:
           await _chat.markRead(a.chatId);
+        case NotificationActionKind.acceptCall:
+          final calls = _calls;
+          if (calls?.call?.id == a.chatId) {
+            await calls!.accept();
+            if (mounted) unawaited(showCallScreen(context));
+          }
+        case NotificationActionKind.declineCall:
+          if (_calls?.call?.id == a.chatId) await _calls!.decline();
       }
+    };
+    _notifications.onWake = () => unawaited(_chat.onResume());
+    // Tapping the ongoing-call notification shows the call.
+    _callSystem?.onOpen = () {
+      if (mounted) unawaited(showCallScreen(context));
     };
     unawaited(_notifications.requestPermission());
     unawaited(push?.start());
@@ -194,14 +214,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _onIncomingCall(ActiveCall c) {
     if (!mounted) return;
+    // The ringing notification (full screen when locked) comes from
+    // CallSystem; in the app, the call screen.
     unawaited(showCallScreen(context));
-    // Only shows when the app is in the background.
-    _notifications.showMessage(
-      contactId: c.peer,
-      sender: _contacts.getContact(c.peer)?.displayLabel ?? 'Securely Hello',
-      preview: c.video ? '📹 Incoming video call' : '📞 Incoming voice call',
-      activeConversation: c.peer,
-    );
   }
 
   @override
@@ -219,6 +234,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _notifications.onOpenChat = null;
     }
     _notifications.onAction = null;
+    _notifications.onWake = null;
     super.dispose();
   }
 

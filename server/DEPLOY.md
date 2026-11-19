@@ -108,10 +108,51 @@ messages wait in the relay queue until the app is opened.
    `.env` (`FIREBASE_*`, see `.env.example`), then rebuild and ship the app.
    No `google-services.json` or `GoogleService-Info.plist` is needed.
 
-A push says only "You have a new message" or "You have a new contact
-request". It is sent only to devices without a live socket, and at most
-once per 30 s per device. The app then fetches and decrypts the queue
-itself.
+A push carries no content. It is sent only to devices without a live
+socket. What happens next depends on the app's version:
+
+- **1.1 and later** say so with the device capability `data_push`. They get
+  a data-only, high-priority push (at most one every 5 s per device). The
+  app wakes in the background, fetches and decrypts the queue, and shows
+  the real notification (names and text only if the user turned that on).
+  For a call, it rings with the full-screen incoming-call screen.
+- **1.0** gets a notification push saying "You have a new message" or "You
+  have a new contact request" (at most one every 30 s per device). The app
+  fetches the queue when it is opened.
+
+Without Firebase, calls still ring while the app is running. During a call
+a foreground service keeps it going with the screen off or the app in the
+background (see "Google Play: foreground service declaration").
+
+## Google Play: foreground service declaration
+
+The app runs a foreground service during calls
+(`android/app/src/main/kotlin/securelyhello/thenn/OngoingCallService.kt`)
+with the types `phoneCall`, `microphone` and `camera`, and posts
+full-screen incoming-call notifications. When the app goes on Play, fill
+in Play Console → App content:
+
+1. **Foreground service permissions.** Declare
+   `FOREGROUND_SERVICE_PHONE_CALL`, `FOREGROUND_SERVICE_MICROPHONE` and
+   `FOREGROUND_SERVICE_CAMERA`. For each:
+   - Task: "Ongoing voice and video calls between users."
+   - User impact if deferred: "The call would drop when the screen turns
+     off or the user switches apps."
+   - A short video showing a call that keeps going with the app in the
+     background and the ongoing-call notification (Hang up / Mute).
+2. **Full-screen intent.** Declare `USE_FULL_SCREEN_INTENT` for the core
+   function "Calling / video calling". It is used only for incoming
+   calls. On Android 14+ users can withdraw it; Settings → Calls → "Show
+   calls on the lock screen" sends them to the system switch.
+3. **REQUEST_INSTALL_PACKAGES must not be in the Play build.** Build with
+   `--dart-define=DISTRIBUTION=play`. That turns the in-app updater off and
+   removes the permission from the release manifest
+   (`android/app/src/play/AndroidManifest.xml`). Check it with
+   `aapt2 dump permissions app-release.aab`, or in the Play Console's
+   bundle explorer.
+
+`MANAGE_OWN_CALLS` is a normal permission. Android 14 requires it for a
+`phoneCall` foreground service from an app that isn't the dialer.
 
 ## Storage
 

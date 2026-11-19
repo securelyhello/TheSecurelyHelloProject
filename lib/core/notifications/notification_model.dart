@@ -112,5 +112,6 @@ class NotificationIds {
   static const summary = 1;
   static const request = 2;
   static const update = 3;
+  static const call = 4;
   static int chat(String chatId) => (chatId.hashCode & 0x3fffffff) + 1000;
 }
