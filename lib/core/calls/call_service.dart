@@ -668,6 +668,22 @@ class CallService extends ChangeNotifier {
     if (sentDirect) await Future<void>.delayed(const Duration(milliseconds: 100));
     await _close(c);
     final notice = callNotice(c, why, wasActive: wasActive, ringing: phase == CallPhase.incoming);
+    // A call answered on our other device is logged there.
+    if (why != CallEnd.elsewhere) {
+      try {
+        await _chat.logCall(CallRecord(
+          id: c.id,
+          peer: c.peer,
+          video: c.video,
+          outgoing: c.outgoing,
+          at: c.connectedAt ?? DateTime.now(),
+          duration: wasActive ? c.elapsed : Duration.zero,
+          result: why.wire,
+        ));
+      } catch (e) {
+        debugPrint('Call not logged: $e');
+      }
+    }
     try {
       await _chat.addCallNotice(c.peer, notice);
     } catch (e) {

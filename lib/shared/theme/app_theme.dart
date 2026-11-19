@@ -399,7 +399,7 @@ abstract final class AppTheme {
         ),
         behavior: SnackBarBehavior.floating,
         elevation: 4,
-        actionTextColor: isDark ? p.accent : const Color(0xFF5EEAD4),
+        actionTextColor: isDark ? p.accent : const Color(0xFFC2BAFF),
         width: null,
       ),
 

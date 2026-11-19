@@ -15,8 +15,6 @@ import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/features/chat/widgets/conversation_tile.dart';
 import 'package:securelyhello/features/groups/group_info_screen.dart';
-import 'package:securelyhello/features/groups/new_group_screen.dart';
-import 'package:securelyhello/features/chat/widgets/new_chat_sheet.dart';
 import 'package:securelyhello/features/contacts/widgets/contact_info_sheet.dart';
 import 'package:securelyhello/features/home/chat_navigation.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
@@ -70,17 +68,9 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
     if (mounted) openChat(context, contactUserId);
   }
 
-  Future<void> _newChat() async {
-    final id = await showNewChatSheet(context);
-    if (id == null || !mounted) return;
-    if (id == newGroupChoice) {
-      final group = await Navigator.of(context)
-          .push<String>(MaterialPageRoute(builder: (_) => const NewGroupScreen()));
-      if (group != null && mounted) openChat(context, group);
-      return;
-    }
-    await _startChat(id);
-  }
+  /// People: start a chat, a group, add someone or answer requests.
+  Future<void> _newChat() => Navigator.pushNamed(context, '/people');
+
 
   Future<void> _conversationMenu(
     Conversation conv,

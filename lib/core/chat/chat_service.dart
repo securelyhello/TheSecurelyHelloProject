@@ -622,6 +622,40 @@ class ChatService {
     }
   }
 
+  // Call history (the Calls tab), on this device only, sealed at rest.
+
+  static const callLogLimit = 200;
+
+  /// Adds a finished call to the history (newest first, at most
+  /// [callLogLimit]).
+  Future<void> logCall(CallRecord r) async {
+    final list = await callLog();
+    list.removeWhere((c) => c.id == r.id);
+    list.insert(0, r);
+    if (list.length > callLogLimit) list.removeRange(callLogLimit, list.length);
+    await _storage.kvSetSealed('call_log', jsonEncode([for (final c in list) c.toJson()]));
+    if (!_callLogChanged.isClosed) _callLogChanged.add(null);
+  }
+
+  /// The call history, newest first.
+  Future<List<CallRecord>> callLog() async {
+    final raw = await _storage.kvGetSealed('call_log');
+    if (raw == null) return [];
+    try {
+      return [for (final j in jsonDecode(raw) as List) ?CallRecord.fromJson(j)];
+    } on FormatException {
+      return [];
+    }
+  }
+
+  Future<void> clearCallLog() async {
+    await _storage.kvDelete('call_log');
+    if (!_callLogChanged.isClosed) _callLogChanged.add(null);
+  }
+
+  Stream<void> get onCallLogChanged => _callLogChanged.stream;
+  final _callLogChanged = StreamController<void>.broadcast();
+
   // Stories (see StoryService)
 
   /// Seals [payload] for those of [userId]'s devices in [deviceIds] (the
@@ -2094,6 +2128,61 @@ class CallSignal {
         fromDevice: device,
         sentAt: DateTime.fromMillisecondsSinceEpoch(at),
         data: Map<String, dynamic>.from(data));
+  }
+}
+
+/// One call in the history.
+class CallRecord {
+  const CallRecord({
+    required this.id,
+    required this.peer,
+    required this.video,
+    required this.outgoing,
+    required this.at,
+    required this.duration,
+    required this.result,
+  });
+
+  final String id;
+  final String peer;
+  final bool video;
+  final bool outgoing;
+  final DateTime at;
+
+  /// How long it was connected (zero if it never was).
+  final Duration duration;
+
+  /// hangup, declined, busy, noanswer, failed or elsewhere (CallEnd.wire).
+  final String result;
+
+  /// A call we didn't pick up.
+  bool get missed => !outgoing && duration == Duration.zero && result != 'declined' && result != 'elsewhere';
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'peer': peer,
+        'video': video,
+        'out': outgoing,
+        'at': at.millisecondsSinceEpoch,
+        'secs': duration.inSeconds,
+        'r': result,
+      };
+
+  static CallRecord? fromJson(Object? j) {
+    if (j is! Map) return null;
+    try {
+      return CallRecord(
+        id: j['id'] as String,
+        peer: j['peer'] as String,
+        video: j['video'] == true,
+        outgoing: j['out'] == true,
+        at: DateTime.fromMillisecondsSinceEpoch(j['at'] as int),
+        duration: Duration(seconds: j['secs'] as int? ?? 0),
+        result: j['r'] as String? ?? 'hangup',
+      );
+    } catch (_) {
+      return null;
+    }
   }
 }
 

@@ -111,9 +111,10 @@ class EncryptionBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF2A2614) : const Color(0xFFFFF5D6);
-    final fg = isDark ? const Color(0xFFF1DE9E) : const Color(0xFF5C4708);
+    // Calm and on-brand: reassurance, not a warning.
+    final p = context.palette;
+    final bg = p.accentContainer.withValues(alpha: 0.55);
+    final fg = p.onAccentContainer;
     return Padding(
       padding: const EdgeInsets.fromLTRB(32, 12, 32, 8),
       child: Center(
@@ -136,7 +137,7 @@ class EncryptionBanner extends StatelessWidget {
                   children: [
                     Padding(
                       padding: const EdgeInsets.only(top: 1),
-                      child: Icon(LucideIcons.lock, size: 13, color: fg),
+                      child: Icon(LucideIcons.shieldCheck, size: 14, color: fg),
                     ),
                     const SizedBox(width: 7),
                     Flexible(

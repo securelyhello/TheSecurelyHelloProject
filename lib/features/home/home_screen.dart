@@ -6,6 +6,7 @@ import 'package:securelyhello/core/update/app_updater.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:securelyhello/features/calls/call_screen.dart';
 import 'package:securelyhello/features/chat/chat_names.dart';
@@ -26,7 +27,7 @@ import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/features/chat/screens/chat_screen.dart';
 import 'package:securelyhello/features/chat/screens/conversation_list_screen.dart';
-import 'package:securelyhello/features/contacts/screens/contact_list_screen.dart';
+import 'package:securelyhello/features/calls/calls_screen.dart';
 import 'package:securelyhello/features/home/chat_navigation.dart';
 import 'package:securelyhello/features/settings/screens/settings_screen.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
@@ -52,6 +53,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   StreamSubscription<Message>? _messageSub;
   StreamSubscription<Map<String, dynamic>>? _deviceSub;
   late final NotificationService _notifications;
+
+  /// Missed calls since the Calls tab was last opened (its badge).
+  int _missed = 0;
+  StreamSubscription<void>? _callLogSub;
+
+  Future<void> _countMissed() async {
+    final prefs = await SharedPreferences.getInstance();
+    final seen = prefs.getInt('calls_seen_at') ?? 0;
+    final log = await _chat.service.callLog();
+    final n = log.where((c) => c.missed && c.at.millisecondsSinceEpoch > seen).length;
+    if (mounted && n != _missed) setState(() => _missed = n);
+  }
+
+  Future<void> _selectTab(int i) async {
+    setState(() => _currentIndex = i);
+    if (i == 1 && _missed > 0) {
+      setState(() => _missed = 0);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('calls_seen_at', DateTime.now().millisecondsSinceEpoch);
+    }
+  }
   CallService? _calls;
   CallSystemHolder? _callSystem;
   ProfileService? _profiles;
@@ -59,9 +81,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late final ChatProvider _chat;
   late final ContactsProvider _contacts;
 
+  /// Chats (people are behind "New chat"), Calls, Settings.
   static const _tabs = <Widget>[
     ConversationListScreen(),
-    ContactListScreen(),
+    CallsScreen(),
     SettingsScreen(),
   ];
 
@@ -108,6 +131,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _chat.init(identity: identity, myUserId: myUserId, deviceId: deviceId);
     unawaited(stories?.start(myUserId, deviceId: deviceId));
     await _contacts.loadContacts();
+    _callLogSub ??= _chat.service.onCallLogChanged.listen((_) => unawaited(_countMissed()));
+    unawaited(_countMissed());
     // A call that rang while the app was closed (push): pick it up.
     unawaited(_calls?.replayStashedOffer());
     _contacts.addListener(_syncProfiles);
@@ -226,6 +251,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     _contacts.removeListener(_syncProfiles);
     _historySub?.cancel();
+    _callLogSub?.cancel();
     _callSub?.cancel();
     _invites?.removeListener(_onInvite);
     WidgetsBinding.instance.removeObserver(this);
@@ -353,16 +379,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
         child: NavigationBar(
           selectedIndex: _currentIndex,
-          onDestinationSelected: (i) => setState(() => _currentIndex = i),
+          onDestinationSelected: _selectTab,
           destinations: [
             NavigationDestination(
-              icon: _badgeIcon(LucideIcons.messageCircle, unread),
+              icon: _badgeIcon(LucideIcons.messageCircle, unread + requests),
               label: L10n.of(context).tabChats,
               tooltip: '',
             ),
             NavigationDestination(
-              icon: _badgeIcon(LucideIcons.users, requests),
-              label: L10n.of(context).tabContacts,
+              icon: _badgeIcon(LucideIcons.phone, _missed),
+              label: 'Calls',
               tooltip: '',
             ),
             NavigationDestination(
@@ -409,20 +435,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     labelType: extended
                         ? NavigationRailLabelType.none
                         : NavigationRailLabelType.all,
-                    onDestinationSelected: (i) =>
-                        setState(() => _currentIndex = i),
+                    onDestinationSelected: _selectTab,
                     leading: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       child: _BrandMark(extended: extended),
                     ),
                     destinations: [
                       NavigationRailDestination(
-                        icon: _badgeIcon(LucideIcons.messageCircle, unread),
+                        icon: _badgeIcon(LucideIcons.messageCircle, unread + requests),
                         label: Text(L10n.of(context).tabChats),
                       ),
                       NavigationRailDestination(
-                        icon: _badgeIcon(LucideIcons.users, requests),
-                        label: Text(L10n.of(context).tabContacts),
+                        icon: _badgeIcon(LucideIcons.phone, _missed),
+                        label: const Text('Calls'),
                       ),
                       NavigationRailDestination(
                         icon: Icon(LucideIcons.settings),

@@ -7,6 +7,7 @@ import 'package:securelyhello/core/calls/call_system.dart';
 import 'package:securelyhello/core/notifications/notification_actions.dart';
 import 'package:securelyhello/core/notifications/push_background.dart';
 import 'package:securelyhello/core/stories/story_service.dart';
+import 'package:securelyhello/features/contacts/screens/contact_list_screen.dart';
 import 'package:securelyhello/core/update/app_updater.dart';
 import 'package:securelyhello/features/update/update_widgets.dart';
 import 'package:flutter/services.dart';
@@ -296,6 +297,7 @@ class SecurelyHelloApp extends StatelessWidget {
             '/home': (context) => const HomeScreen(),
             '/add-contact': (context) => const AddContactScreen(),
             '/contact-requests': (context) => const ContactRequestsScreen(),
+            '/people': (context) => const ContactListScreen(),
             '/devices': (context) => const LinkedDevicesScreen(),
           },
           onGenerateRoute: (settings) {

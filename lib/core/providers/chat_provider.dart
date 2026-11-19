@@ -41,6 +41,9 @@ class ChatProvider extends ChangeNotifier {
 
   ChatProvider({required ChatService chatService}) : _chatService = chatService;
 
+  /// The chat service itself (call history, stories).
+  ChatService get service => _chatService;
+
   // -- Getters --
   List<Conversation> get conversations => List.unmodifiable(_conversations);
   String? get activeConversationId => _activeConversationId;

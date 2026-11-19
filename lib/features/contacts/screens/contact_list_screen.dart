@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import 'package:securelyhello/features/groups/new_group_screen.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -43,7 +45,19 @@ class _ContactListScreenState extends State<ContactListScreen> {
     } catch (_) {
       // The chat screen still works; the row is created on first message.
     }
-    if (mounted) openChat(context, c.userId);
+    if (!mounted) return;
+    // Opened from the chat list: this screen gives way to the chat.
+    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    openChat(context, c.userId);
+  }
+
+  Future<void> _newGroup() async {
+    final group =
+        await Navigator.of(context).push<String>(MaterialPageRoute(builder: (_) => const NewGroupScreen()));
+    if (group != null && mounted) {
+      Navigator.of(context).pop();
+      openChat(context, group);
+    }
   }
 
   Future<void> _info(Contact c) async {
@@ -188,11 +202,12 @@ class _ContactListScreenState extends State<ContactListScreen> {
         style: c.isOnline ? TextStyle(color: p.online) : null,
       ),
       trailing: IconButton(
-        tooltip: 'Message ${c.displayLabel}',
-        icon: Icon(LucideIcons.messageCircle, color: p.accent, size: 20),
-        onPressed: () => _message(c),
+        tooltip: 'Contact info for ${c.displayLabel}',
+        icon: Icon(LucideIcons.info, color: p.textMuted, size: 20),
+        onPressed: () => _info(c),
       ),
-      onTap: () => _info(c),
+      // One screen for people: tapping someone starts the chat.
+      onTap: () => _message(c),
       onLongPress: () => _menu(c),
     );
 
@@ -210,6 +225,19 @@ class _ContactListScreenState extends State<ContactListScreen> {
             hint: L10n.of(context).searchContacts,
             onChanged: (v) => setState(() => _query = v),
           ),
+        ),
+      ),
+      SliverToBoxAdapter(
+        child: ListTile(
+          key: const ValueKey('new-group'),
+          leading: CircleAvatar(
+            radius: 22,
+            backgroundColor: p.accent,
+            child: Icon(LucideIcons.users, color: p.onAccent, size: 20),
+          ),
+          title: const Text('New group', style: TextStyle(fontWeight: FontWeight.w600)),
+          subtitle: const Text('Chat with several people at once'),
+          onTap: _newGroup,
         ),
       ),
       SliverToBoxAdapter(
@@ -328,7 +356,7 @@ class _ContactListScreenState extends State<ContactListScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(L10n.of(context).tabContacts),
+            Text(L10n.of(context).newChat),
             if (!loading && provider.contacts.isNotEmpty)
               Text(
                 '${provider.contactCount} '
@@ -338,12 +366,6 @@ class _ContactListScreenState extends State<ContactListScreen> {
               ),
           ],
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'add-contact-fab',
-        tooltip: L10n.of(context).findPeople,
-        onPressed: () => Navigator.pushNamed(context, '/add-contact'),
-        child: const Icon(LucideIcons.userPlus),
       ),
       body: RefreshIndicator(
         onRefresh: provider.loadContacts,

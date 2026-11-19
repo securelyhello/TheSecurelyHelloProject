@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:securelyhello/core/calls/call_service.dart';
+import 'package:securelyhello/core/chat/chat_service.dart';
 import 'package:securelyhello/core/chat/wire_protocol.dart';
 
 void main() {
@@ -73,5 +74,20 @@ void main() {
     final normal = DeviceCallMedia.videoConstraints(low: false);
     expect(low['width'] as int, lessThan(normal['width'] as int));
     expect(low['frameRate'], 15);
+  });
+
+  test('call history records: missed, stored and read back', () {
+    CallRecord r({bool out = false, int secs = 0, String result = 'noanswer'}) => CallRecord(
+        id: 'c', peer: 'p', video: false, outgoing: out, at: DateTime(2026, 11, 20, 9), duration: Duration(seconds: secs),
+        result: result);
+    expect(r().missed, isTrue);
+    expect(r(result: 'hangup').missed, isTrue, reason: 'they hung up before we answered');
+    expect(r(secs: 30, result: 'hangup').missed, isFalse);
+    expect(r(out: true).missed, isFalse, reason: 'our own unanswered call');
+    expect(r(result: 'declined').missed, isFalse);
+    expect(r(result: 'elsewhere').missed, isFalse);
+    final back = CallRecord.fromJson(r(secs: 65, result: 'hangup').toJson())!;
+    expect([back.duration, back.result, back.outgoing], [const Duration(seconds: 65), 'hangup', false]);
+    expect(CallRecord.fromJson({'id': 1}), isNull);
   });
 }

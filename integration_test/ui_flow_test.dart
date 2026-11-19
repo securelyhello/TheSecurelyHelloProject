@@ -429,7 +429,7 @@ void main() {
       await me.contacts.loadContacts();
 
       await tester.tap(find.byTooltip('New chat'));
-      await waitFor(find.byKey(const ValueKey('new-group')), 'new chat sheet');
+      await waitFor(find.byKey(const ValueKey('new-group')), 'people');
       await settle(600);
       await tester.tap(find.byKey(const ValueKey('new-group')));
       await waitFor(find.byKey(const ValueKey('group-name')), 'new group screen');
@@ -470,10 +470,17 @@ void main() {
       nav().pop();
       await settle(800);
 
-      // ---- other tabs -----------------------------------------------------
-      await tester.tap(find.text('Contacts').last);
+      // ---- people (behind "New chat") and the Calls tab ---------------------
+      await tester.tap(find.byTooltip('New chat'));
+      await waitFor(find.byKey(const ValueKey('new-group')), 'people');
+      await settle(800);
+      await shot('16_people');
+      nav().pop();
+      await settle(700);
+      await tester.tap(find.text('Calls').last);
+      await waitFor(find.byKey(const ValueKey('calls-list')), 'call history');
       await settle(900);
-      await shot('16_contacts');
+      await shot('16b_calls');
       await tester.tap(find.text('Settings').last);
       await settle(900);
       await shot('17_settings');
@@ -577,8 +584,8 @@ void main() {
         await settle(500);
         nav().popUntil((r) => r.isFirst);
         await settle(700);
-        await tapTab(LucideIcons.users);
-        await shot('zz_${tag}_contacts');
+        await tapTab(LucideIcons.phone);
+        await shot('zz_${tag}_calls');
         await tapTab(LucideIcons.settings);
         await shot('zz_${tag}_settings');
         await tapTab(LucideIcons.messageCircle);

@@ -142,7 +142,7 @@ class _CallScreenState extends State<CallScreen> {
       // Back doesn't hang up; the call keeps going while the app is in use.
       canPop: true,
       child: Scaffold(
-        backgroundColor: const Color(0xFF0B1418),
+        backgroundColor: const Color(0xFF0E0F1C),
         body: Stack(
           fit: StackFit.expand,
           children: [
@@ -154,7 +154,7 @@ class _CallScreenState extends State<CallScreen> {
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [Color(0xFF12343B), Color(0xFF0B1418)],
+                    colors: [Color(0xFF2B2766), Color(0xFF0E0F1C)],
                   ),
                 ),
               ),
@@ -255,7 +255,7 @@ class _Controls extends StatelessWidget {
             key: const ValueKey('call-accept'),
             icon: c.video ? LucideIcons.video : LucideIcons.phone,
             label: 'Accept',
-            color: const Color(0xFF2FB36B),
+            color: const Color(0xFF1FA463),
             onPressed: () => service.accept(),
           ),
         ],
