@@ -28,8 +28,8 @@ SITE = os.path.join(ROOT, 'website')
 
 # Screens the site shows (website/index.html references these names).
 SCREENS = [
-    '06b_invite', '10_chats_unread', '12b_chat_attachments', '12c_reply_react_edit_delete',
-    '14_contact_info', '17b_linked_devices', '17c_settings_security', '19_wide_chat_open',
+    '10_chats_unread', '12c_reply_react_edit_delete', '15c_group_chat', '13b_incoming_call',
+    '16b_calls', '14_contact_info',
 ]
 
 
@@ -99,20 +99,27 @@ PAGE = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
   <title>{title} · Securely Hello</title>
+  <meta name="theme-color" content="#0E0F1C">
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="nav"><div class="wrap nav-inner">
-    <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" width="32" height="32"><span>Securely Hello</span></a>
+  <header class="nav scrolled"><div class="wrap nav-inner">
+    <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" width="34" height="34"><span>Securely Hello</span></a>
+    <nav aria-label="Legal" class="nav-links"><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a></nav>
+    <a class="btn btn-small" href="index.html#get">Download</a>
   </div></header>
   <main class="page"><div class="wrap narrow">
 <!-- Generated from {source} by tools/build_site.py. Edit the Markdown, not this file. -->
 {body}
   </div></main>
+  <footer class="footer"><div class="wrap footer-inner">
+    <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" width="28" height="28"><span>Securely Hello</span></a>
+    <nav aria-label="Footer"><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="mailto:hello@thenn.in">hello@thenn.in</a></nav>
+  </div></footer>
 </body>
 </html>
 """
@@ -134,8 +141,12 @@ def copy_shots(shot_dir):
     missing = [s for s in SCREENS if not os.path.exists(os.path.join(shot_dir, f'{s}.png'))]
     if missing:
         sys.exit(f'missing screenshots in {shot_dir}: {", ".join(missing)}')
+    from PIL import Image  # pip install pillow
     for s in SCREENS:
-        shutil.copyfile(os.path.join(shot_dir, f'{s}.png'), os.path.join(dest, f'{s}.png'))
+        src = os.path.join(shot_dir, f'{s}.png')
+        shutil.copyfile(src, os.path.join(dest, f'{s}.png'))
+        # The page shows WebP (a fraction of the size); the PNG stays for reference.
+        Image.open(src).convert('RGB').save(os.path.join(dest, f'{s}.webp'), 'WEBP', quality=82, method=6)
     print(f'copied {len(SCREENS)} screenshots')
 
 
