@@ -15,6 +15,9 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- In-app updater (APK builds only; the Play build strips it, see
+         src/play/AndroidManifest.xml). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <application
@@ -60,6 +63,8 @@
                 <data android:scheme="securelyhello" android:host="invite" />
             </intent-filter>
         </activity>
+        <!-- In-app updater: PackageInstaller reports here. -->
+        <receiver android:name=".InstallResultReceiver" android:exported="false" />
         <!-- Small icon for notifications that Firebase Messaging displays
              itself (white-only; see res/drawable/ic_stat_notify.xml). -->
         <meta-data

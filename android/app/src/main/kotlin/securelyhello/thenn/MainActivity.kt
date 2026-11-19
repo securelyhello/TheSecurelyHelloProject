@@ -9,6 +9,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterFragmentActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        UpdaterChannel(this, flutterEngine.dartExecutor.binaryMessenger)
         // Screen security: blocks screenshots, recordings and the recents thumbnail.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "securelyhello/screen")
             .setMethodCallHandler { call, result ->

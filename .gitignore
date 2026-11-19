@@ -60,3 +60,6 @@ key.properties
 website/download/
 *.apk
 *.aab
+
+# Gradle output of the Android build
+android/build/

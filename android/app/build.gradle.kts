@@ -1,3 +1,4 @@
+import java.util.Base64
 import java.util.Properties
 
 // Release signing: create android/key.properties (git-ignored) with
@@ -69,6 +70,22 @@ android {
             signingConfig = signingConfigs.findByName("release")
                 ?: signingConfigs.getByName("debug")
         }
+    }
+}
+
+// --dart-define=DISTRIBUTION=play: a Play Store build. Flutter hands the
+// dart-defines to Gradle base64-encoded; the Play build leaves out the
+// in-app updater's install permission (src/play/AndroidManifest.xml).
+val dartDefines: List<String> = (project.findProperty("dart-defines") as String?)
+    ?.split(",")
+    ?.mapNotNull { encoded: String ->
+        runCatching<String> { Base64.getDecoder().decode(encoded).toString(Charsets.UTF_8) }.getOrNull()
+    }
+    .orEmpty()
+val playDistribution = "DISTRIBUTION=play" in dartDefines
+if (playDistribution) {
+    android {
+        sourceSets.getByName("release").manifest.srcFile("src/play/AndroidManifest.xml")
     }
 }
 

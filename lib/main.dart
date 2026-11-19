@@ -1,6 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
+import 'package:securelyhello/core/update/app_updater.dart';
+import 'package:securelyhello/features/update/update_widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
@@ -129,6 +132,13 @@ Future<void> main() async {
   unawaited(appLock.resumePendingWipe());
   final invites = PendingInvites();
   unawaited(invites.init());
+  // APK builds: look for an update now (then at most every 12 hours), and
+  // ask the server whether this build is still supported.
+  final updater = AppUpdater();
+  if (updater.enabled) {
+    unawaited(updater.check());
+    unawaited(_applyServerMinimum(directoryService, updater));
+  }
   unawaited(authProvider.init());
 
   runApp(
@@ -145,8 +155,18 @@ Future<void> main() async {
       calls: calls,
       theme: theme,
       language: language,
+      updater: updater,
     ),
   );
+}
+
+Future<void> _applyServerMinimum(DirectoryService directory, AppUpdater updater) async {
+  try {
+    final min = (await directory.getServerConfig())['min_android_version_code'];
+    if (min is int) updater.serverMinimum = min;
+  } catch (e) {
+    debugPrint('Server config unavailable: $e');
+  }
 }
 
 /// Shown instead of the app when it was built without a server address.
@@ -187,6 +207,7 @@ class SecurelyHelloApp extends StatelessWidget {
   final CallService? calls;
   final ThemeController theme;
   final LocaleController language;
+  final AppUpdater? updater;
 
   SecurelyHelloApp({
     super.key,
@@ -200,6 +221,7 @@ class SecurelyHelloApp extends StatelessWidget {
     this.invites,
     this.profiles,
     this.calls,
+    this.updater,
     ThemeController? theme,
     LocaleController? language,
   })  : theme = theme ?? ThemeController(),
@@ -217,6 +239,7 @@ class SecurelyHelloApp extends StatelessWidget {
         Provider<PushService?>.value(value: push),
         ChangeNotifierProvider<PendingInvites?>.value(value: invites),
         ChangeNotifierProvider<CallService?>.value(value: calls),
+        ChangeNotifierProvider<AppUpdater?>.value(value: updater),
         ChangeNotifierProvider<ThemeController>.value(value: theme),
         ChangeNotifierProvider<LocaleController>.value(value: language),
         if (profiles != null) ChangeNotifierProvider<ProfileService>.value(value: profiles!),
@@ -236,7 +259,7 @@ class SecurelyHelloApp extends StatelessWidget {
           locale: language.locale,
           localizationsDelegates: L10n.localizationsDelegates,
           supportedLocales: L10n.supportedLocales,
-          builder: (context, child) => AppLockGate(child: child ?? const SizedBox()),
+          builder: (context, child) => UpdateGate(child: AppLockGate(child: child ?? const SizedBox())),
           initialRoute: '/splash',
           routes: {
             '/splash': (context) => const SplashScreen(),

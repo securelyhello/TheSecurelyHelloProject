@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
+import 'package:securelyhello/core/update/app_updater.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -143,6 +145,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!_auth.isAuthenticated) return;
     switch (state) {
       case AppLifecycleState.resumed:
+        unawaited(context.read<AppUpdater?>()?.check()); // at most every 12 h
         _auth.setPresence(true);
         _chat.onResume();
         _contacts.loadContacts();
