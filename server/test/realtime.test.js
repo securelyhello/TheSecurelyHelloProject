@@ -108,6 +108,8 @@ describe('websocket', () => {
         'reports',
         'schema_migrations',
         'sessions',
+        'stories',
+        'story_keys',
         'totp_recovery_codes',
         'users',
       ],

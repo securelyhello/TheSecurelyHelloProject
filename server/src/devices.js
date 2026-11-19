@@ -75,13 +75,57 @@ function deviceName(raw) {
   return raw.trim().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 64);
 }
 
+const ENVELOPE_KEYS = 'c,h,id,rd,s,sd,t,v';
+const B64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/**
+ * A v3 envelope: {"v":3,"id","s","sd","rd","t","h","c"}. The server cannot
+ * read `h` (ratchet header) or `c` (ciphertext); it checks the outer shape
+ * so a buggy client can't park plaintext or spoof the sender here.
+ */
+export function validateEnvelope(raw, { senderId, senderDevice, recipientDevice }) {
+  const text = v.string(raw, 'envelope', { min: 2, max: 128 * 1024 });
+  let env;
+  try {
+    env = JSON.parse(text);
+  } catch {
+    throw bad('envelope must be JSON', 'invalid_envelope');
+  }
+  const keys = env && typeof env === 'object' && !Array.isArray(env) ? Object.keys(env).sort().join(',') : '';
+  if (
+    keys !== ENVELOPE_KEYS ||
+    env.v !== 3 ||
+    env.s !== senderId ||
+    env.sd !== senderDevice ||
+    env.rd !== recipientDevice ||
+    typeof env.id !== 'string' ||
+    env.id.length < 1 ||
+    env.id.length > 64 ||
+    !Number.isSafeInteger(env.t) ||
+    typeof env.h !== 'string' ||
+    env.h.length < 2 ||
+    env.h.length > 4096 ||
+    typeof env.c !== 'string' ||
+    env.c.length < 32 ||
+    !B64_RE.test(env.c)
+  ) {
+    throw bad('envelope is not a valid v3 envelope from this device', 'invalid_envelope');
+  }
+  return text;
+}
+
 const deviceJson = (row, { withName }) => ({
   device_id: row.id,
   signing_public_key: row.signing_public_key,
   identity_public_key: row.identity_public_key,
   created_at: row.created_at,
+  capabilities: row.capabilities ?? [],
   ...(withName ? { name: row.name, last_seen_at: row.last_seen_at } : {}),
 });
+
+/** What a device can take beyond 1.0, e.g. ['stories']. */
+export const MAX_CAPABILITIES = 16;
+const CAPABILITY_RE = /^[a-z][a-z0-9_]{0,31}$/;
 
 /**
  * @param {import('./http.js').Router} router
@@ -424,6 +468,19 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
     await pool.query('UPDATE devices SET push_token = NULL, push_platform = NULL WHERE id = $1', [deviceId]);
   });
 
+  /** {capabilities: ['stories', …]}: replaces what this device says it can take. */
+  router.add('PUT', '/api/devices/current/capabilities', async ({ body, user }) => {
+    const deviceId = requireDevice(user);
+    v.requireObject(body);
+    const caps = body.capabilities;
+    if (!Array.isArray(caps) || caps.length > MAX_CAPABILITIES || !caps.every((c) => typeof c === 'string' && CAPABILITY_RE.test(c))) {
+      throw bad(`capabilities must be up to ${MAX_CAPABILITIES} short lower-case names`);
+    }
+    const unique = [...new Set(caps)].sort();
+    await pool.query('UPDATE devices SET capabilities = $2 WHERE id = $1', [deviceId, unique]);
+    return { capabilities: unique };
+  });
+
   router.add('PATCH', '/api/devices/current', async ({ body, user }) => {
     const deviceId = requireDevice(user);
     v.requireObject(body);
@@ -520,44 +577,6 @@ export function registerDeviceRoutes(router, { pool, hub, store, services, limit
 
   // Relay queue (ciphertext only, one queue per device, Redis with a TTL)
 
-  const ENVELOPE_KEYS = 'c,h,id,rd,s,sd,t,v';
-  const B64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
-
-  /**
-   * A v3 envelope: {"v":3,"id","s","sd","rd","t","h","c"}. The server cannot
-   * read `h` (ratchet header) or `c` (ciphertext); it checks the outer shape
-   * so a buggy client can't park plaintext or spoof the sender here.
-   */
-  function validateEnvelope(raw, { senderId, senderDevice, recipientDevice }) {
-    const text = v.string(raw, 'envelope', { min: 2, max: 128 * 1024 });
-    let env;
-    try {
-      env = JSON.parse(text);
-    } catch {
-      throw bad('envelope must be JSON', 'invalid_envelope');
-    }
-    const keys = env && typeof env === 'object' && !Array.isArray(env) ? Object.keys(env).sort().join(',') : '';
-    if (
-      keys !== ENVELOPE_KEYS ||
-      env.v !== 3 ||
-      env.s !== senderId ||
-      env.sd !== senderDevice ||
-      env.rd !== recipientDevice ||
-      typeof env.id !== 'string' ||
-      env.id.length < 1 ||
-      env.id.length > 64 ||
-      !Number.isSafeInteger(env.t) ||
-      typeof env.h !== 'string' ||
-      env.h.length < 2 ||
-      env.h.length > 4096 ||
-      typeof env.c !== 'string' ||
-      env.c.length < 32 ||
-      !B64_RE.test(env.c)
-    ) {
-      throw bad('envelope is not a valid v3 envelope from this device', 'invalid_envelope');
-    }
-    return text;
-  }
 
   /**
    * Queues one logical message for every device of [recipient_id]:
