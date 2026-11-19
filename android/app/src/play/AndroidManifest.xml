@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Merged into release builds made with --dart-define=DISTRIBUTION=play
+<!-- Merged into release builds made with the dart-define DISTRIBUTION=play
      (see build.gradle.kts): Play handles updates and doesn't allow apps to
      install other APKs, so the in-app updater's permission and receiver go. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"

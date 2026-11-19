@@ -35,7 +35,6 @@ dependencies:
   flutter_dotenv: ^6.0.1
 
   # UI
-  google_fonts: ^8.1.0
   lucide_icons_flutter: 3.1.14
 
   # Notifications (push is optional: only used when Firebase is configured)
@@ -79,3 +78,34 @@ flutter:
   assets:
     - .env
     - docs/legal/
+    - assets/brand/
+
+  # Bundled typefaces (SIL OFL, licences in assets/fonts); nothing is
+  # fetched at run time.
+  fonts:
+    - family: PlusJakartaSans
+      fonts:
+        - asset: assets/fonts/PlusJakartaSans-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/PlusJakartaSans-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/PlusJakartaSans-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/PlusJakartaSans-ExtraBold.ttf
+          weight: 800
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700
+    - family: SourceCodePro
+      fonts:
+        - asset: assets/fonts/SourceCodePro-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/SourceCodePro-SemiBold.ttf
+          weight: 600

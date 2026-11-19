@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:securelyhello/shared/theme/app_fonts.dart';
 import 'package:securelyhello/features/auth/screens/welcome_screen.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
@@ -127,7 +127,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               opacity: _fadeAnimation,
               child: Text(
                 'Securely Hello',
-                style: GoogleFonts.manrope(
+                style: AppFonts.heading(
                   fontSize: 32,
                   fontWeight: FontWeight.w700,
                   color: context.palette.textPrimary,

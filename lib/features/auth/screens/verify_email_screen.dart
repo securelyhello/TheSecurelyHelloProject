@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:securelyhello/shared/theme/app_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -137,7 +137,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                   Text(
                     'Check your inbox',
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.manrope(
+                    style: AppFonts.heading(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
                       color: context.palette.textPrimary,
@@ -148,7 +148,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                   Text(
                     'Enter the 6-digit code we sent to\n${auth.email ?? 'your e-mail address'}.',
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(
+                    style: AppFonts.body(
                         fontSize: 15, color: context.palette.textSecondary, height: 1.4),
                   ),
                   if (required) ...[
@@ -156,7 +156,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                     Text(
                       'You need a verified address before you can add contacts.',
                       textAlign: TextAlign.center,
-                      style: GoogleFonts.inter(
+                      style: AppFonts.body(
                           fontSize: 13, color: context.palette.textMuted),
                     ),
                   ],
@@ -247,7 +247,7 @@ class AuthBanner extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(text,
-                style: GoogleFonts.inter(color: color, fontSize: 14)),
+                style: AppFonts.body(color: color, fontSize: 14)),
           ),
         ],
       ),

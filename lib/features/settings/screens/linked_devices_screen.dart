@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:securelyhello/shared/theme/app_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -193,7 +193,7 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
                           const TextSpan(text: '  ·  key '),
                           TextSpan(
                             text: _fingerprint(d),
-                            style: GoogleFonts.sourceCodePro(fontSize: 12),
+                            style: AppFonts.mono(fontSize: 12),
                           ),
                         ])),
                       ),

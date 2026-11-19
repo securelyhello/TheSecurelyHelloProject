@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:securelyhello/shared/theme/app_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -95,7 +95,7 @@ class _DevicePendingScreenState extends State<DevicePendingScreen> {
                 Text(
                   _recovering ? 'Recover your account' : 'Approve this device',
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.manrope(
+                  style: AppFonts.heading(
                       fontSize: 26, fontWeight: FontWeight.bold, color: context.palette.textPrimary),
                 ),
                 const SizedBox(height: 12),
@@ -107,7 +107,7 @@ class _DevicePendingScreenState extends State<DevicePendingScreen> {
                       : 'Open Securely Hello on a device you already use. It will ask you to '
                           'approve this one. Check that it shows the same code as below.',
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(fontSize: 15, color: muted, height: 1.45),
+                  style: AppFonts.body(fontSize: 15, color: muted, height: 1.45),
                 ),
                 const SizedBox(height: 28),
                 if (!_recovering) ...[
@@ -119,12 +119,12 @@ class _DevicePendingScreenState extends State<DevicePendingScreen> {
                       border: Border.all(color: context.palette.border),
                     ),
                     child: Column(children: [
-                      Text('This device', style: GoogleFonts.inter(color: muted, fontSize: 13)),
+                      Text('This device', style: AppFonts.body(color: muted, fontSize: 13)),
                       const SizedBox(height: 8),
                       SelectableText(
                         auth.deviceFingerprint,
                         key: const ValueKey('pending-fingerprint'),
-                        style: GoogleFonts.sourceCodePro(
+                        style: AppFonts.mono(
                             fontSize: 22, color: context.palette.textPrimary, letterSpacing: 1.5),
                       ),
                     ]),

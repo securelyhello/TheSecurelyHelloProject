@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:securelyhello/shared/theme/app_fonts.dart';
 import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
@@ -109,7 +109,7 @@ class _SignupScreenState extends State<SignupScreen> {
               children: [
                 Text(
                   L10n.of(context).signupTitle,
-                  style: GoogleFonts.manrope(
+                  style: AppFonts.heading(
                     fontSize: 32,
                     fontWeight: FontWeight.bold,
                     color: context.palette.textPrimary,
@@ -119,7 +119,7 @@ class _SignupScreenState extends State<SignupScreen> {
                 const SizedBox(height: 8),
                 Text(
                   L10n.of(context).signupSubtitle,
-                  style: GoogleFonts.inter(
+                  style: AppFonts.body(
                     fontSize: 16,
                     color: context.palette.textSecondary,
                   ),
@@ -235,7 +235,7 @@ class _SignupScreenState extends State<SignupScreen> {
                         Expanded(
                           child: Text(
                             authProvider.errorMessage!,
-                            style: GoogleFonts.inter(color: context.palette.danger, fontSize: 14),
+                            style: AppFonts.body(color: context.palette.danger, fontSize: 14),
                           ),
                         ),
                       ],
@@ -260,21 +260,21 @@ class _SignupScreenState extends State<SignupScreen> {
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(L10n.of(context).agreePrefix,
-                        style: GoogleFonts.inter(color: context.palette.textMuted, fontSize: 12)),
+                        style: AppFonts.body(color: context.palette.textMuted, fontSize: 12)),
                     InkWell(
                       onTap: () => LegalScreen.open(context, LegalScreen.terms),
                       child: Text(L10n.of(context).terms,
-                          style: GoogleFonts.inter(color: context.palette.accent, fontSize: 12)),
+                          style: AppFonts.body(color: context.palette.accent, fontSize: 12)),
                     ),
                     Text(' and ',
-                        style: GoogleFonts.inter(color: context.palette.textMuted, fontSize: 12)),
+                        style: AppFonts.body(color: context.palette.textMuted, fontSize: 12)),
                     InkWell(
                       onTap: () => LegalScreen.open(context, LegalScreen.privacy),
                       child: Text(L10n.of(context).privacyPolicy,
-                          style: GoogleFonts.inter(color: context.palette.accent, fontSize: 12)),
+                          style: AppFonts.body(color: context.palette.accent, fontSize: 12)),
                     ),
                     Text('.',
-                        style: GoogleFonts.inter(color: context.palette.textMuted, fontSize: 12)),
+                        style: AppFonts.body(color: context.palette.textMuted, fontSize: 12)),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -283,7 +283,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   children: [
                     Text(
                       L10n.of(context).haveAccount,
-                      style: GoogleFonts.inter(color: context.palette.textSecondary),
+                      style: AppFonts.body(color: context.palette.textSecondary),
                     ),
                     TextButton(
                       onPressed: () => Navigator.pushReplacementNamed(context, '/login'),

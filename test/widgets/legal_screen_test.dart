@@ -16,7 +16,10 @@ void main() {
         await t.pump(const Duration(milliseconds: 50));
       }
       expect(find.text(doc.$1), findsWidgets);
-      expect(find.textContaining('lawyer'), findsWidgets, reason: 'the draft notice is visible');
+      expect(find.textContaining('Last updated'), findsWidgets);
+      // Finished documents: no drafting notes or placeholders.
+      expect(find.textContaining('lawyer'), findsNothing);
+      expect(find.textContaining('['), findsNothing);
       expect(find.text('This document is not available.'), findsNothing);
     });
   }

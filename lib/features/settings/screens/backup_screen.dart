@@ -1,6 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:securelyhello/shared/theme/app_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -163,7 +163,7 @@ class _KeyDialogState extends State<_KeyDialog> {
               widget.backupKey,
               key: const ValueKey('backup-key'),
               maxLines: 1,
-              style: GoogleFonts.sourceCodePro(fontSize: 17, letterSpacing: 1, color: p.textPrimary),
+              style: AppFonts.mono(fontSize: 17, letterSpacing: 1, color: p.textPrimary),
             ),
           ),
         ),

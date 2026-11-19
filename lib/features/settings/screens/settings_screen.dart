@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:securelyhello/core/calls/call_service.dart';
 import 'package:securelyhello/core/calls/call_system.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:securelyhello/shared/theme/app_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -76,7 +76,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 child: SelectableText(
                   keys ?? 'Keys are not available yet.',
-                  style: GoogleFonts.sourceCodePro(
+                  style: AppFonts.mono(
                     color: p.textPrimary,
                     fontSize: 12,
                     height: 1.4,

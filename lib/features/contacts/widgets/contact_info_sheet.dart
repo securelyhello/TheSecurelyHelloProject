@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:securelyhello/shared/theme/app_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -420,7 +420,7 @@ class _SafetyNumberCard extends StatelessWidget {
                           for (final g in groups)
                             Text(
                               g,
-                              style: GoogleFonts.sourceCodePro(
+                              style: AppFonts.mono(
                                 fontSize: 17,
                                 letterSpacing: 1.4,
                                 fontWeight: FontWeight.w500,

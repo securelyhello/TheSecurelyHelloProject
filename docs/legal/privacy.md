@@ -1,70 +1,94 @@
 # Privacy Policy
 
-_Draft — have a lawyer review this before publishing. Replace the bracketed
-parts with your details._
+Last updated: 20 November 2026
 
-Last updated: 19 November 2026
+Securely Hello is run by Thenn (Tirth Joshi), India. You can reach us at
+hello@thenn.in. This policy explains what the app and our server process,
+why, and for how long.
 
-Securely Hello ("the app", "we") is operated by Thenn (Tirth Joshi), India, contact
-hello@thenn.in. This policy explains what the app and its server process,
-and why. The short version: **we cannot read your messages, calls or files.**
+**In short: we cannot read your messages, listen to your calls, or see your
+files and stories.** They are encrypted on your phone and can only be opened
+by the people you send them to.
 
-## What never leaves your device
+## What stays on your devices
 
-- The text of your messages, your calls, and the files you send. They are
-  encrypted on your device before they leave it and can only be decrypted on
-  the devices of the people you are talking to (and your own other devices).
+- The content of your messages, calls, files, voice notes and stories. They
+  are encrypted before they leave your device and decrypted only on the
+  devices of the people you are talking to, and on your own other devices.
 - Your private keys and your chat history.
+- Your notification settings, mutes and drafts.
 
-## What the server stores
+## What our server keeps
 
-| Data | Why | How long |
+| What | Why | For how long |
 |---|---|---|
-| E-mail address | Sign-in, verification and password-reset codes | Until you delete your account |
-| Password | Sign-in. Stored only as a one-way scrypt hash | Until you change it or delete your account |
-| Username and display name | So contacts can find and recognise you | Until you change them or delete your account |
-| Public keys of each of your devices, a device name you can edit, and when each device was last active | So contacts can encrypt to your devices; so you can manage linked devices | Until the device is removed |
-| Your contacts and contact requests | So only accepted contacts can reach you | Until removed or you delete your account |
-| Blocks and reports you make | To stop unwanted contact and handle abuse | Blocks until you lift them; reports up to 1 year |
-| Encrypted messages waiting for a device that is offline | Delivery | Deleted on delivery, at most 24 hours |
-| Encrypted files too large to travel inside a message | Delivery | Deleted after 30 days |
-| A one-way hash of your e-mail address | Lets people who have your address in their phone contacts find you, but only if you turn on "Findable by e-mail" (off by default). Address books you check are compared and discarded, never stored | Until you delete your account |
-| Two-step verification secret (encrypted) and hashed recovery codes, if you turn it on | Asking for a code at sign-in | Until you turn it off |
-| Invite links you create (hashed) and how often each was used | So the people you invite can add you | Until they expire (30 days) |
-| Whether your account is temporarily limited for spam, and why | Protecting other users. Based on reports, blocks and rejected requests, never on message content | Up to 7 days per limit |
-| Session tokens (hashed) | Keeping you signed in | Up to 90 days of inactivity |
-| Push-notification token (if enabled) | Waking your phone when something arrives | Until you sign out or disable notifications |
-| Online status and last-seen time | Shown to your contacts | Online: while connected; last seen: 90 days |
-| Technical logs (time, route, status code, user id; never message content, e-mail addresses or search terms) | Security and reliability | 30 days |
+| Your e-mail address | Signing in, verification and password-reset codes | Until you delete your account |
+| Your password | Signing in. We keep only a one-way scrypt hash, never the password | Until you change it or delete your account |
+| Username and display name | So your contacts can find and recognise you | Until you change them or delete your account |
+| Each device's public keys, its name and when it was last active | So contacts can encrypt to your devices, and you can manage them | Until the device is removed |
+| What each device supports (for example stories) | So nobody sends a device something it cannot open | Until the device is removed |
+| Your contacts and contact requests | So only people you accepted can reach you | Until removed, or you delete your account |
+| Blocks and reports you make | To stop unwanted contact and deal with abuse | Blocks until you lift them; reports up to 1 year |
+| Encrypted messages waiting for an offline device | Delivering them | Deleted when delivered, and after 24 hours at most |
+| Encrypted stories, and which devices each was shared with | Delivering stories to the people you chose | 24 hours, or until you delete the story |
+| Encrypted files too large to travel inside a message | Delivering them | Deleted after 30 days, or with the story they belong to |
+| A one-way hash of your e-mail address | Letting people who have your address in their phone find you, only if you turn on "Findable by e-mail" (off by default). Address books you check are compared and discarded, never stored | Until you delete your account |
+| Your two-step verification secret (encrypted) and hashed recovery codes | Asking for a code when you sign in | Until you turn it off |
+| Invite links you create (hashed) and how often each was used | So the people you invite can add you | Until they expire, after 30 days |
+| Temporary spam limits on your account, and why | Protecting other people. Based on reports, blocks and rejected requests, never on what you write | Up to 7 days per limit |
+| Session tokens (hashed) | Keeping you signed in | Up to 90 days without use |
+| Your push-notification token, if notifications are on | Waking your phone when something arrives | Until you sign out or turn notifications off |
+| Online status and last-seen time | Showing your contacts whether you are around | Online: while connected; last seen: 90 days |
+| Technical logs: time, request path, result and account id, never content, e-mail addresses or searches | Security and keeping the service running | 30 days |
 
-Encrypted messages and files are stored as ciphertext: we hold no key that
-could decrypt them.
+We hold no key that could decrypt your messages, stories or files.
 
-## Third parties
+## Who else is involved
 
-- **Hosting**: Manage Server (VPS) in India, Neon (PostgreSQL) in Singapore.
-- **E-mail delivery**: Resend receives your address and the code.
-- **Push notifications** (Android/iOS, if enabled): Google Firebase Cloud
-  Messaging and Apple Push Notification service learn that *something*
-  arrived for your device at a given time. They never receive message
-  content, the sender or the conversation.
-- **Calls**: may be relayed by our TURN server when a direct connection is
-  impossible. Calls stay end-to-end encrypted.
+- **Hosting:** our server runs on a VPS from Manage Server in India; the
+  database is hosted by Neon in Singapore.
+- **E-mail:** Resend sends verification and reset codes, so it receives your
+  address and the code.
+- **Push notifications** (only if turned on): Google Firebase Cloud
+  Messaging and Apple's push service learn that something arrived for your
+  device and when. They never receive content, the sender or the chat.
+- **Calls:** when two phones cannot connect directly, our own relay server
+  passes the call along. It stays end-to-end encrypted.
+- **Updates:** the Android app downloaded from our website checks
+  securelyhello.thenn.in for new versions about twice a day. Like any
+  website, ours sees the address the request comes from.
 
-We do not sell data, show ads, or use analytics or tracking SDKs.
+The app has no ads, no analytics and no tracking. Its fonts come with the
+app, so it makes no requests to font services. We do not sell or share your
+data.
 
 ## Your rights
 
-You can view and change your profile in the app, remove devices, and
-**delete your account** (Settings → Delete account), which removes
-everything the server holds about you. For other requests (access,
-correction, objection) contact hello@thenn.in. You may complain to the Data Protection Board of India
-or your local data-protection authority.
+In the app you can see and change your profile, remove devices, and delete
+your account (Settings → Delete account), which deletes everything our
+server holds about you. To ask for a copy of your data, a correction, or
+anything else, write to hello@thenn.in. If you are not satisfied with our
+answer, you may complain to the Data Protection Board of India.
 
 ## Children
 
-The app is not intended for children under 18 without the verifiable consent of a parent or lawful guardian, as required by the Digital Personal Data Protection Act, 2023.
+Securely Hello is not meant for people under 18 without the verifiable
+consent of a parent or lawful guardian.
 
-## Changes
+## Security
 
-We will announce material changes in the app before they take effect.
+Messages, calls, files and stories are end-to-end encrypted with the Signal
+protocol design (X3DH and the Double Ratchet). Connections to our server use
+TLS. You can compare safety numbers with a contact to be sure nobody is in
+between.
+
+## Changes to this policy
+
+If we change this policy in a way that matters, we will tell you in the app
+before the change takes effect.
+
+## Contact and grievances
+
+Write to hello@thenn.in. Our Grievance Officer is Tirth Joshi, at the same
+address. We acknowledge complaints within 24 hours and resolve them within
+15 days.

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:securelyhello/shared/theme/app_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -198,7 +198,7 @@ class _TwoFactorScreenState extends State<TwoFactorScreen> {
         Expanded(
           child: SelectableText(grouped,
               key: const ValueKey('2fa-secret'),
-              style: GoogleFonts.sourceCodePro(fontSize: 15, color: p.textPrimary)),
+              style: AppFonts.mono(fontSize: 15, color: p.textPrimary)),
         ),
         IconButton(
           tooltip: 'Copy',
@@ -257,7 +257,7 @@ class _RecoveryCodes extends StatelessWidget {
         ),
         child: Wrap(spacing: 24, runSpacing: 10, children: [
           for (final c in codes)
-            Text(c, style: GoogleFonts.sourceCodePro(fontSize: 16, color: p.textPrimary)),
+            Text(c, style: AppFonts.mono(fontSize: 16, color: p.textPrimary)),
         ]),
       ),
       const SizedBox(height: 12),
