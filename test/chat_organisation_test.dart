@@ -4,8 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:securelyhello/core/chat/chat_service.dart';
 import 'package:securelyhello/core/crypto/crypto_core.dart';
+import 'package:securelyhello/core/networking/directory_service.dart';
+import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
 import 'package:securelyhello/core/storage/local_storage.dart';
+import 'package:securelyhello/core/storage/secure_key_store.dart';
 
 // 1.1: pinned and archived chats, drafts, starred and forwarded messages.
 void main() {
@@ -52,6 +56,21 @@ void main() {
     expect('${raw.single['draft']}', isNot(contains('see you')));
     await storage.setDraft('bob', '  ');
     expect(await storage.getDraft('bob'), isNull, reason: 'blank clears it');
+  });
+
+  test('a draft saved after sign-out closed storage is dropped, not a crash', () async {
+    final chat = ChatService(
+      storage: storage,
+      p2p: P2PConnectionManager(),
+      directory: DirectoryService(
+          baseUrl: 'https://fake.invalid', tokenStore: SecureKeyStore(storage: MemorySecretStorage())),
+    );
+    await chat.saveDraft('bob', 'kept');
+    expect(await chat.draftOf('bob'), 'kept');
+    await storage.close();
+    await chat.saveDraft('bob', 'typed while signing out');
+    await open();
+    expect(await storage.getDraft('bob'), 'kept');
   });
 
   test('starred messages', () async {

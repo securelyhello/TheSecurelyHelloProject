@@ -747,7 +747,13 @@ class ChatService {
 
   Future<String?> draftOf(String chatId) => _storage.getDraft(chatId);
 
-  Future<void> saveDraft(String chatId, String text) => _storage.setDraft(chatId, text);
+  /// Saves the unsent text of [chatId]. A chat screen saves on close, which
+  /// can come after sign-out has closed the account's storage: then there is
+  /// nothing to save into, and it is dropped.
+  Future<void> saveDraft(String chatId, String text) async {
+    if (!_storage.isOpen) return;
+    await _storage.setDraft(chatId, text);
+  }
 
   Future<void> setStarred(String messageId, String chatId, bool starred) async {
     await _storage.setStarred(messageId, starred);
