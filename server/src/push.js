@@ -66,14 +66,16 @@ export function createFcmSender(serviceAccount, { fetchImpl = fetch, endpoint, t
   }
 
   return {
-    async send(token, kind) {
+    /**
+     * [dataOnly]: no notification block, for apps (1.1) that decrypt in the
+     * background and show their own notification or ring for a call.
+     */
+    async send(token, kind, { dataOnly = false } = {}) {
       const title = 'Securely Hello';
       const text = kind === 'request' ? 'You have a new contact request' : 'You have a new message';
-      const res = await fetchImpl(sendUri, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: {
+      const message = dataOnly
+        ? { token, data: { type: kind }, android: { priority: 'high', ttl: '60s' } }
+        : {
             token,
             notification: { title, body: text },
             data: { type: kind },
@@ -82,8 +84,11 @@ export function createFcmSender(serviceAccount, { fetchImpl = fetch, endpoint, t
               headers: { 'apns-collapse-id': 'securelyhello', 'apns-priority': '10' },
               payload: { aps: { sound: 'default' } },
             },
-          },
-        }),
+          };
+      const res = await fetchImpl(sendUri, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
       });
       if (res.ok) return 'ok';
       const err = await res.json().catch(() => ({}));
@@ -98,17 +103,23 @@ export function createFcmSender(serviceAccount, { fetchImpl = fetch, endpoint, t
  * Decides when to wake which device.
  * @param {{pool, store, hub, sender, log, throttleSeconds?: number}} deps
  */
+/** Seconds between data pushes to one device. */
+export const DATA_PUSH_THROTTLE_SECONDS = 5;
+
 export function createNotifier({ pool, store, hub, sender, log, throttleSeconds = 30 }) {
   async function wakeDevice(userId, deviceId, kind) {
     if (!sender || (await hub.isDeviceConnected(userId, deviceId))) return false;
-    const { rows } = await pool.query('SELECT push_token FROM devices WHERE id = $1 AND user_id = $2', [
-      deviceId,
-      userId,
-    ]);
+    const { rows } = await pool.query(
+      'SELECT push_token, capabilities FROM devices WHERE id = $1 AND user_id = $2',
+      [deviceId, userId],
+    );
     const token = rows[0]?.push_token;
     if (!token) return false;
-    if (!(await store.takePushSlot(deviceId, throttleSeconds))) return false;
-    const result = await sender.send(token, kind);
+    // 1.1 apps take data pushes: they handle each one themselves (a call
+    // must ring), so the throttle is short.
+    const dataOnly = (rows[0].capabilities ?? []).includes('data_push');
+    if (!(await store.takePushSlot(deviceId, dataOnly ? DATA_PUSH_THROTTLE_SECONDS : throttleSeconds))) return false;
+    const result = await sender.send(token, kind, { dataOnly });
     if (result === 'invalid_token') {
       await pool.query('UPDATE devices SET push_token = NULL, push_platform = NULL WHERE id = $1 AND push_token = $2', [
         deviceId,

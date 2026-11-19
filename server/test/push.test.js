@@ -55,6 +55,14 @@ describe('FCM sender', () => {
     assert.equal(msg.notification.body, 'You have a new message');
     assert.deepEqual(msg.data, { type: 'message' });
     assert.equal(JSON.parse(calls[2].init.body).message.notification.body, 'You have a new contact request');
+
+    // Data-only: no notification block, so the app's own code runs.
+    assert.equal(await sender.send('device-token-123', 'message', { dataOnly: true }), 'ok');
+    const data = JSON.parse(calls.at(-1).init.body).message;
+    assert.equal(data.notification, undefined);
+    assert.equal(data.android.notification, undefined);
+    assert.equal(data.android.priority, 'high');
+    assert.deepEqual(data.data, { type: 'message' });
   });
 
   test('UNREGISTERED tokens are reported as invalid; other errors throw', async () => {
@@ -81,8 +89,8 @@ describe('push wake-ups', () => {
   before(async () => {
     srv = await startServer({
       pushSender: {
-        async send(token, kind) {
-          pushed.push({ token, kind });
+        async send(token, kind, opts = {}) {
+          pushed.push(opts.dataOnly ? { token, kind, dataOnly: true } : { token, kind });
           return reply;
         },
       },
@@ -119,6 +127,23 @@ describe('push wake-ups', () => {
     await new Promise((r) => setTimeout(r, 50));
     assert.equal(pushed.length, 1, 'connected devices get the socket push only');
     await ws.close();
+  });
+
+  // 1.1 apps decrypt in the background and ring for calls: they get a
+  // data-only push (the OS shows nothing itself) and a short throttle.
+  test('devices that take data pushes get them; 1.0 devices keep notification pushes', async () => {
+    const a = await signup(srv.base, 'push_data_a');
+    const b = await signup(srv.base, 'push_data_b');
+    await makeContacts(srv.base, a, b);
+    await register(b, 'fcm-token-of-data-0001');
+    await api(srv.base, 'PUT', '/api/devices/current/capabilities', {
+      token: b.token,
+      body: { capabilities: ['data_push', 'stories'] },
+    });
+    pushed.length = 0;
+    await relaySend(srv.base, a, b);
+    await new Promise((r) => setTimeout(r, 50));
+    assert.deepEqual(pushed, [{ token: 'fcm-token-of-data-0001', kind: 'message', dataOnly: true }]);
   });
 
   test('contact requests wake the receiver; dead tokens are dropped', async () => {
