@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:securelyhello/shared/widgets/brand_logo.dart';
+
 import 'package:securelyhello/core/update/app_updater.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -491,16 +493,7 @@ class _BrandMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.palette;
-    final logo = Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: p.accentContainer,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-      ),
-      child: Icon(LucideIcons.shieldCheck, color: p.accent, size: 22),
-    );
+    const logo = BrandLogo(size: 40);
     if (!extended) return Tooltip(message: 'Securely Hello', child: logo);
     return Row(
       mainAxisSize: MainAxisSize.min,

@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+
+import 'package:securelyhello/shared/widgets/brand_logo.dart';
 import 'package:provider/provider.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:securelyhello/shared/theme/app_fonts.dart';
 import 'package:securelyhello/features/auth/screens/welcome_screen.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
@@ -102,25 +103,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
           children: [
             ScaleTransition(
               scale: _scaleAnimation,
-              child: Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: context.palette.accent.withValues(alpha: 0.1),
-                  boxShadow: [
-                    BoxShadow(
-                      color: context.palette.accent.withValues(alpha: 0.2),
-                      blurRadius: 40,
-                      spreadRadius: 10,
-                    ),
-                  ],
-                ),
-                child: Icon(
-                  LucideIcons.shieldCheck,
-                  size: 80,
-                  color: context.palette.accent,
-                ),
-              ),
+              child: const BrandLogo(size: 120),
             ),
             const SizedBox(height: 32),
             FadeTransition(

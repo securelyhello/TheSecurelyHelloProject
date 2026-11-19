@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import 'package:securelyhello/shared/widgets/brand_logo.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -90,12 +92,22 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                     return Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 32),
                       child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                        Container(
-                          width: 112,
-                          height: 112,
-                          decoration: BoxDecoration(color: p.accentContainer, shape: BoxShape.circle),
-                          child: Icon(page.icon, size: 48, color: p.onAccentContainer),
-                        ),
+                        if (i == 0)
+                          const BrandLogo(size: 128, float: true)
+                        else
+                          Container(
+                            width: 120,
+                            height: 120,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: LinearGradient(
+                                colors: [p.accentContainer, p.accentContainer.withValues(alpha: 0.4)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                            ),
+                            child: Icon(page.icon, size: 50, color: p.onAccentContainer),
+                          ),
                         const SizedBox(height: 32),
                         Text(page.title,
                             textAlign: TextAlign.center,
