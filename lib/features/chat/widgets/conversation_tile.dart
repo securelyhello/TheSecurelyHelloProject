@@ -25,7 +25,16 @@ class ConversationTile extends StatelessWidget {
     this.onLongPress,
     this.onSecondaryTapDown,
     this.isGroup = false,
+    this.pinned = false,
+    this.muted = false,
+    this.draft,
   });
+
+  final bool pinned;
+  final bool muted;
+
+  /// Typed and not sent: shown instead of the last message.
+  final String? draft;
 
   final String contactUserId;
   final bool isGroup;
@@ -71,6 +80,16 @@ class ConversationTile extends StatelessWidget {
           const SizedBox(width: 5),
           TypingDots(color: p.accent, size: 4.5),
         ],
+      );
+    } else if (draft != null && draft!.trim().isNotEmpty) {
+      preview = Text.rich(
+        TextSpan(children: [
+          TextSpan(text: 'Draft: ', style: TextStyle(color: p.danger, fontWeight: FontWeight.w600)),
+          TextSpan(text: draft!.replaceAll('\n', ' ')),
+        ]),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: t.bodyMedium?.copyWith(color: p.textSecondary),
       );
     } else if (lastMessage == null || lastMessage!.isEmpty) {
       preview = Text(
@@ -191,6 +210,14 @@ class ConversationTile extends StatelessWidget {
                               ),
                             ),
                           ),
+                          if (muted) ...[
+                            const SizedBox(width: 6),
+                            Icon(LucideIcons.bellOff, size: 15, color: p.textMuted, semanticLabel: 'muted'),
+                          ],
+                          if (pinned) ...[
+                            const SizedBox(width: 6),
+                            Icon(LucideIcons.pin, size: 15, color: p.textMuted, semanticLabel: 'pinned'),
+                          ],
                           if (unread) ...[
                             const SizedBox(width: 8),
                             UnreadBadge(count: unreadCount),

@@ -199,6 +199,9 @@ class WirePayload {
   /// StoryService).
   final Map<String, dynamic>? story;
 
+  /// [message]: forwarded from another chat (1.1; 1.0 apps ignore it).
+  final bool forwarded;
+
   /// Set when a message, action, receipt or timer belongs to a group
   /// rather than to the 1:1 chat with the sender.
   final String? groupId;
@@ -223,6 +226,7 @@ class WirePayload {
     this.profile,
     this.group,
     this.story,
+    this.forwarded = false,
     this.groupId,
     this.call,
   });
@@ -237,9 +241,11 @@ class WirePayload {
     Map<String, dynamic>? reply,
     int? expireSeconds,
     String? groupId,
+    bool forwarded = false,
   }) =>
       WirePayload._(
         kind: PayloadKind.message,
+        forwarded: forwarded,
         groupId: groupId,
         expireSeconds: expireSeconds,
         messageId: messageId,
@@ -435,6 +441,7 @@ class WirePayload {
         if (groupId != null) 'gid': groupId,
         if (call != null) 'call': call,
         if (story != null) 'story': story,
+        if (forwarded) 'fwd': true,
       };
 
   Uint8List encode() => Uint8List.fromList(utf8.encode(jsonEncode(toJson())));
@@ -476,6 +483,7 @@ class WirePayload {
       groupId: json['gid'] as String?,
       call: call is Map ? Map<String, dynamic>.from(call) : null,
       story: story is Map ? Map<String, dynamic>.from(story) : null,
+      forwarded: json['fwd'] == true,
     );
     switch (kind) {
       case PayloadKind.message:

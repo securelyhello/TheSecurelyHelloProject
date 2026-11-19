@@ -795,6 +795,59 @@ void main() {
     });
   });
 
+  testWidgets('organising chats: forward, search, star, pin, drafts', (tester) async {
+    await tester.runAsync(() async {
+      final hal = Stack('hal');
+      final ivy = Stack('ivy');
+      for (final s in [hal, ivy]) {
+        await s.signUp();
+      }
+      await ivy.contacts.acceptInvite(inviteTokenFrom((await hal.contacts.createInvite())['url'] as String)!);
+      await hal.contacts.loadContacts();
+
+      final sent = await hal.chat.sendMessage(ivy.id, 'the needle is in the haystack');
+      final file = await hal.chat.attachments.upload(Uint8List.fromList(List.generate(200000, (i) => i % 251)),
+          name: 'plans.bin', mime: 'application/octet-stream');
+      await hal.chat.sendMessage(ivy.id, '', attachment: file);
+      await until(() async => (await ivy.messagesWith(hal)).length >= 2, what: 'Ivy gets both');
+      final got = (await ivy.messagesWith(hal)).firstWhere((m) => m.id == sent.id);
+
+      // Forward (back to Hal here): a new message, marked forwarded.
+      final fwd = await ivy.chat.forward(got, hal.id);
+      expect(fwd.forwarded, isTrue);
+      await until(() async => (await hal.messagesWith(ivy)).any((m) => m.id == fwd.id && m.forwarded),
+          what: 'Hal sees it as forwarded');
+      // A forwarded file is uploaded again (Hal's original upload is his).
+      final withFile = (await ivy.messagesWith(hal)).firstWhere((m) => m.attachment != null);
+      final fwdFile = await ivy.chat.forward(withFile, hal.id);
+      expect(fwdFile.attachment!['id'], isNot(file['id']));
+      await until(() async => (await hal.messagesWith(ivy)).any((m) => m.id == fwdFile.id), what: 'file forwarded');
+
+      // Search on the device.
+      final hits = await ivy.chat.searchMessages('NEEDLE');
+      expect(hits.map((m) => m.content), everyElement(contains('needle')));
+      expect(hits.length, 2, reason: 'the original and the forwarded copy');
+      expect(await ivy.chat.searchMessages('plans.bin'), isNotEmpty, reason: 'file names too');
+      expect(await ivy.chat.searchMessages('nothing like this'), isEmpty);
+
+      // Star, pin, archive, drafts.
+      await ivy.chat.setStarred(got.id, hal.id, true);
+      expect((await ivy.chat.starredMessages()).single.id, got.id);
+      await ivy.chat.setPinned(hal.id, true);
+      await ivy.chat.setArchived(hal.id, true);
+      final conv = (await ivy.chat.fetchConversations()).firstWhere((c) => c.id == hal.id);
+      expect([conv.pinned, conv.archived], [true, true]);
+      await ivy.chat.saveDraft(hal.id, 'half a thought');
+      expect(await ivy.chat.draftOf(hal.id), 'half a thought');
+      await ivy.chat.sendMessage(hal.id, 'whole thought');
+      expect(await ivy.chat.draftOf(hal.id), isNull, reason: 'sending clears the draft');
+
+      for (final s in [hal, ivy]) {
+        await s.dispose();
+      }
+    });
+  });
+
   testWidgets('a group where not everyone knows each other', (tester) async {
     await tester.runAsync(() async {
       final gail = Stack('gail');

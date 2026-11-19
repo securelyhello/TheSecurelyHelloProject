@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/shared/utils/chat_time_format.dart';
@@ -33,6 +34,8 @@ class MessageBubble extends StatefulWidget {
     this.attachment,
     this.replyQuote,
     this.edited = false,
+    this.forwarded = false,
+    this.starred = false,
     this.deleted = false,
     this.reactions = const [],
     this.onReactionsTap,
@@ -49,6 +52,12 @@ class MessageBubble extends StatefulWidget {
 
   /// Shows "edited" next to the time.
   final bool edited;
+
+  /// Shows "Forwarded" above the text.
+  final bool forwarded;
+
+  /// Shows a star next to the time.
+  final bool starred;
 
   /// Deleted for everyone: [message] is ignored and a tombstone is shown.
   final bool deleted;
@@ -202,6 +211,10 @@ class _MessageBubbleState extends State<MessageBubble> {
     final metaRow = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (widget.starred && !widget.deleted) ...[
+          Icon(LucideIcons.star, size: 11, color: meta, semanticLabel: 'starred'),
+          const SizedBox(width: 4),
+        ],
         if (widget.edited && !widget.deleted)
           Text('edited  ', style: metaStyle.copyWith(fontStyle: FontStyle.italic)),
         Text(timeText, style: metaStyle),
@@ -280,9 +293,26 @@ class _MessageBubbleState extends State<MessageBubble> {
               withAttachment,
             ],
           );
+    final Widget forwardedBody = !widget.forwarded || widget.deleted
+        ? quoted
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(LucideIcons.forward, size: 13, color: meta),
+                  const SizedBox(width: 4),
+                  Text('Forwarded', style: metaStyle.copyWith(fontStyle: FontStyle.italic, fontSize: 12)),
+                ]),
+              ),
+              quoted,
+            ],
+          );
     final sender = widget.senderName;
     final Widget body = sender == null
-        ? quoted
+        ? forwardedBody
         : Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
@@ -300,7 +330,7 @@ class _MessageBubbleState extends State<MessageBubble> {
                   ),
                 ),
               ),
-              quoted,
+              forwardedBody,
             ],
           );
 

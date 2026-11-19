@@ -2,6 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:securelyhello/features/chat/screens/message_search_screen.dart';
+
+import 'package:securelyhello/shared/widgets/mute_picker.dart';
+
+import 'package:securelyhello/core/notifications/notification_service.dart';
+
 import 'package:securelyhello/features/stories/stories_row.dart';
 import 'package:securelyhello/features/update/update_widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -35,11 +41,11 @@ class ConversationListScreen extends StatefulWidget {
   State<ConversationListScreen> createState() => _ConversationListScreenState();
 }
 
-enum _Filter { all, unread }
+enum _Filter { all, unread, groups, archived }
 
-enum _ConvAction { read, info, clear, delete }
+enum _ConvAction { read, pin, mute, archive, info, clear, delete }
 
-enum _TopMenu { findPeople, requests }
+enum _TopMenu { findPeople, requests, search, starred }
 
 class _ConversationListScreenState extends State<ConversationListScreen> {
   final _search = TextEditingController();
@@ -79,6 +85,8 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
     Offset? position,
   }) async {
     final chat = context.read<ChatProvider>();
+    final notifications = context.read<NotificationService>();
+    final muted = notifications.isMuted(conv.id);
     final group = chat.groupOf(conv.id);
     final action = await showActionMenu<_ConvAction>(
       context,
@@ -104,6 +112,21 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
             icon: LucideIcons.checkCheck,
             label: L10n.of(context).markAsRead,
           ),
+        ActionItem(
+          value: _ConvAction.pin,
+          icon: conv.pinned ? LucideIcons.pinOff : LucideIcons.pin,
+          label: conv.pinned ? 'Unpin' : 'Pin to top',
+        ),
+        ActionItem(
+          value: _ConvAction.mute,
+          icon: muted ? LucideIcons.bell : LucideIcons.bellOff,
+          label: muted ? 'Unmute' : 'Mute notifications',
+        ),
+        ActionItem(
+          value: _ConvAction.archive,
+          icon: conv.archived ? LucideIcons.archiveRestore : LucideIcons.archive,
+          label: conv.archived ? 'Unarchive' : 'Archive',
+        ),
         if (group != null)
           const ActionItem(value: _ConvAction.info, icon: LucideIcons.users, label: 'Group info')
         else if (contact != null)
@@ -129,6 +152,23 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
     switch (action) {
       case _ConvAction.read:
         await chat.markConversationAsRead(conv.id);
+      case _ConvAction.pin:
+        await chat.setPinned(conv.id, !conv.pinned);
+      case _ConvAction.mute:
+        if (muted) {
+          await notifications.unmute(conv.id);
+        } else {
+          if (!mounted) return;
+          final d = await pickMuteDuration(context);
+          if (d == null) return;
+          await notifications.mute(conv.id, d.duration);
+        }
+        if (mounted) setState(() {});
+      case _ConvAction.archive:
+        await chat.setArchived(conv.id, !conv.archived);
+        if (mounted) {
+          showAppSnackBar(context, conv.archived ? '$name unarchived' : '$name archived');
+        }
       case _ConvAction.info when group != null:
         final result = await Navigator.of(context).push<(GroupInfoResult, String?)>(
             MaterialPageRoute(builder: (_) => GroupInfoScreen(conversationId: conv.id)));
@@ -227,8 +267,13 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
 
     final all = chat.conversations;
     final unreadChats = all.where((c) => c.unreadCount > 0).length;
+    final archivedCount = all.where((c) => c.archived).length;
+    if (_filter == _Filter.archived && archivedCount == 0) _filter = _Filter.all;
     final visible = all.where((conv) {
+      // Archived chats live under their own filter (and still show in search).
+      if (q.isEmpty && conv.archived != (_filter == _Filter.archived)) return false;
       if (_filter == _Filter.unread && conv.unreadCount == 0) return false;
+      if (_filter == _Filter.groups && chat.groupOf(conv.id) == null) return false;
       if (q.isEmpty) return true;
       final c = contactsProvider.getContact(conv.contactUserId);
       return matches(chat.groupOf(conv.id)?.name) ||
@@ -289,6 +334,21 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
                 showCheckmark: false,
                 onSelected: (_) => setState(() => _filter = _Filter.unread),
               ),
+              ChoiceChip(
+                label: const Text('Groups'),
+                selected: _filter == _Filter.groups,
+                showCheckmark: false,
+                onSelected: (_) => setState(() => _filter = _Filter.groups),
+              ),
+              if (archivedCount > 0)
+                ChoiceChip(
+                  key: const ValueKey('filter-archived'),
+                  avatar: const Icon(LucideIcons.archive, size: 16),
+                  label: Text('Archived ($archivedCount)'),
+                  selected: _filter == _Filter.archived,
+                  showCheckmark: false,
+                  onSelected: (_) => setState(() => _filter = _Filter.archived),
+                ),
             ],
           ),
         ),
@@ -413,9 +473,17 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
                   Navigator.pushNamed(context, '/add-contact');
                 case _TopMenu.requests:
                   Navigator.pushNamed(context, '/contact-requests');
+                case _TopMenu.search:
+                  Navigator.of(context)
+                      .push(MaterialPageRoute<void>(builder: (_) => const MessageSearchScreen()));
+                case _TopMenu.starred:
+                  Navigator.of(context)
+                      .push(MaterialPageRoute<void>(builder: (_) => const StarredMessagesScreen()));
               }
             },
             itemBuilder: (context) => [
+              const PopupMenuItem(value: _TopMenu.search, child: Text('Search messages')),
+              const PopupMenuItem(value: _TopMenu.starred, child: Text('Starred messages')),
               PopupMenuItem(
                 value: _TopMenu.findPeople,
                 child: Text(L10n.of(context).findPeople),
@@ -487,6 +555,9 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
         lastMessage: conv.lastMessage,
         lastMessageTime: conv.lastMessageTime,
         unreadCount: conv.unreadCount,
+        pinned: conv.pinned,
+        muted: context.read<NotificationService>().isMuted(conv.id),
+        draft: conv.draft,
         isTyping: chat.isContactTyping(conv.contactUserId),
         lastOwnStatus: info.status,
         lastIsSystem: info.system,

@@ -62,6 +62,12 @@ class Message {
   /// When this message disappears (disappearing messages), if ever.
   final DateTime? expiresAt;
 
+  /// Starred (saved) on this device.
+  final bool starred;
+
+  /// Forwarded from another chat.
+  final bool forwarded;
+
   const Message({
     required this.id,
     required this.conversationId,
@@ -77,6 +83,8 @@ class Message {
     this.deleted = false,
     this.reactions = const {},
     this.expiresAt,
+    this.starred = false,
+    this.forwarded = false,
   });
 
   bool get isSystem => kind == 'system';
@@ -96,6 +104,8 @@ class Message {
         deleted: deleted,
         reactions: r,
         expiresAt: expiresAt,
+        starred: starred,
+        forwarded: forwarded,
       );
   bool get hasAttachment => attachment != null;
 
@@ -126,6 +136,8 @@ class Message {
       editedAt: edited == null ? null : DateTime.fromMillisecondsSinceEpoch(edited),
       deleted: (map['deleted'] as int? ?? 0) == 1,
       expiresAt: expires == null ? null : DateTime.fromMillisecondsSinceEpoch(expires),
+      starred: (map['starred'] as int? ?? 0) == 1,
+      forwarded: (map['forwarded'] as int? ?? 0) == 1,
     );
   }
 }
@@ -137,6 +149,11 @@ class Conversation {
   final String? lastMessage;
   final DateTime? lastMessageTime;
   final int unreadCount;
+  final bool pinned;
+  final bool archived;
+
+  /// Typed and not sent yet.
+  final String? draft;
 
   const Conversation({
     required this.id,
@@ -144,6 +161,9 @@ class Conversation {
     this.lastMessage,
     this.lastMessageTime,
     this.unreadCount = 0,
+    this.pinned = false,
+    this.archived = false,
+    this.draft,
   });
 
   factory Conversation.fromMap(Map<String, dynamic> map) {
@@ -155,6 +175,9 @@ class Conversation {
           ? DateTime.fromMillisecondsSinceEpoch(map['last_message_time'] as int)
           : null,
       unreadCount: (map['unread_count'] as int?) ?? 0,
+      pinned: (map['pinned'] as int? ?? 0) == 1,
+      archived: (map['archived'] as int? ?? 0) == 1,
+      draft: map['draft'] as String?,
     );
   }
 }
@@ -622,6 +645,62 @@ class ChatService {
     }
   }
 
+  // Organising chats (1.1)
+
+  Future<void> setPinned(String chatId, bool pinned) async {
+    await _storage.setPinned(chatId, pinned);
+    _changed(chatId);
+  }
+
+  Future<void> setArchived(String chatId, bool archived) async {
+    await _storage.setArchived(chatId, archived);
+    _changed(chatId);
+  }
+
+  Future<String?> draftOf(String chatId) => _storage.getDraft(chatId);
+
+  Future<void> saveDraft(String chatId, String text) => _storage.setDraft(chatId, text);
+
+  Future<void> setStarred(String messageId, String chatId, bool starred) async {
+    await _storage.setStarred(messageId, starred);
+    _changed(chatId);
+  }
+
+  Future<List<Message>> starredMessages() async =>
+      [for (final r in await _storage.getStarredMessages()) Message.fromMap(r)];
+
+  /// Forwards [m] to [chatId], marked as forwarded. A file is sent again as
+  /// a new upload: the original can only be fetched by its sender's contacts.
+  Future<Message> forward(Message m, String chatId) async {
+    Map<String, dynamic>? attachment;
+    if (m.attachment != null) {
+      final bytes = await attachments.load(m.attachment!);
+      attachment = await attachments.upload(bytes,
+          name: m.attachment!['name'] as String? ?? 'file', mime: m.attachment!['mime'] as String?);
+    }
+    return sendMessage(chatId, m.content, attachment: attachment, forwarded: true);
+  }
+
+  /// Messages containing [query] (case-insensitive), newest first, from all
+  /// chats or just [chatId]. On this device: messages are decrypted here,
+  /// nothing is sent anywhere.
+  Future<List<Message>> searchMessages(String query, {String? chatId, int limit = 200}) async {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return const [];
+    final chats = chatId != null ? [chatId] : [for (final c in await _storage.getConversations()) c['id'] as String];
+    final hits = <Message>[];
+    for (final c in chats) {
+      for (final r in await _storage.getMessages(c, limit: 5000)) {
+        final m = Message.fromMap(r);
+        if (m.deleted || m.isSystem) continue;
+        final name = m.attachment?['name'] as String? ?? '';
+        if (m.content.toLowerCase().contains(q) || name.toLowerCase().contains(q)) hits.add(m);
+      }
+    }
+    hits.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return hits.length > limit ? hits.sublist(0, limit) : hits;
+  }
+
   // Call history (the Calls tab), on this device only, sealed at rest.
 
   static const callLogLimit = 200;
@@ -847,6 +926,7 @@ class ChatService {
     String plaintext, {
     Map<String, dynamic>? attachment,
     Map<String, dynamic>? replyTo,
+    bool forwarded = false,
   }) async {
     final me = _requireUserId();
     final id = _uuid.v4();
@@ -867,7 +947,10 @@ class ChatService {
       attachment: attachmentJson,
       replyTo: reply == null ? null : jsonEncode(reply),
       expiresAt: expiresAt,
+      forwarded: forwarded,
     );
+    // Sent: the draft is gone.
+    await _storage.setDraft(contactId, null);
     await _storage.updateConversation(
       id: contactId,
       contactUserId: contactId,
@@ -877,7 +960,7 @@ class ChatService {
     _changed(contactId);
 
     final status = await _transmitMessage(contactId, id, plaintext,
-        now.millisecondsSinceEpoch, attachment, reply, timer > 0 ? timer : null);
+        now.millisecondsSinceEpoch, attachment, reply, timer > 0 ? timer : null, forwarded);
     _changed(contactId);
 
     unawaited(_syncToOwnDevices(WirePayload.sentSync(
@@ -906,6 +989,7 @@ class ChatService {
       attachment: attachment,
       replyTo: reply,
       expiresAt: expiresAt == null ? null : DateTime.fromMillisecondsSinceEpoch(expiresAt),
+      forwarded: forwarded,
     );
   }
 
@@ -1199,7 +1283,7 @@ class ChatService {
       for (final row in rows) {
         final m = Message.fromMap(row);
         await _transmitMessage(m.conversationId, m.id, m.content,
-            m.timestamp.millisecondsSinceEpoch, m.attachment, m.replyTo, _remaining(m));
+            m.timestamp.millisecondsSinceEpoch, m.attachment, m.replyTo, _remaining(m), m.forwarded);
         _changed(m.conversationId);
       }
     } catch (e) {
@@ -1266,7 +1350,7 @@ class ChatService {
 
   Future<String> _transmitMessage(String contactId, String id, String text,
       int timestampMs, Map<String, dynamic>? attachment,
-      [Map<String, dynamic>? reply, int? expireSeconds]) async {
+      [Map<String, dynamic>? reply, int? expireSeconds, bool forwarded = false]) async {
     final me = _requireUserId();
     var delivered = false;
     try {
@@ -1283,6 +1367,7 @@ class ChatService {
                     reply: reply,
                     expireSeconds: expireSeconds,
                     groupId: gid,
+                    forwarded: forwarded,
                   ),
               id)
           : await _deliver(
@@ -1295,6 +1380,7 @@ class ChatService {
           body: text,
           attachment: attachment == null ? null : _wireAttachment(attachment),
           reply: reply,
+          forwarded: forwarded,
           expireSeconds: expireSeconds,
         ),
         envelopeId: id,
@@ -1596,6 +1682,7 @@ class ChatService {
             payload.attachment == null ? null : jsonEncode(payload.attachment),
         replyTo: payload.reply == null ? null : jsonEncode(_replyRef(payload.reply!)),
         expiresAt: _expiryFrom(payload.expireSeconds),
+        forwarded: payload.forwarded,
       );
       final preview = previewText(payload.body!, payload.attachment);
       await _storage.updateConversation(
@@ -2007,7 +2094,7 @@ class ChatService {
       for (final row in rows) {
         final m = Message.fromMap(row);
         await _transmitMessage(contactId, m.id, m.content,
-            m.timestamp.millisecondsSinceEpoch, m.attachment, m.replyTo, _remaining(m));
+            m.timestamp.millisecondsSinceEpoch, m.attachment, m.replyTo, _remaining(m), m.forwarded);
       }
     } catch (e) {
       debugPrint('Re-sending unconfirmed messages failed: $e');

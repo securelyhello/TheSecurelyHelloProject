@@ -137,12 +137,46 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Pinned chats first, then the most recent.
+  static int compareConversations(Conversation a, Conversation b) {
+    if (a.pinned != b.pinned) return a.pinned ? -1 : 1;
+    return (b.lastMessageTime ?? DateTime(2000)).compareTo(a.lastMessageTime ?? DateTime(2000));
+  }
+
+  Future<void> setPinned(String id, bool pinned) async {
+    await _chatService.setPinned(id, pinned);
+    await loadConversations();
+  }
+
+  Future<void> setArchived(String id, bool archived) async {
+    await _chatService.setArchived(id, archived);
+    await loadConversations();
+  }
+
+  Future<void> setStarred(Message m, bool starred) async {
+    await _chatService.setStarred(m.id, m.conversationId, starred);
+    await loadMessages(m.conversationId);
+  }
+
+  Future<void> forward(Message m, Iterable<String> chatIds) async {
+    for (final id in chatIds) {
+      await _chatService.forward(m, id);
+    }
+    await loadConversations();
+  }
+
+  Future<String?> draftOf(String chatId) => _chatService.draftOf(chatId);
+
+  Future<void> saveDraft(String chatId, String text) async {
+    await _chatService.saveDraft(chatId, text);
+    await loadConversations();
+  }
+
   /// Load all conversations from local storage.
   Future<void> loadConversations() async {
     try {
       _conversations = await _chatService.fetchConversations();
-      _conversations.sort((a, b) => (b.lastMessageTime ?? DateTime(2000))
-          .compareTo(a.lastMessageTime ?? DateTime(2000)));
+      _conversations.sort(compareConversations);
       notifyListeners();
     } catch (e) {
       _errorMessage = 'Failed to load conversations: $e';

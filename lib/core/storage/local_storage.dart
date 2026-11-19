@@ -29,7 +29,7 @@ import 'package:securelyhello/core/crypto/crypto_core.dart';
 /// **Nothing stored here ever leaves the device.**
 class LocalStorage {
   static const _legacyDbName = 'securelyhello.db';
-  static const _dbVersion = 6;
+  static const _dbVersion = 7;
   static const _sealedPrefix = 'enc1:';
 
   final DatabaseFactory _factory;
@@ -195,6 +195,20 @@ class LocalStorage {
     await _createV4(db);
     await _createV5(db);
     await _createV6(db);
+    await _createV7(db);
+  }
+
+  /// 1.1: pinned and archived chats, drafts (sealed), starred and
+  /// forwarded messages. Additive only.
+  static Future<void> _createV7(Database db) async {
+    final batch = db.batch()
+      ..execute('ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0')
+      ..execute('ALTER TABLE conversations ADD COLUMN archived INTEGER NOT NULL DEFAULT 0')
+      ..execute('ALTER TABLE conversations ADD COLUMN draft TEXT')
+      ..execute('ALTER TABLE messages ADD COLUMN starred INTEGER NOT NULL DEFAULT 0')
+      ..execute('ALTER TABLE messages ADD COLUMN forwarded INTEGER NOT NULL DEFAULT 0')
+      ..execute('CREATE INDEX IF NOT EXISTS idx_messages_starred ON messages(starred) WHERE starred = 1');
+    await batch.commit(noResult: true);
   }
 
   /// Group chats: who has received and read each of our group messages.
@@ -348,6 +362,7 @@ class LocalStorage {
     if (oldVersion < 4) await _createV4(db);
     if (oldVersion < 5) await _createV5(db);
     if (oldVersion < 6) await _createV6(db);
+    if (oldVersion < 7) await _createV7(db);
   }
 
   /// Closes the database.  Safe to call multiple times.
@@ -525,7 +540,12 @@ class LocalStorage {
 
   Map<String, dynamic> _unsealConversation(Map<String, dynamic> row) {
     final last = row['last_message'] as String?;
-    return {...row, 'last_message': last == null ? null : _unseal(last)};
+    final draft = row['draft'] as String?;
+    return {
+      ...row,
+      'last_message': last == null ? null : _unseal(last),
+      'draft': draft == null ? null : _unseal(draft),
+    };
   }
 
   // Legacy identity migration
@@ -568,10 +588,12 @@ class LocalStorage {
     String? attachment,
     String? replyTo,
     int? expiresAt,
+    bool forwarded = false,
   }) async {
     await db.insert(
       'messages',
       {
+        if (forwarded) 'forwarded': 1,
         'id': id,
         'conversation_id': conversationId,
         'sender_id': senderId,
@@ -721,6 +743,34 @@ class LocalStorage {
   // Conversations
 
   /// Returns all conversations ordered by most-recent message.
+  // Organising chats (1.1)
+
+  Future<void> setPinned(String conversationId, bool pinned) =>
+      db.update('conversations', {'pinned': pinned ? 1 : 0}, where: 'id = ?', whereArgs: [conversationId]);
+
+  Future<void> setArchived(String conversationId, bool archived) =>
+      db.update('conversations', {'archived': archived ? 1 : 0}, where: 'id = ?', whereArgs: [conversationId]);
+
+  /// What was typed and not sent; blank clears it. Sealed like messages.
+  Future<void> setDraft(String conversationId, String? text) => db.update(
+      'conversations', {'draft': text == null || text.trim().isEmpty ? null : _seal(text)},
+      where: 'id = ?', whereArgs: [conversationId]);
+
+  Future<String?> getDraft(String conversationId) async {
+    final rows = await db.query('conversations', columns: ['draft'], where: 'id = ?', whereArgs: [conversationId]);
+    final d = rows.isEmpty ? null : rows.first['draft'] as String?;
+    return d == null ? null : _unseal(d);
+  }
+
+  Future<void> setStarred(String messageId, bool starred) =>
+      db.update('messages', {'starred': starred ? 1 : 0}, where: 'id = ?', whereArgs: [messageId]);
+
+  /// Starred messages from every chat, newest first.
+  Future<List<Map<String, dynamic>>> getStarredMessages() async {
+    final rows = await db.query('messages', where: 'starred = 1 AND deleted = 0', orderBy: 'timestamp DESC');
+    return rows.map(_unsealMessage).toList();
+  }
+
   Future<List<Map<String, dynamic>>> getConversations() async {
     final rows = await db.query(
       'conversations',

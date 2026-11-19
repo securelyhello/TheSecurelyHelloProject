@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:securelyhello/features/chat/widgets/forward_sheet.dart';
+import 'package:securelyhello/features/chat/screens/message_search_screen.dart';
+import 'package:securelyhello/shared/widgets/mute_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -59,26 +62,21 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-enum _MsgAction { reply, react, copy, edit, delete, info, retry }
+enum _MsgAction { reply, react, copy, star, forward, edit, delete, info, retry }
 
 /// Quick reactions offered in the message menu.
 const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
-enum _MenuAction { info, timer, connect, clear }
+enum _MenuAction { info, search, mute, timer, connect, clear }
 
 class _ChatScreenState extends State<ChatScreen> {
-  /// Unsent text per conversation, kept while the app runs.
-  static final Map<String, String> _drafts = {};
-
   /// The provider pages history in steps of this size.
   static const _pageSize = 50;
 
   /// Messages closer together than this (same sender, same day) are grouped.
   static const _groupGap = Duration(minutes: 5);
 
-  late final TextEditingController _input = TextEditingController(
-    text: _drafts[widget.contactUserId] ?? '',
-  );
+  late final TextEditingController _input = TextEditingController();
   final FocusNode _focus = FocusNode();
   final ScrollController _scroll = ScrollController();
   late final ChatProvider _chat;
@@ -149,6 +147,11 @@ class _ChatScreenState extends State<ChatScreen> {
     _scroll.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (Composer.enterSends) _focus.requestFocus();
+      final draft = await _chat.draftOf(_id);
+      if (draft != null && mounted && _input.text.isEmpty) {
+        _input.text = draft;
+        _input.selection = TextSelection.collapsed(offset: draft.length);
+      }
       await _chat.openConversation(_id);
       _chat.addListener(_loadTimer);
       await _loadTimer();
@@ -158,12 +161,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
-    final draft = _input.text;
-    if (draft.trim().isEmpty) {
-      _drafts.remove(_id);
-    } else {
-      _drafts[_id] = draft;
-    }
+    // Unsent text is kept per chat (sealed on this device) until sent.
+    if (_editing == null) unawaited(_chat.saveDraft(_id, _input.text));
     _input.dispose();
     _focus.dispose();
     _scroll.dispose();
@@ -204,7 +203,6 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = _input.text.trim();
     if (text.isEmpty) return;
     _input.clear();
-    _drafts.remove(_id);
     final editing = _editing;
     if (editing != null) {
       setState(() => _editing = null);
@@ -334,7 +332,6 @@ class _ChatScreenState extends State<ChatScreen> {
     final bytes = await file.readAsBytes();
     final caption = _input.text.trim();
     _input.clear();
-    _drafts.remove(_id);
     _jumpToBottom();
     final ok = await _chat.sendAttachment(_id, bytes: bytes, name: file.name, caption: caption);
     if (!ok && mounted) {
@@ -397,6 +394,20 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Future<void> _toggleMute() async {
+    final n = context.read<NotificationService>();
+    if (n.isMuted(_id)) {
+      await n.unmute(_id);
+      if (mounted) showAppSnackBar(context, 'Notifications on');
+    } else {
+      final choice = await pickMuteDuration(context);
+      if (choice == null) return;
+      await n.mute(_id, choice.duration);
+      if (mounted) showAppSnackBar(context, 'Muted: ${choice.label.toLowerCase()}');
+    }
+    if (mounted) setState(() {});
+  }
+
   Future<void> _confirmClearChat(String name) async {
     final ok = await showConfirmDialog(
       context,
@@ -441,6 +452,13 @@ class _ChatScreenState extends State<ChatScreen> {
             icon: LucideIcons.copy,
             label: 'Copy',
           ),
+        if (!m.deleted && !m.isSystem) ...[
+          ActionItem(
+              value: _MsgAction.star,
+              icon: m.starred ? LucideIcons.starOff : LucideIcons.star,
+              label: m.starred ? 'Unstar' : 'Star'),
+          const ActionItem(value: _MsgAction.forward, icon: LucideIcons.forward, label: 'Forward'),
+        ],
         if (ChatService.canEdit(m) && m.content.isNotEmpty)
           const ActionItem(value: _MsgAction.edit, icon: LucideIcons.pencil, label: 'Edit'),
         const ActionItem(value: _MsgAction.delete, icon: LucideIcons.trash2, label: 'Delete'),
@@ -470,6 +488,18 @@ class _ChatScreenState extends State<ChatScreen> {
           _input.selection = TextSelection.collapsed(offset: m.content.length);
         });
         _focus.requestFocus();
+      case _MsgAction.star:
+        await _chat.setStarred(m, !m.starred);
+        if (mounted) showAppSnackBar(context, m.starred ? 'Unstarred' : 'Starred');
+      case _MsgAction.forward:
+        final to = await pickForwardTargets(context, exclude: _id);
+        if (to == null || to.isEmpty || !mounted) return;
+        try {
+          await _chat.forward(m, to);
+          if (mounted) showAppSnackBar(context, to.length == 1 ? 'Forwarded' : 'Forwarded to ${to.length} chats');
+        } catch (e) {
+          if (mounted) showAppSnackBar(context, friendlyError(e.toString(), fallback: 'Not forwarded'), error: true);
+        }
       case _MsgAction.delete:
         await _delete(m);
       case _MsgAction.copy:
@@ -616,6 +646,11 @@ class _ChatScreenState extends State<ChatScreen> {
               switch (v) {
                 case _MenuAction.info:
                   _openInfo(contact);
+                case _MenuAction.search:
+                  Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => MessageSearchScreen(chatId: _id, title: name)));
+                case _MenuAction.mute:
+                  _toggleMute();
                 case _MenuAction.timer:
                   _chooseTimer();
                 case _MenuAction.connect:
@@ -633,6 +668,12 @@ class _ChatScreenState extends State<ChatScreen> {
                       LucideIcons.shieldCheck,
                       'Contact info & safety number',
                     ),
+              _menuItem(_MenuAction.search, LucideIcons.search, 'Search in chat'),
+              _menuItem(
+                _MenuAction.mute,
+                context.read<NotificationService>().isMuted(_id) ? LucideIcons.bell : LucideIcons.bellOff,
+                context.read<NotificationService>().isMuted(_id) ? 'Unmute notifications' : 'Mute notifications',
+              ),
               _menuItem(
                 _MenuAction.timer,
                 LucideIcons.timer,
@@ -805,6 +846,8 @@ class _ChatScreenState extends State<ChatScreen> {
           senderColor: _isGroup ? context.palette.avatarColorFor(m.senderId) : null,
           replyQuote: m.replyTo == null ? null : _quote(m.replyTo!, contact),
           edited: m.editedAt != null,
+          forwarded: m.forwarded,
+          starred: m.starred,
           deleted: m.deleted,
           reactions: m.reactions.values.toList(),
           onReactionsTap: () => _pickReaction(m),
