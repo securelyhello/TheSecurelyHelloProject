@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:securelyhello/features/stories/stories_row.dart';
 import 'package:securelyhello/features/update/update_widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -267,6 +268,7 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
 
     final slivers = <Widget>[
       const UpdateCardSliver(),
+      const StoriesRowSliver(),
       SliverToBoxAdapter(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),

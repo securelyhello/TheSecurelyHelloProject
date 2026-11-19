@@ -136,13 +136,16 @@ class AttachmentService {
   /// Prepares [bytes] for sending and returns the metadata that goes into
   /// the message: the file itself as an FTS1 string when it is small,
   /// otherwise the blob id and key of an encrypted upload.
+  ///
+  /// [forceUpload] always uploads (stories: their envelopes stay small and
+  /// the server deletes the blob with the story).
   Future<Map<String, dynamic>> upload(Uint8List bytes,
-      {required String name, String? mime}) async {
+      {required String name, String? mime, bool forceUpload = false}) async {
     if (bytes.length > maxBytes) throw AttachmentTooLargeException(bytes.length);
     final cleanName = p.basename(name).trim().isEmpty ? 'file' : p.basename(name).trim();
     final type = mime ?? mimeFor(name, bytes.take(32).toList());
     // Base64 inside FTS1: smaller than base45 for JSON transport.
-    if (bytes.length <= inlineMaxChars) {
+    if (!forceUpload && bytes.length <= inlineMaxChars) {
       final fts = FileStringCodec.encode(bytes, filename: cleanName);
       if (fts.length <= inlineMaxChars) {
         // A local id only (keys the UI and the memory cache); nothing is

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:securelyhello/core/calls/call_system.dart';
 import 'package:securelyhello/core/notifications/notification_actions.dart';
 import 'package:securelyhello/core/notifications/push_background.dart';
+import 'package:securelyhello/core/stories/story_service.dart';
 import 'package:securelyhello/core/update/app_updater.dart';
 import 'package:securelyhello/features/update/update_widgets.dart';
 import 'package:flutter/services.dart';
@@ -129,9 +130,12 @@ Future<void> main() async {
     chatService: chatService,
   )..init();
 
+  final stories = StoryService(chat: chatService, directory: directoryService, storage: localStorage);
+
   // Tear down per-user state before the session and database go away.
   authProvider
     ..addSignOutHook(push.stop)
+    ..addSignOutHook(() async => stories.stop())
     ..addSignOutHook(calls.hangUp)
     ..addSignOutHook(chatProvider.reset)
     ..addSignOutHook(contactsProvider.reset)
@@ -170,6 +174,7 @@ Future<void> main() async {
       language: language,
       updater: updater,
       callSystem: callSystem,
+      stories: stories,
     ),
   );
 }
@@ -223,6 +228,7 @@ class SecurelyHelloApp extends StatelessWidget {
   final LocaleController language;
   final AppUpdater? updater;
   final CallSystemHolder? callSystem;
+  final StoryService? stories;
 
   SecurelyHelloApp({
     super.key,
@@ -238,6 +244,7 @@ class SecurelyHelloApp extends StatelessWidget {
     this.calls,
     this.updater,
     this.callSystem,
+    this.stories,
     ThemeController? theme,
     LocaleController? language,
   })  : theme = theme ?? ThemeController(),
@@ -257,6 +264,7 @@ class SecurelyHelloApp extends StatelessWidget {
         ChangeNotifierProvider<CallService?>.value(value: calls),
         ChangeNotifierProvider<AppUpdater?>.value(value: updater),
         Provider<CallSystemHolder?>.value(value: callSystem),
+        ChangeNotifierProvider<StoryService?>.value(value: stories),
         ChangeNotifierProvider<ThemeController>.value(value: theme),
         ChangeNotifierProvider<LocaleController>.value(value: language),
         if (profiles != null) ChangeNotifierProvider<ProfileService>.value(value: profiles!),

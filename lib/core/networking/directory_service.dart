@@ -575,6 +575,26 @@ class DirectoryService {
   Future<void> clearPushToken() =>
       _request('DELETE', '/api/devices/current/push');
 
+  // Stories (server/src/stories.js)
+
+  /// Posts a story: its key sealed for each audience device.
+  Future<Map<String, dynamic>> postStory(String id, Map<String, String> envelopes,
+          {List<String> attachmentIds = const []}) async =>
+      Map<String, dynamic>.from(await _request('POST', '/api/stories', body: {
+        'id': id,
+        'keys': [for (final e in envelopes.entries) {'device_id': e.key, 'envelope': e.value}],
+        if (attachmentIds.isNotEmpty) 'attachment_ids': attachmentIds,
+      }) as Map);
+
+  /// Story keys for this device: `[{story_id, owner_id, created_at, expires_at, envelope}]`.
+  Future<List<Map<String, dynamic>>> fetchStories() async => _list(await _request('GET', '/api/stories'));
+
+  Future<void> deleteStory(String id) => _request('DELETE', '/api/stories/${Uri.encodeComponent(id)}');
+
+  /// A contact posted a story for us (fetch with [fetchStories]).
+  Stream<String> get onStoryPosted => _storyPosted.stream;
+  final _storyPosted = StreamController<String>.broadcast();
+
   /// Public device keys of [userId].
   Future<List<Map<String, dynamic>>> getUserDevices(String userId) async =>
       _list(await _request(
@@ -991,6 +1011,9 @@ class DirectoryService {
         break;
       case 'relay':
         _relayPushes.add(Map<String, dynamic>.from(frame['message'] as Map));
+        break;
+      case 'story':
+        if (frame['story_id'] is String) _storyPosted.add(frame['story_id'] as String);
         break;
       case 'contact_request':
       case 'contact_request_update':

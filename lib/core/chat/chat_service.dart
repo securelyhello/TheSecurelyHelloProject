@@ -622,6 +622,61 @@ class ChatService {
     }
   }
 
+  // Stories (see StoryService)
+
+  /// Seals [payload] for those of [userId]'s devices in [deviceIds] (the
+  /// ones that can take stories). Returns device id → envelope JSON. Keys
+  /// that changed since the user verified them get nothing.
+  Future<Map<String, String>> sealForDevices(String userId, Set<String> deviceIds, WirePayload payload) async {
+    final sessions = _sessions;
+    if (sessions == null) throw StateError('ChatService.start() has not been called');
+    final all = await sessions.devices(userId);
+    if (userId != _myUserId && !await _keysTrusted(userId, all)) return const {};
+    final targets = all.where((d) => deviceIds.contains(d.deviceId)).toList();
+    if (targets.isEmpty) return const {};
+    final sealed = await sessions.seal(userId, targets, payload, envelopeId: _uuid.v4());
+    return {for (final e in sealed.entries) e.key: e.value.encodeJson()};
+  }
+
+  /// Opens a story envelope fetched from /api/stories, once: null if it was
+  /// opened before, can't be opened, or isn't a story from its sender.
+  Future<WirePayload?> openStoryEnvelope(String json) async {
+    final sessions = _sessions;
+    if (sessions == null) return null;
+    WireEnvelope env;
+    try {
+      env = WireEnvelope.decodeJson(json);
+    } on FormatException {
+      return null;
+    }
+    final seenKey = 'story/${env.senderAddress}/${env.id}';
+    if (await _storage.wasEnvelopeSeen(seenKey)) return null;
+    try {
+      final payload = await sessions.open(env);
+      await _storage.markEnvelopeSeen(seenKey);
+      if (payload.kind != PayloadKind.story || payload.from != env.senderId) return null;
+      return payload;
+    } on UndecryptableException catch (e) {
+      debugPrint('Story from ${env.senderAddress} undecryptable: ${e.reason}');
+      await _storage.markEnvelopeSeen(seenKey);
+      return null;
+    }
+  }
+
+  /// Tells [owner] we viewed their story [storyId]: a read receipt for the
+  /// id `story:ID`, which only 1.1 apps (the only ones with stories) use.
+  Future<void> sendStoryViewed(String owner, String storyId) async {
+    final me = _myUserId;
+    if (me == null || owner == me) return;
+    await _deliver(owner, WirePayload.receipt(
+        from: me, to: owner, timestampMs: DateTime.now().millisecondsSinceEpoch,
+        ids: ['story:$storyId'], status: ReceiptStatus.read));
+  }
+
+  /// (viewer, story id) when a contact views one of our stories.
+  Stream<(String, String)> get onStoryViewed => _storyViewed.stream;
+  final _storyViewed = StreamController<(String, String)>.broadcast();
+
   /// Fires with the number of messages added when history arrives from
   /// another of our devices.
   Stream<int> get onHistoryImported => _historyImported.stream;
@@ -1342,6 +1397,10 @@ class ChatService {
   Future<void> _applyReceipt(String contactId, WirePayload payload, String fromDevice) async {
     final newStatus = payload.receiptStatus!.name;
     for (final id in payload.receiptIds) {
+      if (id.startsWith('story:')) {
+        if (!_storyViewed.isClosed) _storyViewed.add((contactId, id.substring(6)));
+        continue;
+      }
       final profileVersion = ProfileService.ackedVersion(id);
       if (profileVersion != null) {
         await profiles.confirm(contactId, profileVersion, fromDevice);
@@ -1453,6 +1512,8 @@ class ChatService {
           break;
         case PayloadKind.sync:
           break; // only our own devices send these
+        case PayloadKind.story:
+          break; // stories come from /api/stories, never through the relay
       }
     }
     await _storage.markEnvelopeSeen(seenKey);

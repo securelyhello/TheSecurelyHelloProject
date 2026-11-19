@@ -16,6 +16,7 @@ import 'package:securelyhello/core/calls/call_service.dart';
 import 'package:securelyhello/core/invites/invites.dart';
 import 'package:securelyhello/core/calls/call_system.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
+import 'package:securelyhello/core/stories/story_service.dart';
 import 'package:securelyhello/core/chat/profile_service.dart';
 import 'package:securelyhello/core/crypto/device_manager.dart';
 import 'package:securelyhello/core/notifications/notification_service.dart';
@@ -98,12 +99,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _invites = context.read<PendingInvites?>();
     _calls = context.read<CallService?>();
     _callSystem = context.read<CallSystemHolder?>();
+    final stories = context.read<StoryService?>();
     _callSub ??= _calls?.onIncoming.listen(_onIncomingCall);
 
     // Subscribe before the socket opens so no presence or request push is
     // missed, then start messaging and load the lists.
     _contacts.init();
     await _chat.init(identity: identity, myUserId: myUserId, deviceId: deviceId);
+    unawaited(stories?.start(myUserId, deviceId: deviceId));
     await _contacts.loadContacts();
     // A call that rang while the app was closed (push): pick it up.
     unawaited(_calls?.replayStashedOffer());

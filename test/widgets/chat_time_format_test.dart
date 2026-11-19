@@ -104,4 +104,12 @@ void main() {
       1,
     );
   });
+
+  test('relative times for stories', () {
+    final now = DateTime(2026, 11, 20, 12);
+    expect(ChatTimeFormat.relative(now.subtract(const Duration(seconds: 20)), now: now), 'Just now');
+    expect(ChatTimeFormat.relative(now.subtract(const Duration(minutes: 5)), now: now), '5 min ago');
+    expect(ChatTimeFormat.relative(now.subtract(const Duration(hours: 3, minutes: 59)), now: now), '3 h ago');
+    expect(ChatTimeFormat.relative(now.subtract(const Duration(days: 2)), now: now), '2 d ago');
+  });
 }

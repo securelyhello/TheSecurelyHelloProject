@@ -56,7 +56,12 @@ enum PayloadKind {
   group('group'),
 
   /// Call signaling: offer, answer, ICE candidates, end (see CallService).
-  call('call');
+  call('call'),
+
+  /// A story (1.1): only ever inside the story-key envelopes that 1.1
+  /// devices fetch from /api/stories, never through the relay queue, so
+  /// 1.0 apps (which don't know this kind) never receive one.
+  story('story');
 
   const PayloadKind(this.wire);
   final String wire;
@@ -190,6 +195,10 @@ class WirePayload {
   /// [call]: `{id, t, ...}` where `t` is offer, answer, ice, end or taken.
   final Map<String, dynamic>? call;
 
+  /// [story]: `{id, type, text?, color?, caption?, att?, exp}` (see
+  /// StoryService).
+  final Map<String, dynamic>? story;
+
   /// Set when a message, action, receipt or timer belongs to a group
   /// rather than to the 1:1 chat with the sender.
   final String? groupId;
@@ -213,6 +222,7 @@ class WirePayload {
     this.expireSeconds,
     this.profile,
     this.group,
+    this.story,
     this.groupId,
     this.call,
   });
@@ -394,6 +404,15 @@ class WirePayload {
         timestampMs: timestampMs,
       );
 
+  /// A story, sealed separately for each audience device.
+  factory WirePayload.story({
+    required String from,
+    required String to,
+    required int timestampMs,
+    required Map<String, dynamic> story,
+  }) =>
+      WirePayload._(kind: PayloadKind.story, from: from, to: to, timestampMs: timestampMs, story: story);
+
   Map<String, dynamic> toJson() => {
         'k': kind.wire,
         'from': from,
@@ -415,6 +434,7 @@ class WirePayload {
         if (group != null) 'grp': group,
         if (groupId != null) 'gid': groupId,
         if (call != null) 'call': call,
+        if (story != null) 'story': story,
       };
 
   Uint8List encode() => Uint8List.fromList(utf8.encode(jsonEncode(toJson())));
@@ -431,6 +451,7 @@ class WirePayload {
     final prof = json['prof'];
     final grp = json['grp'];
     final call = json['call'];
+    final story = json['story'];
     final payload = WirePayload._(
       kind: kind,
       from: json['from'] as String,
@@ -454,6 +475,7 @@ class WirePayload {
       group: grp is Map ? Map<String, dynamic>.from(grp) : null,
       groupId: json['gid'] as String?,
       call: call is Map ? Map<String, dynamic>.from(call) : null,
+      story: story is Map ? Map<String, dynamic>.from(story) : null,
     );
     switch (kind) {
       case PayloadKind.message:
@@ -512,6 +534,23 @@ class WirePayload {
         }
         break;
       case PayloadKind.typing:
+        break;
+      case PayloadKind.story:
+        final st = payload.story;
+        final id = st?['id'];
+        final type = st?['type'];
+        final text = st?['text'];
+        final exp = st?['exp'];
+        if (st == null ||
+            id is! String ||
+            id.isEmpty ||
+            id.length > 64 ||
+            !const {'text', 'photo', 'video'}.contains(type) ||
+            (text != null && (text is! String || text.length > 1000)) ||
+            exp is! int ||
+            (type != 'text' && st['att'] is! Map)) {
+          throw const FormatException('Malformed story');
+        }
         break;
     }
     final gid = payload.groupId;

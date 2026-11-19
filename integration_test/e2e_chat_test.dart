@@ -28,6 +28,7 @@ import 'package:securelyhello/core/networking/p2p_connection_manager.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/core/storage/local_storage.dart';
+import 'package:securelyhello/core/stories/story_service.dart';
 import 'package:securelyhello/core/storage/secure_key_store.dart';
 
 const _baseUrl =
@@ -730,6 +731,67 @@ void main() {
 
       await fay.dispose();
       await gus.dispose();
+    });
+  });
+
+  testWidgets('stories: audience, viewing, seen-by, delete', (tester) async {
+    await tester.runAsync(() async {
+      final ann = Stack('ann');
+      final ben = Stack('ben');
+      final cat = Stack('cat');
+      for (final s in [ann, ben, cat]) {
+        await s.signUp();
+      }
+      for (final other in [ben, cat]) {
+        await other.contacts.acceptInvite(inviteTokenFrom((await ann.contacts.createInvite())['url'] as String)!);
+      }
+      await ann.contacts.loadContacts();
+      StoryService stories(Stack s) => StoryService(chat: s.chat, directory: s.directory, storage: s.storage);
+      final annS = stories(ann), benS = stories(ben), catS = stories(cat);
+      for (final (s, st) in [(ann, annS), (ben, benS), (cat, catS)]) {
+        await st.start(s.id, deviceId: s.auth.deviceId!);
+      }
+      // Capabilities are sent when chat starts; make sure they landed.
+      await until(() async => (await ann.directory.getUserDevices(cat.id)).first['capabilities'] is List,
+          what: 'capabilities');
+
+      await annS.setAudience(StoryAudience(AudienceMode.allExcept, {cat.id}));
+      final contacts = [for (final c in ann.contacts.contacts) c.userId];
+      final text = await annS.postText('Sunset at the beach 🌅', 0xFF2E7D6B, contacts: contacts);
+      final png = Uint8List.fromList(img.encodePng(img.Image(width: 64, height: 48)));
+      final photo = await annS.postMedia(png, video: false, caption: 'look', contacts: contacts);
+
+      await until(() async {
+        await benS.refresh();
+        return (benS.byOwner[ann.id]?.length ?? 0) == 2;
+      }, what: 'Ben gets both stories');
+      final got = benS.byOwner[ann.id]!;
+      expect(got.first.text, 'Sunset at the beach 🌅');
+      expect(benS.hasUnseen(ann.id), isTrue);
+      expect(await benS.media(got.last), isNotEmpty, reason: 'the photo decrypts');
+      expect(got.last.caption, 'look');
+
+      await catS.refresh();
+      expect(catS.byOwner[ann.id], isNull, reason: 'Cat is left out');
+
+      await benS.markSeen(got.first);
+      expect(benS.hasUnseen(ann.id), isTrue, reason: 'the photo is still unseen');
+      await until(() => annS.viewersOf(text.id).contains(ben.id), what: 'Ann sees Ben viewed it');
+      expect(annS.viewersOf(photo.id), isEmpty);
+
+      await annS.deleteMine(text);
+      expect(annS.mine.map((s) => s.id), [photo.id]);
+      final fresh = stories(ben);
+      // A device that hasn't fetched yet no longer finds the deleted one.
+      expect((await ben.directory.fetchStories()).any((r) => r['story_id'] == text.id), isFalse);
+      fresh.dispose();
+
+      for (final st in [annS, benS, catS]) {
+        st.dispose();
+      }
+      for (final s in [ann, ben, cat]) {
+        await s.dispose();
+      }
     });
   });
 

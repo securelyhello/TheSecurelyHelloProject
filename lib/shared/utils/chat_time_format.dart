@@ -46,6 +46,15 @@ abstract final class ChatTimeFormat {
   }
 
   /// "last seen …" text for a contact's presence.
+  /// How long ago, for stories: "Just now", "5 min ago", "3 h ago".
+  static String relative(DateTime t, {DateTime? now}) {
+    final d = (now ?? DateTime.now()).difference(t);
+    if (d.inMinutes < 1) return 'Just now';
+    if (d.inHours < 1) return '${d.inMinutes} min ago';
+    if (d.inDays < 1) return '${d.inHours} h ago';
+    return '${d.inDays} d ago';
+  }
+
   static String lastSeen(DateTime? t, {DateTime? now, bool use24h = true}) {
     if (t == null) return 'last seen recently';
     final n = now ?? DateTime.now();
