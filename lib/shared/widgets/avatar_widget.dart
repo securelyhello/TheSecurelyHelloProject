@@ -80,7 +80,13 @@ class AvatarWidget extends StatelessWidget {
     final dot = (d * 0.26).clamp(9.0, 18.0);
     final ring = (d * 0.04).clamp(1.5, 3.0);
 
-    return Semantics(
+    // Align keeps the avatar its own size even in a slot that stretches its
+    // child (an AlertDialog icon, a stretched Column), where a bare SizedBox
+    // would be forced to the slot's width.
+    return Align(
+      widthFactor: 1,
+      heightFactor: 1,
+      child: Semantics(
       label: isOnline ? '$displayName, online' : displayName,
       image: true,
       child: SizedBox(
@@ -109,6 +115,7 @@ class AvatarWidget extends StatelessWidget {
               ),
           ],
         ),
+      ),
       ),
     );
   }
