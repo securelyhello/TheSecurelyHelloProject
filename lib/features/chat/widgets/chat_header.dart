@@ -107,6 +107,7 @@ class ChatHeader extends StatelessWidget {
                       children: [
                         if (hasStatus) ...[
                           Flexible(
+                            flex: 2,
                             child: AnimatedSwitcher(
                               duration: AppMotion.fast,
                               layoutBuilder: (current, previous) => Stack(
@@ -124,7 +125,9 @@ class ChatHeader extends StatelessWidget {
                             ),
                           ),
                         ],
-                        ConnectionBadge(connectionState: transport),
+                        // Shares the line with the status instead of
+                        // squeezing it to nothing on narrow screens.
+                        Flexible(child: ConnectionBadge(connectionState: transport)),
                       ],
                     ),
                   ],

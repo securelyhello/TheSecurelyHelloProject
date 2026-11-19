@@ -113,7 +113,8 @@ class _ConnectionBadgeState extends State<ConnectionBadge>
         children: [
           Icon(icon, size: 11, color: color),
           const SizedBox(width: 3),
-          Text(
+          Flexible(
+            child: Text(
             widget.compact
                 ? state.shortLabel
                 : switch (state) {
@@ -122,6 +123,9 @@ class _ConnectionBadgeState extends State<ConnectionBadge>
                     PeerConnectionState.offline => 'Via relay',
                   },
             style: style,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),

@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:securelyhello/features/chat/widgets/voice_note.dart';
@@ -537,6 +538,68 @@ void main() {
       await settle(1200);
       expect(find.text('चैट'), findsWidgets, reason: 'tab labels follow the language');
       await shot('22_hindi_chats');
+
+      // ---- stress: long names and messages, big text, small and big screens
+      // Any overflow or layout error here fails the test. Shots are named
+      // zz_* so the website build skips them.
+      const longName = 'Mira Kapoor-Venkataraghavan Subramaniam, Longname Society'; // 56 of 64
+      expect(await mira.auth.updateDisplayName(longName), isTrue, reason: mira.auth.errorMessage);
+      await me.contacts.loadContacts();
+      final longText = List.filled(40, 'This is a long message that wraps over many lines.').join(' ');
+      await mira.chat.sendMessage(me.auth.myUserId!, longText);
+      await mira.chat.sendMessage(me.auth.myUserId!,
+          'https://example.test/${'unbroken-path-segment-' * 8}?q=${'x' * 60}');
+      await mira.chat.sendMessage(me.auth.myUserId!, '🎉🔐👋🏽🧑🏽‍💻' * 12);
+      Future<void> tapTab(IconData icon) async {
+        await tester.tap(find.byIcon(icon).last, warnIfMissed: false);
+        await settle(700);
+      }
+
+      Future<void> stressPass(String tag) async {
+        nav().popUntil((r) => r.isFirst);
+        await settle(900);
+        await tapTab(LucideIcons.messageCircle);
+        await waitFor(find.text(longName), 'long name in the chat list');
+        await shot('zz_${tag}_chats');
+        await tester.tap(find.text(longName).first);
+        await settle(1500);
+        await shot('zz_${tag}_chat');
+        // The keyboard is up: the composer must stay visible above it.
+        final composer = find.byKey(const ValueKey('composer-attach'));
+        await waitFor(composer, 'composer');
+        tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+        await settle(700);
+        final bottom = tester.getRect(composer).bottom;
+        expect(bottom, lessThanOrEqualTo(tester.view.physicalSize.height / tester.view.devicePixelRatio - 300),
+            reason: 'composer hidden behind the keyboard ($tag)');
+        await shot('zz_${tag}_chat_keyboard');
+        tester.view.resetViewInsets();
+        await settle(500);
+        nav().popUntil((r) => r.isFirst);
+        await settle(700);
+        await tapTab(LucideIcons.users);
+        await shot('zz_${tag}_contacts');
+        await tapTab(LucideIcons.settings);
+        await shot('zz_${tag}_settings');
+        await tapTab(LucideIcons.messageCircle);
+      }
+
+      tester.platformDispatcher.textScaleFactorTestValue = 1.3;
+      setWindow(360, 640); // a small phone
+      await stressPass('small_hi_light_text13');
+      await language.set(const Locale('en'));
+      await theme.set(ThemeMode.dark);
+      setWindow(412, 892);
+      await stressPass('phone_en_dark_text13');
+      tester.platformDispatcher.clearTextScaleFactorTestValue();
+      setWindow(1280, 800);
+      await settle(900);
+      await tapTab(LucideIcons.messageCircle);
+      await tester.tap(find.text(longName).first);
+      await settle(1500);
+      await shot('zz_wide_long_name');
+      setWindow(412, 892);
+      await settle(900);
 
       // ---- clean up -------------------------------------------------------
       for (final c in [me, mira]) {
