@@ -518,6 +518,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               }
                             : null,
                       ),
+                      ListTile(
+                        key: const ValueKey('settings-sound'),
+                        leading: const Icon(LucideIcons.music),
+                        title: const Text('Sound'),
+                        trailing: DropdownButton<String>(
+                          value: n.sound,
+                          underline: const SizedBox(),
+                          items: const [
+                            DropdownMenuItem(value: 'default', child: Text('Phone default')),
+                            DropdownMenuItem(value: 'chime', child: Text('Chime')),
+                            DropdownMenuItem(value: 'pop', child: Text('Pop')),
+                            DropdownMenuItem(value: 'bell', child: Text('Bell')),
+                            DropdownMenuItem(value: 'none', child: Text('Silent')),
+                          ],
+                          onChanged: n.enabled
+                              ? (v) async {
+                                  if (v == null) return;
+                                  await n.setSound(v);
+                                  setState(() {});
+                                }
+                              : null,
+                        ),
+                      ),
                     ]);
                   }),
 

@@ -222,6 +222,12 @@ class ChatProvider extends ChangeNotifier {
   Future<void> deleteForMe(String contactId, String messageId) =>
       _chatService.deleteForMe(contactId, messageId);
 
+  /// Marks a chat read (e.g. from a notification) and sends read receipts.
+  Future<void> markRead(String conversationId) async {
+    await _chatService.markConversationRead(conversationId);
+    await loadConversations();
+  }
+
   /// Send a text message to a contact.
   Future<bool> sendMessage(String contactId, String plaintext,
       {Map<String, dynamic>? replyTo}) async {

@@ -15,6 +15,7 @@ import 'package:securelyhello/features/contacts/widgets/invite_prompt.dart';
 import 'package:securelyhello/core/calls/call_service.dart';
 import 'package:securelyhello/core/invites/invites.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
+import 'package:securelyhello/core/chat/profile_service.dart';
 import 'package:securelyhello/core/crypto/device_manager.dart';
 import 'package:securelyhello/core/notifications/notification_service.dart';
 import 'package:securelyhello/core/notifications/push_service.dart';
@@ -49,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   StreamSubscription<Message>? _messageSub;
   StreamSubscription<Map<String, dynamic>>? _deviceSub;
   late final NotificationService _notifications;
+  ProfileService? _profiles;
   late final AuthProvider _auth;
   late final ChatProvider _chat;
   late final ContactsProvider _contacts;
@@ -66,6 +68,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _chat = context.read<ChatProvider>();
     _contacts = context.read<ContactsProvider>();
     _notifications = context.read<NotificationService>();
+    _profiles = context.read<ProfileService?>();
     _notifications.onOpenChat = _openFromNotification;
     WidgetsBinding.instance.addObserver(this);
     _auth.addListener(_onAuthChanged);
@@ -107,11 +110,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final group = _chat.groupOf(m.conversationId);
       _notifications.showMessage(
         contactId: m.conversationId,
-        sender: group?.name ?? _contacts.getContact(m.conversationId)?.displayLabel ?? 'New message',
-        preview: group == null ? preview : '${personName(_chat, _contacts, m.senderId)}: $preview',
+        sender: group == null
+            ? _contacts.getContact(m.conversationId)?.displayLabel ?? 'New message'
+            : personName(_chat, _contacts, m.senderId),
+        senderId: m.senderId,
+        groupName: group?.name,
+        senderPhoto: _profiles?.photoOf(m.senderId),
+        preview: preview,
         activeConversation: _chat.activeConversationId,
+        time: m.timestamp,
       );
     });
+    // Reply / Mark as read from a notification.
+    _notifications.onAction = (a) async {
+      switch (a.kind) {
+        case NotificationActionKind.reply:
+          await _chat.sendMessage(a.chatId, a.text);
+          await _chat.markRead(a.chatId);
+        case NotificationActionKind.markRead:
+          await _chat.markRead(a.chatId);
+      }
+    };
     unawaited(_notifications.requestPermission());
     unawaited(push?.start());
 
@@ -199,6 +218,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (_notifications.onOpenChat == _openFromNotification) {
       _notifications.onOpenChat = null;
     }
+    _notifications.onAction = null;
     super.dispose();
   }
 

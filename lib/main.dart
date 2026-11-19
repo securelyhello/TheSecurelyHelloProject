@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:securelyhello/core/notifications/notification_actions.dart';
 import 'package:securelyhello/core/update/app_updater.dart';
 import 'package:securelyhello/features/update/update_widgets.dart';
 import 'package:flutter/services.dart';
@@ -109,7 +110,7 @@ Future<void> main() async {
     canCall: (userId) => contactsProvider.getContact(userId) != null,
   );
   final notifications = NotificationService();
-  await notifications.init();
+  await notifications.init(backgroundHandler: notificationBackgroundHandler);
   final push = PushService(directory: directoryService, onWake: chatService.drainRelayQueue);
   final connectionProvider = ConnectionProvider(
     connectionManager: connectionManager,

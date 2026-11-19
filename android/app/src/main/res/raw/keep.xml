@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- ic_stat_notify is only referenced by name from Dart
-     (flutter_local_notifications) and from the manifest meta-data, so stop
-     release resource shrinking from removing it. -->
+<!-- Resources only referenced by name from Dart (flutter_local_notifications:
+     the small icon and the notification sounds) and from the manifest
+     meta-data, so stop release resource shrinking from removing them. -->
 <resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@drawable/ic_stat_notify" />
+    tools:keep="@drawable/ic_stat_notify,@raw/chime,@raw/pop,@raw/bell" />
