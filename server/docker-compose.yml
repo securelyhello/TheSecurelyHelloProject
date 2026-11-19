@@ -103,6 +103,9 @@ services:
           memory: 320M
 
   # Optional TURN relay: docker compose --profile turn up -d
+  # TURN_SECRET, TURN_REALM and TURN_EXTERNAL_IP must be set when this profile
+  # is used. They use :- (not :?) because compose interpolates every service,
+  # even one whose profile is off, and :? would block deploying the app alone.
   coturn:
     image: coturn/coturn:4.6.3
     profiles: [turn]
@@ -113,9 +116,9 @@ services:
       - --min-port=49160
       - --max-port=49200
       - --use-auth-secret
-      - --static-auth-secret=${TURN_SECRET:?set TURN_SECRET}
-      - --realm=${TURN_REALM:?set TURN_REALM, e.g. turn.example.com}
-      - --external-ip=${TURN_EXTERNAL_IP:?set TURN_EXTERNAL_IP to the public IP}
+      - --static-auth-secret=${TURN_SECRET:-}
+      - --realm=${TURN_REALM:-}
+      - --external-ip=${TURN_EXTERNAL_IP:-}
       - --fingerprint
       - --no-cli
       - --no-multicast-peers

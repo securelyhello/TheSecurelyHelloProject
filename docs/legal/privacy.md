@@ -3,10 +3,10 @@
 _Draft — have a lawyer review this before publishing. Replace the bracketed
 parts with your details._
 
-Last updated: [date]
+Last updated: 19 November 2026
 
-Securely Hello ("the app", "we") is operated by [operator name, address,
-contact e-mail]. This policy explains what the app and its server process,
+Securely Hello ("the app", "we") is operated by Thenn (Tirth Joshi), India, contact
+hello@thenn.in. This policy explains what the app and its server process,
 and why. The short version: **we cannot read your messages, calls or files.**
 
 ## What never leaves your device
@@ -27,7 +27,7 @@ and why. The short version: **we cannot read your messages, calls or files.**
 | Your contacts and contact requests | So only accepted contacts can reach you | Until removed or you delete your account |
 | Blocks and reports you make | To stop unwanted contact and handle abuse | Blocks until you lift them; reports up to 1 year |
 | Encrypted messages waiting for a device that is offline | Delivery | Deleted on delivery, at most 24 hours |
-| Encrypted files too large to travel inside a message | Delivery | Deleted after [30] days |
+| Encrypted files too large to travel inside a message | Delivery | Deleted after 30 days |
 | A one-way hash of your e-mail address | Lets people who have your address in their phone contacts find you, but only if you turn on "Findable by e-mail" (off by default). Address books you check are compared and discarded, never stored | Until you delete your account |
 | Two-step verification secret (encrypted) and hashed recovery codes, if you turn it on | Asking for a code at sign-in | Until you turn it off |
 | Invite links you create (hashed) and how often each was used | So the people you invite can add you | Until they expire (30 days) |
@@ -35,15 +35,15 @@ and why. The short version: **we cannot read your messages, calls or files.**
 | Session tokens (hashed) | Keeping you signed in | Up to 90 days of inactivity |
 | Push-notification token (if enabled) | Waking your phone when something arrives | Until you sign out or disable notifications |
 | Online status and last-seen time | Shown to your contacts | Online: while connected; last seen: 90 days |
-| Technical logs (time, route, status code, user id; never message content, e-mail addresses or search terms) | Security and reliability | [30] days |
+| Technical logs (time, route, status code, user id; never message content, e-mail addresses or search terms) | Security and reliability | 30 days |
 
 Encrypted messages and files are stored as ciphertext: we hold no key that
 could decrypt them.
 
 ## Third parties
 
-- **Hosting**: [VPS provider], [database provider, e.g. Neon] in [region].
-- **E-mail delivery**: [SMTP provider] receives your address and the code.
+- **Hosting**: Manage Server (VPS) in India, Neon (PostgreSQL) in Singapore.
+- **E-mail delivery**: Resend receives your address and the code.
 - **Push notifications** (Android/iOS, if enabled): Google Firebase Cloud
   Messaging and Apple Push Notification service learn that *something*
   arrived for your device at a given time. They never receive message
@@ -58,12 +58,12 @@ We do not sell data, show ads, or use analytics or tracking SDKs.
 You can view and change your profile in the app, remove devices, and
 **delete your account** (Settings → Delete account), which removes
 everything the server holds about you. For other requests (access,
-correction, objection) contact [contact e-mail]. You may complain to your
-data-protection authority.
+correction, objection) contact hello@thenn.in. You may complain to the Data Protection Board of India
+or your local data-protection authority.
 
 ## Children
 
-The app is not intended for children under [13/16].
+The app is not intended for children under 18 without the verifiable consent of a parent or lawful guardian, as required by the Digital Personal Data Protection Act, 2023.
 
 ## Changes
 

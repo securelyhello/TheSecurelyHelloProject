@@ -3,14 +3,14 @@
 _Draft — have a lawyer review this before publishing. Replace the bracketed
 parts with your details._
 
-Last updated: [date]
+Last updated: 19 November 2026
 
-These terms govern your use of Securely Hello, operated by [operator name]
+These terms govern your use of Securely Hello, operated by Thenn (Tirth Joshi)
 ("we").
 
 ## Your account
 
-- You must be at least [13/16] years old.
+- You must be at least 18 years old, or have the consent of a parent or lawful guardian as required by the Digital Personal Data Protection Act, 2023.
 - Keep your password safe. Because your messages are end-to-end encrypted,
   we cannot recover your chats if you lose all of your devices.
 - You are responsible for what you send.
@@ -33,7 +33,7 @@ include content the reporter chooses to share.
 
 The app is provided "as is". We work to keep it secure and available but do
 not guarantee uninterrupted service. Messages waiting for an offline device
-are deleted after 24 hours, and large files after [30] days.
+are deleted after 24 hours, and large files after 30 days.
 
 ## Privacy
 
@@ -52,4 +52,4 @@ You can stop using the app and delete your account at any time.
 
 ## Contact
 
-[contact e-mail]. These terms are governed by the laws of [jurisdiction].
+hello@thenn.in. These terms are governed by the laws of India, and the courts of India have jurisdiction.

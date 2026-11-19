@@ -8,6 +8,6 @@ window.SITE = {
   apkCertSha256: '78:8E:E6:48:86:1E:AF:80:39:49:6C:23:42:64:79:39:93:04:D5:F9:A3:C6:34:63:79:5A:4A:C2:5E:11:B6:E1', // https://play.google.com/store/apps/details?id=securelyhello.thenn.in
   appStore: '', // https://apps.apple.com/app/id…
   desktop: '', // releases page with Windows / macOS / Linux builds
-  source: '', // https://github.com/<owner>/<repo>
-  contact: '', // security@your-domain
+  source: 'https://github.com/securelyhello/TheSecurelyHelloProject',
+  contact: 'hello@thenn.in',
 };
