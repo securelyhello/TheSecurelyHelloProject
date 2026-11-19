@@ -22,7 +22,7 @@ second.
 
 **Better notifications.** Reply or mark as read straight from the
 notification. Messages are grouped per chat with names and photos. Mute a
-single chat for an hour, eight hours, a week or always, and choose the
+single chat for eight hours, a week or always, and choose the
 notification sound. Message text stays hidden in notifications ("New message") unless
 you turn it on.
 
