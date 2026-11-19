@@ -9,6 +9,7 @@ import { registerDeviceRoutes } from './devices.js';
 import { registerSafetyRoutes } from './safety.js';
 import { registerInviteRoutes } from './invites.js';
 import { registerGroupRoutes } from './groups.js';
+import { registerStoryRoutes, sweepStories } from './stories.js';
 import { createAntiSpam } from './spam.js';
 import { createTwoFactor, registerTwoFactorRoutes } from './twofactor.js';
 import { HotStore } from './hotstore.js';
@@ -77,6 +78,10 @@ export function loadConfig(env = process.env) {
     // two thirds of it). Keep it under the provider's daily quota, minus
     // whatever else shares that quota.
     emailDailyCap: int('EMAIL_DAILY_CAP', 40, { allowZero: true }),
+    // Builds below this Android versionCode are asked to update (0: none).
+    minAndroidVersionCode: int('MIN_ANDROID_VERSION_CODE', 0, { allowZero: true }),
+    // Stories one account may post in any 24 hours.
+    storiesPerDay: int('STORIES_PER_DAY', 30),
   };
 }
 
@@ -150,6 +155,7 @@ export function createApp({
   registerSafetyRoutes(router, { pool, hub, services, limits, config, antiSpam });
   registerInviteRoutes(router, { pool, hub, services, limits, config, antiSpam });
   registerGroupRoutes(router, { pool, services, limits });
+  registerStoryRoutes(router, { pool, services, config, hub, log });
   registerTurnRoutes(router, { config });
   router.add(
     'GET',
@@ -258,13 +264,15 @@ export function createApp({
     const codes = await pool.query('DELETE FROM email_codes WHERE expires_at <= now()');
     // Reports (with any messages the reporter shared) are kept for a year.
     await pool.query("DELETE FROM reports WHERE created_at < now() - interval '365 days'");
+    // Stories first: their photos and videos expire with them.
+    const stories = await sweepStories(pool);
     const attachments = await pool.query('DELETE FROM attachments WHERE expires_at <= now() RETURNING id, storage');
     for (const row of attachments.rows) {
       if (row.storage !== 'postgres') {
         await blobs.delete(row.id).catch((err) => log.warn('blob delete failed', { id: row.id, error: err.message }));
       }
     }
-    return { sessions: sessions.rowCount, codes: codes.rowCount, attachments: attachments.rowCount };
+    return { sessions: sessions.rowCount, codes: codes.rowCount, attachments: attachments.rowCount, stories };
   }
   let sweepTimer = null;
 
@@ -286,7 +294,7 @@ export function createApp({
         // Every instance has the timer; one of them sweeps each round.
         if (!(await store.tryLock('sweep', config.sweepIntervalMs / 2).catch(() => false))) return;
         sweep()
-          .then((n) => (n.sessions || n.codes || n.attachments) && log.info('sweep', n))
+          .then((n) => (n.sessions || n.codes || n.attachments || n.stories) && log.info('sweep', n))
           .catch((err) => log.warn('sweep failed', { error: err.message }));
       }, config.sweepIntervalMs);
       sweepTimer.unref();

@@ -244,6 +244,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
       email_verification: config.emailVerification,
       password_reset: mailer.enabled,
       push: notifier.enabled,
+      ...(config.minAndroidVersionCode > 0 ? { min_android_version_code: config.minAndroidVersionCode } : {}),
     }),
     { auth: false },
   );
