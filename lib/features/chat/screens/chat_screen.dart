@@ -202,7 +202,11 @@ class _ChatScreenState extends State<ChatScreen> {
   void _jumpToBottom({bool animate = true}) {
     if (!_scroll.hasClients) return;
     if (animate && _scroll.offset < 3000) {
-      _scroll.animateTo(0, duration: AppMotion.slow, curve: AppMotion.curve);
+      _scroll.animateTo(
+        0,
+        duration: AppMotion.of(context, AppMotion.slow),
+        curve: AppMotion.curve,
+      );
     } else {
       _scroll.jumpTo(0);
     }
@@ -267,28 +271,51 @@ class _ChatScreenState extends State<ChatScreen> {
     return null;
   }
 
-  Widget _quote(Map<String, dynamic> r, Contact? contact, {VoidCallback? onClose}) {
+  /// [inSentBubble]: drawn inside one of our pear bubbles (ink on pear); false
+  /// inside a card bubble or in the composer header.
+  /// A sender's name colour: their avatar colour, pulled towards the text
+  /// colour until it reads on a card bubble.
+  Color _senderColor(AppPalette p, String senderId) {
+    final light = p.background.computeLuminance() > 0.5;
+    return Color.lerp(p.avatarColorFor(senderId), p.textPrimary, light ? 0.55 : 0.3)!;
+  }
+
+  Widget _quote(
+    Map<String, dynamic> r,
+    Contact? contact, {
+    VoidCallback? onClose,
+    bool? inSentBubble,
+  }) {
     final p = context.palette;
     final id = r['id'];
     // The local copy (same chat) decides who wrote it and what it says.
     final q = resolveQuote(r, id is String ? _localQuoted(id) : null, conversationId: _id);
+    final onPear = inSentBubble == true;
+    final bar = onPear ? p.bubbleOutText : p.accent;
+    final nameColor = onPear ? p.bubbleOutText : p.accent;
+    final textColor = onPear ? p.bubbleOutText : p.textSecondary;
+    final fill = onPear
+        ? p.bubbleOutText.withAlpha(26)
+        : inSentBubble == false
+            ? p.textPrimary.withAlpha(16)
+            : p.surface;
     return Container(
       key: ValueKey('quote-${r['id']}'),
       padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(8),
-        border: Border(left: BorderSide(color: p.accent, width: 3)),
+        color: fill,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        border: Border(left: BorderSide(color: bar, width: 3)),
       ),
       child: Row(children: [
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(_authorName(q.from, contact),
-                style: TextStyle(color: p.accent, fontWeight: FontWeight.w600, fontSize: 12.5)),
+                style: TextStyle(color: nameColor, fontWeight: FontWeight.w600, fontSize: 12.5)),
             Text(q.text,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: p.textSecondary, fontSize: 13)),
+                style: TextStyle(color: textColor, fontSize: 13)),
           ]),
         ),
         if (onClose != null)
@@ -885,8 +912,10 @@ class _ChatScreenState extends State<ChatScreen> {
           senderName: _isGroup && first && !m.isFromMe
               ? personName(_chat, context.read<ContactsProvider>(), m.senderId)
               : null,
-          senderColor: _isGroup ? context.palette.avatarColorFor(m.senderId) : null,
-          replyQuote: m.replyTo == null ? null : _quote(m.replyTo!, contact),
+          senderColor: _isGroup ? _senderColor(context.palette, m.senderId) : null,
+          replyQuote: m.replyTo == null
+              ? null
+              : _quote(m.replyTo!, contact, inSentBubble: m.isFromMe),
           edited: m.editedAt != null,
           forwarded: m.forwarded,
           starred: m.starred,
@@ -949,16 +978,21 @@ class _UnreadDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      color: p.surface.withAlpha(200),
-      alignment: Alignment.center,
-      child: Text(
-        '$count unread ${count == 1 ? 'message' : 'messages'}',
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-          color: p.accent,
-          fontWeight: FontWeight.w700,
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+        decoration: BoxDecoration(
+          color: p.surface,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          border: Border.all(color: p.border),
+        ),
+        child: Text(
+          '$count unread ${count == 1 ? 'message' : 'messages'}',
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: p.textPrimary,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
     );
@@ -983,11 +1017,11 @@ class _JumpToBottomButton extends StatelessWidget {
       ignoring: !visible,
       child: AnimatedScale(
         scale: visible ? 1 : 0.6,
-        duration: AppMotion.medium,
+        duration: AppMotion.of(context, AppMotion.medium),
         curve: AppMotion.curve,
         child: AnimatedOpacity(
           opacity: visible ? 1 : 0,
-          duration: AppMotion.medium,
+          duration: AppMotion.of(context, AppMotion.medium),
           child: Stack(
             clipBehavior: Clip.none,
             children: [
@@ -1058,7 +1092,7 @@ class _EmptyConversation extends StatelessWidget {
               const SizedBox(height: 14),
               Text(
                 contact?.displayLabel ?? '',
-                style: t.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                style: t.titleLarge,
               ),
               if (contact != null && contact!.username.isNotEmpty)
                 Text(
@@ -1134,9 +1168,7 @@ class _KeysChangedBar extends StatelessWidget {
                 Expanded(
                   child: Text(
                     "$name's safety number changed",
-                    style: Theme.of(
-                      context,
-                    ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                    style: Theme.of(context).textTheme.titleSmall,
                   ),
                 ),
               ],

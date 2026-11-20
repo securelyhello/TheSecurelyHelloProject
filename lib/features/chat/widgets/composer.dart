@@ -149,19 +149,17 @@ class _ComposerState extends State<Composer> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final t = Theme.of(context).textTheme;
-    final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(24),
-      borderSide: BorderSide.none,
+    OutlineInputBorder border(Color c, [double w = 1]) => OutlineInputBorder(
+      borderRadius: BorderRadius.circular(AppRadius.xl),
+      borderSide: BorderSide(color: c, width: w),
     );
 
+    // Card stock on the conversation canvas; the field is a card with a rule.
     return Material(
-      color: p.surface,
+      color: p.chatBackground,
       child: SafeArea(
         top: false,
         child: Container(
-          decoration: BoxDecoration(
-            border: Border(top: BorderSide(color: p.divider)),
-          ),
           padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
           child: _recorder != null
               ? RecordingBar(
@@ -217,21 +215,21 @@ class _ComposerState extends State<Composer> {
                             decoration: InputDecoration(
                               hintText: widget.hint ?? L10n.of(context).messageHint,
                               filled: true,
-                              fillColor: p.inputFill,
+                              fillColor: p.surface,
                               isDense: true,
                               contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 18,
                                 vertical: 12,
                               ),
-                              border: border,
-                              enabledBorder: border,
-                              focusedBorder: border,
-                              disabledBorder: border,
+                              border: border(p.border),
+                              enabledBorder: border(p.border),
+                              focusedBorder: border(p.accent, 1.5),
+                              disabledBorder: border(p.divider),
                             ),
                           ),
                         ),
                         AnimatedSize(
-                          duration: AppMotion.medium,
+                          duration: AppMotion.of(context, AppMotion.medium),
                           curve: AppMotion.curve,
                           alignment: Alignment.centerLeft,
                           child: _hasText
@@ -273,8 +271,11 @@ class _SendButton extends StatefulWidget {
 }
 
 class _SendButtonState extends State<_SendButton> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(vsync: this, duration: AppMotion.medium)
-    ..forward();
+  // Created on first build, so the system's reduced-motion setting applies.
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: AppMotion.of(context, AppMotion.medium),
+  )..forward();
 
   @override
   void dispose() {
@@ -286,11 +287,11 @@ class _SendButtonState extends State<_SendButton> with SingleTickerProviderState
   Widget build(BuildContext context) {
     final p = context.palette;
     return ScaleTransition(
-      scale: CurvedAnimation(parent: _c, curve: Curves.easeOutBack),
+      scale: CurvedAnimation(parent: _c, curve: AppMotion.spring),
       child: Tooltip(
         message: Composer.enterSends ? 'Send (Enter)' : 'Send',
         child: Material(
-          color: p.accent,
+          color: p.brand,
           shape: const CircleBorder(),
           child: InkWell(
             customBorder: const CircleBorder(),
@@ -301,7 +302,7 @@ class _SendButtonState extends State<_SendButton> with SingleTickerProviderState
               child: Icon(
                 LucideIcons.sendHorizontal,
                 size: 20,
-                color: p.onAccent,
+                color: p.onBrand,
                 semanticLabel: 'Send',
               ),
             ),

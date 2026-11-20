@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:securelyhello/shared/theme/app_fonts.dart';
 import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/features/settings/screens/legal_screen.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
+import 'package:securelyhello/features/auth/screens/auth_paper.dart';
 import 'package:securelyhello/shared/widgets/app_text_field.dart';
 
 class SignupScreen extends StatefulWidget {
@@ -89,6 +89,7 @@ class _SignupScreenState extends State<SignupScreen> {
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
     
+    final t = Theme.of(context).textTheme;
     return Scaffold(
       backgroundColor: context.palette.background,
       appBar: AppBar(
@@ -100,31 +101,24 @@ class _SignupScreenState extends State<SignupScreen> {
         ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
-          child: Form(
+        bottom: false,
+        child: AuthPaperLayout(
+          header: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(L10n.of(context).signupTitle, style: t.headlineMedium),
+              const SizedBox(height: 8),
+              Text(
+                L10n.of(context).signupSubtitle,
+                style: t.bodyLarge?.copyWith(color: context.palette.textSecondary),
+              ),
+            ],
+          ),
+          sheet: Form(
             key: _formKey,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  L10n.of(context).signupTitle,
-                  style: AppFonts.heading(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: context.palette.textPrimary,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  L10n.of(context).signupSubtitle,
-                  style: AppFonts.body(
-                    fontSize: 16,
-                    color: context.palette.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 32),
                 AppTextField(
                   controller: _emailController,
                   label: L10n.of(context).email,
@@ -133,7 +127,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   keyboardType: TextInputType.emailAddress,
                   validator: (v) => v!.isEmpty || !v.contains('@') ? L10n.of(context).emailInvalid : null,
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 AppTextField(
                   controller: _nameController,
                   label: L10n.of(context).displayName,
@@ -141,7 +135,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   prefixIcon: const Icon(LucideIcons.user),
                   validator: (v) => v!.isEmpty ? L10n.of(context).displayNameRequired : null,
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 AppTextField(
                   controller: _usernameController,
                   label: L10n.of(context).username,
@@ -171,7 +165,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     return null;
                   },
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 AppTextField(
                   controller: _passwordController,
                   label: L10n.of(context).password,
@@ -202,14 +196,14 @@ class _SignupScreenState extends State<SignupScreen> {
                         height: 4,
                         margin: const EdgeInsets.only(right: 4),
                         decoration: BoxDecoration(
-                          color: active ? context.palette.accent : context.palette.border,
+                          color: active ? context.palette.brand : context.palette.border,
                           borderRadius: BorderRadius.circular(2),
                         ),
                       ),
                     );
                   }),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 AppTextField(
                   controller: _confirmController,
                   label: L10n.of(context).confirmPassword,
@@ -218,29 +212,8 @@ class _SignupScreenState extends State<SignupScreen> {
                   obscureText: _obscurePassword,
                   validator: (v) => v != _passwordController.text ? L10n.of(context).passwordsDontMatch : null,
                 ),
-                const SizedBox(height: 32),
-                if (authProvider.errorMessage != null)
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    margin: const EdgeInsets.only(bottom: 24),
-                    decoration: BoxDecoration(
-                      color: context.palette.danger.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: context.palette.danger.withValues(alpha: 0.3)),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.error_outline, color: context.palette.danger, size: 20),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            authProvider.errorMessage!,
-                            style: AppFonts.body(color: context.palette.danger, fontSize: 14),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                const SizedBox(height: 24),
+                if (authProvider.errorMessage != null) AuthErrorBanner(authProvider.errorMessage!),
                 ElevatedButton(
                   onPressed: authProvider.isLoading ? null : _signup,
                   child: authProvider.isLoading
@@ -249,7 +222,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           width: 24,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(context.palette.textPrimary),
+                            valueColor: AlwaysStoppedAnimation<Color>(context.palette.onBrand),
                           ),
                         )
                       : Text(L10n.of(context).signUp),
@@ -260,21 +233,21 @@ class _SignupScreenState extends State<SignupScreen> {
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(L10n.of(context).agreePrefix,
-                        style: AppFonts.body(color: context.palette.textMuted, fontSize: 12)),
+                        style: t.bodySmall?.copyWith(color: context.palette.textMuted)),
                     InkWell(
                       onTap: () => LegalScreen.open(context, LegalScreen.terms),
                       child: Text(L10n.of(context).terms,
-                          style: AppFonts.body(color: context.palette.accent, fontSize: 12)),
+                          style: t.bodySmall?.copyWith(color: context.palette.link)),
                     ),
                     Text(' and ',
-                        style: AppFonts.body(color: context.palette.textMuted, fontSize: 12)),
+                        style: t.bodySmall?.copyWith(color: context.palette.textMuted)),
                     InkWell(
                       onTap: () => LegalScreen.open(context, LegalScreen.privacy),
                       child: Text(L10n.of(context).privacyPolicy,
-                          style: AppFonts.body(color: context.palette.accent, fontSize: 12)),
+                          style: t.bodySmall?.copyWith(color: context.palette.link)),
                     ),
                     Text('.',
-                        style: AppFonts.body(color: context.palette.textMuted, fontSize: 12)),
+                        style: t.bodySmall?.copyWith(color: context.palette.textMuted)),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -283,7 +256,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   children: [
                     Text(
                       L10n.of(context).haveAccount,
-                      style: AppFonts.body(color: context.palette.textSecondary),
+                      style: t.bodyMedium?.copyWith(color: context.palette.textSecondary),
                     ),
                     TextButton(
                       onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
@@ -291,7 +264,6 @@ class _SignupScreenState extends State<SignupScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 32),
               ],
             ),
           ),

@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 
 import 'package:securelyhello/shared/widgets/brand_logo.dart';
 import 'package:provider/provider.dart';
-import 'package:securelyhello/shared/theme/app_fonts.dart';
 import 'package:securelyhello/features/auth/screens/welcome_screen.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
@@ -34,7 +33,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     _scaleAnimation = Tween<double>(begin: 0.5, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: const Interval(0.0, 0.6, curve: Curves.easeOutBack),
+        curve: const Interval(0.0, 0.6, curve: AppMotion.snap),
       ),
     );
 
@@ -88,6 +87,15 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // No animations asked for: the logo and name are simply there.
+    if (AppMotion.of(context, _controller.duration!) == Duration.zero) {
+      _controller.value = 1;
+    }
+  }
+
+  @override
   void dispose() {
     _controller.dispose();
     super.dispose();
@@ -110,12 +118,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               opacity: _fadeAnimation,
               child: Text(
                 'Securely Hello',
-                style: AppFonts.heading(
-                  fontSize: 32,
-                  fontWeight: FontWeight.w700,
-                  color: context.palette.textPrimary,
-                  letterSpacing: -0.5,
-                ),
+                style: Theme.of(context).textTheme.headlineLarge,
               ),
             ),
           ],

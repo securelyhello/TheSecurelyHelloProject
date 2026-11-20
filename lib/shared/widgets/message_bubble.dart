@@ -12,8 +12,9 @@ export 'package:securelyhello/shared/widgets/message_status_icon.dart'
 
 /// A chat bubble.
 ///
-/// * Consecutive messages from the same side form a group: inner corners are
-///   tightened and only the last bubble of a group carries a tail.
+/// * Consecutive messages from the same side form a group: the corners that
+///   touch a neighbour are tightened. Outgoing bubbles are pear with ink text,
+///   incoming ones are cards with a 1px rule.
 /// * Time and (for outgoing messages) the delivery tick sit inside the bubble
 ///   at the bottom-right, flowing on the last line of text when it fits.
 /// * URLs are highlighted; tapping one copies it.
@@ -166,12 +167,13 @@ class _MessageBubbleState extends State<MessageBubble> {
     return spans;
   }
 
+  /// Radius 20, tightened to 6 on the corners that touch a neighbouring
+  /// bubble of the same group.
   BorderRadius _radius() {
     const r = Radius.circular(AppRadius.bubble);
     const g = Radius.circular(AppRadius.bubbleGrouped);
     final top = widget.isFirstInGroup ? r : g;
-    // The tail replaces the bottom corner on the last bubble of a group.
-    final bottom = widget.isLastInGroup ? const Radius.circular(2) : g;
+    final bottom = widget.isLastInGroup ? r : g;
     return widget.isSent
         ? BorderRadius.only(
             topLeft: r,
@@ -202,7 +204,7 @@ class _MessageBubbleState extends State<MessageBubble> {
       color: fg,
       fontSize: 15.5,
       height: 1.35,
-      letterSpacing: 0.1,
+      letterSpacing: 0,
     );
     final metaStyle = (theme.textTheme.labelSmall ?? const TextStyle())
         .copyWith(color: meta, fontSize: 11, height: 1.0, letterSpacing: 0.2);
@@ -335,39 +337,20 @@ class _MessageBubbleState extends State<MessageBubble> {
           );
 
     final bubble = AnimatedContainer(
-      duration: AppMotion.fast,
+      duration: AppMotion.of(context, AppMotion.fast),
       padding: widget.attachment == null
           ? const EdgeInsets.fromLTRB(11, 7, 9, 6)
           : const EdgeInsets.fromLTRB(4, 4, 8, 6),
       decoration: BoxDecoration(
-        color: widget.highlighted
-            ? Color.alphaBlend(p.accent.withAlpha(40), bg)
-            : bg,
+        color: widget.highlighted ? Color.alphaBlend(fg.withAlpha(28), bg) : bg,
         borderRadius: _radius(),
-        boxShadow: theme.brightness == Brightness.light
-            ? const [
-                BoxShadow(
-                  color: Color(0x14000000),
-                  blurRadius: 1.5,
-                  offset: Offset(0, 1),
-                ),
-              ]
-            : null,
+        // Paper: the incoming card carries a 1px rule.
+        border: isSent ? null : Border.all(color: p.border),
       ),
       child: body,
     );
 
-    final withTail = widget.isLastInGroup
-        ? CustomPaint(
-            painter: _TailPainter(
-              color: widget.highlighted
-                  ? Color.alphaBlend(p.accent.withAlpha(40), bg)
-                  : bg,
-              isSent: isSent,
-            ),
-            child: bubble,
-          )
-        : bubble;
+    final withTail = bubble;
 
     final failed = isSent && widget.status == MessageStatus.failed;
 
@@ -442,11 +425,11 @@ class _MessageBubbleState extends State<MessageBubble> {
     if (!widget.animateIn) return content;
     return AnimatedSlide(
       offset: _visible ? Offset.zero : const Offset(0, 0.25),
-      duration: AppMotion.medium,
+      duration: AppMotion.of(context, AppMotion.medium),
       curve: AppMotion.curve,
       child: AnimatedOpacity(
         opacity: _visible ? 1 : 0,
-        duration: AppMotion.medium,
+        duration: AppMotion.of(context, AppMotion.medium),
         curve: AppMotion.curve,
         child: content,
       ),
@@ -454,7 +437,6 @@ class _MessageBubbleState extends State<MessageBubble> {
   }
 }
 
-/// Small curved tail drawn outside the bubble's bottom corner.
 /// "👍 2 ❤️" — each emoji once, with a count when more than one person used it.
 String _reactionSummary(List<String> reactions) {
   final counts = <String, int>{};
@@ -462,39 +444,4 @@ String _reactionSummary(List<String> reactions) {
     counts[r] = (counts[r] ?? 0) + 1;
   }
   return counts.entries.map((e) => e.value > 1 ? '${e.key} ${e.value}' : e.key).join(' ');
-}
-
-class _TailPainter extends CustomPainter {
-  _TailPainter({required this.color, required this.isSent});
-
-  final Color color;
-  final bool isSent;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = color;
-    final path = Path();
-    final b = size.height;
-    if (isSent) {
-      final x = size.width;
-      path
-        ..moveTo(x - 10, b)
-        ..lineTo(x + 6, b)
-        ..quadraticBezierTo(x + 1, b - 2, x, b - 10)
-        ..lineTo(x - 10, b - 10)
-        ..close();
-    } else {
-      path
-        ..moveTo(10, b)
-        ..lineTo(-6, b)
-        ..quadraticBezierTo(-1, b - 2, 0, b - 10)
-        ..lineTo(10, b - 10)
-        ..close();
-    }
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(_TailPainter old) =>
-      old.color != color || old.isSent != isSent;
 }

@@ -101,7 +101,7 @@ class LegalScreen extends StatelessWidget {
       case 'h1':
         return Padding(
           padding: const EdgeInsets.only(bottom: 12),
-          child: Text(b.$2, style: t.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
+          child: Text(b.$2, style: t.headlineSmall),
         );
       case 'h2':
       case 'h3':

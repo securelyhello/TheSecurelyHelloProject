@@ -121,8 +121,7 @@ class _CallsScreenState extends State<CallsScreen> {
                       title: Text(name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontWeight: FontWeight.w600, color: c.missed ? p.danger : null)),
+                          style: t.titleMedium?.copyWith(color: c.missed ? p.danger : null)),
                       subtitle: Row(children: [
                         Icon(icon, size: 14, color: color, semanticLabel: label),
                         const SizedBox(width: 6),
@@ -137,7 +136,8 @@ class _CallsScreenState extends State<CallsScreen> {
                       ]),
                       trailing: IconButton(
                         tooltip: c.video ? 'Video call $name' : 'Call $name',
-                        icon: Icon(c.video ? LucideIcons.video : LucideIcons.phone, color: p.accent),
+                        style: IconButton.styleFrom(backgroundColor: p.inputFill),
+                        icon: Icon(c.video ? LucideIcons.video : LucideIcons.phone, color: p.textPrimary),
                         onPressed: () => _call(c.peer, c.video),
                       ),
                     );

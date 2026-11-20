@@ -239,7 +239,7 @@ class _RecoveryCodes extends StatelessWidget {
     final t = Theme.of(context).textTheme;
     final p = context.palette;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text('Save your recovery codes', style: t.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+      Text('Save your recovery codes', style: t.titleMedium),
       const SizedBox(height: 8),
       Text(
         "If you lose your phone, each code works once instead of the authenticator. "

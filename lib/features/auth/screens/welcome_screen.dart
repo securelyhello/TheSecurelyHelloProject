@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:securelyhello/features/auth/screens/auth_paper.dart';
 import 'package:securelyhello/shared/widgets/brand_logo.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -63,26 +64,80 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     final l = L10n.of(context);
     final pages = _pagesFor(l);
     final last = _page == pages.length - 1;
+    final sheetContent = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Semantics(
+          label: 'Page ${_page + 1} of ${pages.length}',
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            for (var i = 0; i < pages.length; i++)
+              AnimatedContainer(
+                duration: AppMotion.of(context, AppMotion.fast),
+                curve: AppMotion.snap,
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                width: i == _page ? 22 : 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: i == _page ? p.textPrimary : p.border,
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                ),
+              ),
+          ]),
+        ),
+        const SizedBox(height: 24),
+        if (last) ...[
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              key: const ValueKey('welcome-signup'),
+              onPressed: () => _done('/signup'),
+              child: Text(l.welcomeCreateAccount),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            key: const ValueKey('welcome-login'),
+            onPressed: () => _done('/login'),
+            child: Text(l.welcomeHaveAccount),
+          ),
+        ] else
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              key: const ValueKey('welcome-next'),
+              onPressed: () => _pager.nextPage(
+                duration: AppMotion.of(context, AppMotion.medium),
+                curve: AppMotion.curve,
+              ),
+              child: Text(l.welcomeNext),
+            ),
+          ),
+      ],
+    );
     return Scaffold(
       backgroundColor: p.background,
       body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 460),
-            child: Column(children: [
-              Align(
-                alignment: Alignment.centerRight,
-                child: AnimatedOpacity(
-                  opacity: last ? 0 : 1,
-                  duration: AppMotion.fast,
-                  child: TextButton(
-                    key: const ValueKey('welcome-skip'),
-                    onPressed: last ? null : () => _done('/login'),
-                    child: Text(l.welcomeSkip),
-                  ),
+        bottom: false,
+        child: Column(children: [
+          Align(
+            alignment: Alignment.centerRight,
+            child: AnimatedOpacity(
+              opacity: last ? 0 : 1,
+              duration: AppMotion.of(context, AppMotion.fast),
+              child: Padding(
+                padding: const EdgeInsets.only(right: 8, top: 4),
+                child: TextButton(
+                  key: const ValueKey('welcome-skip'),
+                  onPressed: last ? null : () => _done('/login'),
+                  child: Text(l.welcomeSkip),
                 ),
               ),
-              Expanded(
+            ),
+          ),
+          Expanded(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 460),
                 child: PageView.builder(
                   controller: _pager,
                   itemCount: pages.length,
@@ -93,25 +148,16 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 32),
                       child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                         if (i == 0)
-                          const BrandLogo(size: 128, float: true)
+                          const BrandLogo(size: 160, float: true)
                         else
                           Container(
                             width: 120,
                             height: 120,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: LinearGradient(
-                                colors: [p.accentContainer, p.accentContainer.withValues(alpha: 0.4)],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                            ),
-                            child: Icon(page.icon, size: 50, color: p.onAccentContainer),
+                            decoration: BoxDecoration(shape: BoxShape.circle, color: p.brand),
+                            child: Icon(page.icon, size: 50, color: p.onBrand),
                           ),
                         const SizedBox(height: 32),
-                        Text(page.title,
-                            textAlign: TextAlign.center,
-                            style: t.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+                        Text(page.title, textAlign: TextAlign.center, style: t.headlineMedium),
                         const SizedBox(height: 14),
                         Text(page.body,
                             textAlign: TextAlign.center,
@@ -121,53 +167,28 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                   },
                 ),
               ),
-              Semantics(
-                label: 'Page ${_page + 1} of ${pages.length}',
-                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  for (var i = 0; i < pages.length; i++)
-                    AnimatedContainer(
-                      duration: AppMotion.fast,
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      width: i == _page ? 22 : 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: i == _page ? p.accent : p.divider,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                ]),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
-                child: last
-                    ? Column(children: [
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            key: const ValueKey('welcome-signup'),
-                            onPressed: () => _done('/signup'),
-                            child: Text(l.welcomeCreateAccount),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextButton(
-                          key: const ValueKey('welcome-login'),
-                          onPressed: () => _done('/login'),
-                          child: Text(l.welcomeHaveAccount),
-                        ),
-                      ])
-                    : SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          key: const ValueKey('welcome-next'),
-                          onPressed: () => _pager.nextPage(duration: AppMotion.medium, curve: AppMotion.curve),
-                          child: Text(l.welcomeNext),
-                        ),
-                      ),
-              ),
-            ]),
+            ),
           ),
-        ),
+          SizedBox(
+            width: double.infinity,
+            child: TornPaperSheet(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 460),
+                  child: AnimatedSize(
+                    duration: AppMotion.of(context, AppMotion.medium),
+                    curve: AppMotion.snap,
+                    alignment: Alignment.topCenter,
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(24, 28, 24, 24 + MediaQuery.paddingOf(context).bottom),
+                      child: sheetContent,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ]),
       ),
     );
   }

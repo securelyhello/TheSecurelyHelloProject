@@ -42,16 +42,16 @@ abstract final class WhatsNew {
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 const BrandLogo(size: 64),
                 const SizedBox(height: 12),
-                Text("What's new in ${AppVersion.name}", style: t.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                Text("What's new in ${AppVersion.name}", style: t.headlineSmall),
                 const SizedBox(height: 16),
                 for (final (icon, title, body) in highlights)
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: CircleAvatar(
-                      backgroundColor: p.accentContainer,
-                      child: Icon(icon, color: p.onAccentContainer, size: 20),
+                      backgroundColor: p.brand,
+                      child: Icon(icon, color: p.onBrand, size: 20),
                     ),
-                    title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                    title: Text(title, style: t.titleSmall),
                     subtitle: Text(body),
                   ),
                 const SizedBox(height: 12),

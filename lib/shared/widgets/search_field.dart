@@ -5,7 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:securelyhello/shared/theme/app_theme.dart';
 
-/// Rounded search box with a leading search icon and a clear button.
+/// Inset search box with a leading search icon and a clear button.
 class SearchField extends StatefulWidget {
   const SearchField({
     super.key,
@@ -55,8 +55,9 @@ class _SearchFieldState extends State<SearchField> {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final pill = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppRadius.pill),
+    // Inset: a paper-dark well, no rule until it has focus.
+    final well = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(AppRadius.input),
       borderSide: BorderSide.none,
     );
     return TextField(
@@ -75,7 +76,7 @@ class _SearchFieldState extends State<SearchField> {
         fillColor: p.inputFill,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
-          vertical: 11,
+          vertical: 14,
         ),
         prefixIcon: Icon(LucideIcons.search, size: 18, color: p.textMuted),
         prefixIconConstraints: const BoxConstraints(
@@ -92,18 +93,18 @@ class _SearchFieldState extends State<SearchField> {
                   widget.onChanged?.call('');
                 },
               ),
-        border: pill,
-        enabledBorder: pill,
+        border: well,
+        enabledBorder: well,
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          borderSide: BorderSide(color: p.accent.withAlpha(150)),
+          borderRadius: BorderRadius.circular(AppRadius.input),
+          borderSide: BorderSide(color: p.accent, width: 1.5),
         ),
       ),
     );
   }
 }
 
-/// Small uppercase section label for lists and settings.
+/// Section label for lists and settings: sentence case, Chillax.
 class SectionHeader extends StatelessWidget {
   const SectionHeader(this.title, {super.key, this.trailing, this.padding});
 
@@ -122,11 +123,9 @@ class SectionHeader extends StatelessWidget {
             child: Semantics(
               header: true,
               child: Text(
-                title.toUpperCase(),
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: p.accent,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.9,
+                title,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: p.textSecondary,
                 ),
               ),
             ),

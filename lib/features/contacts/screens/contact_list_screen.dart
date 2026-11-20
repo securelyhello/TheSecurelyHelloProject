@@ -116,7 +116,7 @@ class _ContactListScreenState extends State<ContactListScreen> {
               ),
               title: Text(
                 c.displayLabel,
-                style: TextStyle(fontWeight: FontWeight.w700),
+                style: Theme.of(context).textTheme.titleMedium,
               ),
               subtitle: Text('@${c.username}'),
             ),
@@ -190,7 +190,7 @@ class _ContactListScreenState extends State<ContactListScreen> {
         c.displayLabel,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontWeight: FontWeight.w600),
+        style: Theme.of(context).textTheme.titleMedium,
       ),
       subtitle: Text(
         c.isOnline
@@ -232,10 +232,10 @@ class _ContactListScreenState extends State<ContactListScreen> {
           key: const ValueKey('new-group'),
           leading: CircleAvatar(
             radius: 22,
-            backgroundColor: p.accent,
-            child: Icon(LucideIcons.users, color: p.onAccent, size: 20),
+            backgroundColor: p.brand,
+            child: Icon(LucideIcons.users, color: p.onBrand, size: 20),
           ),
-          title: const Text('New group', style: TextStyle(fontWeight: FontWeight.w600)),
+          title: Text('New group', style: Theme.of(context).textTheme.titleMedium),
           subtitle: const Text('Chat with several people at once'),
           onTap: _newGroup,
         ),
@@ -244,12 +244,12 @@ class _ContactListScreenState extends State<ContactListScreen> {
         child: ListTile(
           leading: CircleAvatar(
             radius: 22,
-            backgroundColor: p.accent,
-            child: Icon(LucideIcons.userPlus, color: p.onAccent, size: 20),
+            backgroundColor: p.brand,
+            child: Icon(LucideIcons.userPlus, color: p.onBrand, size: 20),
           ),
           title: Text(
             L10n.of(context).findPeople,
-            style: TextStyle(fontWeight: FontWeight.w600),
+            style: Theme.of(context).textTheme.titleMedium,
           ),
           subtitle: Text(L10n.of(context).searchByUsername),
           onTap: () => openFindPeople(context),
@@ -259,16 +259,16 @@ class _ContactListScreenState extends State<ContactListScreen> {
         child: ListTile(
           leading: CircleAvatar(
             radius: 22,
-            backgroundColor: requests > 0 ? p.accentContainer : p.inputFill,
+            backgroundColor: requests > 0 ? p.brand : p.inputFill,
             child: Icon(
               LucideIcons.inbox,
-              color: requests > 0 ? p.onAccentContainer : p.textSecondary,
+              color: requests > 0 ? p.onBrand : p.textSecondary,
               size: 20,
             ),
           ),
           title: Text(
             L10n.of(context).contactRequests,
-            style: TextStyle(fontWeight: FontWeight.w600),
+            style: Theme.of(context).textTheme.titleMedium,
           ),
           subtitle: Text(
             requests > 0

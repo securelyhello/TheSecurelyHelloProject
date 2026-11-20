@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import 'package:securelyhello/core/calls/call_service.dart';
 import 'package:securelyhello/core/calls/call_system.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
+import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/shared/widgets/avatar_widget.dart';
 
 /// Register in MaterialApp.navigatorObservers: the call screen learns when
@@ -41,6 +42,9 @@ Future<void> showCallScreen(BuildContext context) {
     ),
   );
 }
+
+/// The call screen is always on ink (the Night palette), in either theme.
+const _ink = AppPalette.dark;
 
 /// The full-screen view of a voice or video call.
 class CallScreen extends StatefulWidget {
@@ -176,7 +180,7 @@ class _CallScreenState extends State<CallScreen> with RouteAware {
     final c = calls?.call;
     if (calls == null || c == null) {
       _close();
-      return const Scaffold(backgroundColor: Colors.black);
+      return Scaffold(backgroundColor: _ink.background);
     }
     final name = context.watch<ContactsProvider>().getContact(c.peer)?.displayLabel ?? 'Contact';
     if (_renderersReady) {
@@ -197,17 +201,20 @@ class _CallScreenState extends State<CallScreen> with RouteAware {
   }
 
   Widget _pipView(ActiveCall c, String name, bool remoteVideo) => ColoredBox(
-        key: const ValueKey('call-pip'),
-        color: Colors.black,
-        child: remoteVideo && _renderersReady
-            ? RTCVideoView(_remote, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
-            : Center(child: AvatarWidget(displayName: name, seed: c.peer, size: AvatarSize.large)),
-      );
+    key: const ValueKey('call-pip'),
+    color: _ink.background,
+    child: remoteVideo && _renderersReady
+        ? RTCVideoView(_remote, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
+        : Center(
+            child: AvatarWidget(displayName: name, seed: c.peer, size: AvatarSize.large),
+          ),
+  );
 
   Widget _fullView(BuildContext context, CallService calls, ActiveCall c, String name, bool remoteVideo) {
     final localVideo = c.video && !c.cameraOff && (c.localStream?.getVideoTracks().isNotEmpty ?? false);
     final t = Theme.of(context).textTheme;
-    const fg = Colors.white;
+    final fg = _ink.textPrimary;
+    final muted = _ink.textSecondary;
 
     return PopScope(
       // Back doesn't hang up; the call keeps going while the app is in use.
@@ -217,50 +224,45 @@ class _CallScreenState extends State<CallScreen> with RouteAware {
         if (!didPop) unawaited(_leave());
       },
       child: Scaffold(
-        backgroundColor: const Color(0xFF0E0F1C),
+        backgroundColor: _ink.background,
         body: Stack(
           fit: StackFit.expand,
           children: [
             if (remoteVideo && _renderersReady)
               RTCVideoView(_remote, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
             else
-              const DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Color(0xFF2B2766), Color(0xFF0E0F1C)],
-                  ),
-                ),
-              ),
+              ColoredBox(color: _ink.background),
             SafeArea(
               child: Column(
                 children: [
                   const SizedBox(height: 24),
                   if (!remoteVideo) ...[
-                    AvatarWidget(displayName: name, seed: c.peer, size: AvatarSize.xlarge),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 24),
+                    _PearRing(
+                      active: c.phase != CallPhase.ended,
+                      child: AvatarWidget(displayName: name, seed: c.peer, size: AvatarSize.xlarge),
+                    ),
+                    const SizedBox(height: 28),
                   ],
                   Text(
                     name,
                     key: const ValueKey('call-name'),
                     textAlign: TextAlign.center,
-                    style: t.headlineSmall?.copyWith(color: fg, fontWeight: FontWeight.w700),
+                    style: t.headlineSmall?.copyWith(color: fg),
                   ),
                   const SizedBox(height: 6),
                   Text(
                     _status(c),
                     key: const ValueKey('call-status'),
-                    style: t.bodyLarge?.copyWith(color: fg.withValues(alpha: 0.8)),
+                    style: t.bodyLarge?.copyWith(color: muted),
                   ),
                   const SizedBox(height: 10),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(LucideIcons.lock, size: 13, color: fg.withValues(alpha: 0.6)),
+                      Icon(LucideIcons.lock, size: 13, color: _ink.textMuted),
                       const SizedBox(width: 5),
-                      Text('End-to-end encrypted',
-                          style: t.bodySmall?.copyWith(color: fg.withValues(alpha: 0.6))),
+                      Text('End-to-end encrypted', style: t.bodySmall?.copyWith(color: _ink.textMuted)),
                     ],
                   ),
                   if (c.mediaUnavailable && c.phase != CallPhase.incoming)
@@ -269,7 +271,7 @@ class _CallScreenState extends State<CallScreen> with RouteAware {
                       child: Text(
                         c.video ? 'Camera and microphone unavailable' : 'Microphone unavailable',
                         key: const ValueKey('call-no-media'),
-                        style: t.bodySmall?.copyWith(color: const Color(0xFFFFC56B)),
+                        style: t.bodySmall?.copyWith(color: _ink.warning),
                       ),
                     ),
                   const Spacer(),
@@ -285,9 +287,12 @@ class _CallScreenState extends State<CallScreen> with RouteAware {
                 width: 112,
                 height: 160,
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
-                  child: RTCVideoView(_local,
-                      mirror: true, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  child: RTCVideoView(
+                    _local,
+                    mirror: true,
+                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                  ),
                 ),
               ),
           ],
@@ -315,7 +320,8 @@ class _Controls extends StatelessWidget {
             key: const ValueKey('call-decline'),
             icon: LucideIcons.phoneOff,
             label: 'Decline',
-            color: const Color(0xFFE5484D),
+            color: _ink.danger,
+            iconColor: _ink.onAccent,
             onPressed: () {
               HapticFeedback.mediumImpact();
               service.decline();
@@ -326,14 +332,15 @@ class _Controls extends StatelessWidget {
               key: const ValueKey('call-accept-voice'),
               icon: LucideIcons.phone,
               label: 'Voice only',
-              color: Colors.white24,
+              color: _ink.elevated,
               onPressed: () => service.accept(video: false),
             ),
           _RoundButton(
             key: const ValueKey('call-accept'),
             icon: c.video ? LucideIcons.video : LucideIcons.phone,
             label: 'Accept',
-            color: const Color(0xFF1FA463),
+            color: _ink.success,
+            iconColor: _ink.onAccent,
             onPressed: () {
               HapticFeedback.mediumImpact();
               service.accept();
@@ -352,8 +359,8 @@ class _Controls extends StatelessWidget {
           key: const ValueKey('call-mute'),
           icon: c.muted ? LucideIcons.micOff : LucideIcons.mic,
           label: c.muted ? 'Unmute' : 'Mute',
-          color: c.muted ? Colors.white : Colors.white24,
-          iconColor: c.muted ? Colors.black : Colors.white,
+          color: c.muted ? _ink.textPrimary : _ink.elevated,
+          iconColor: c.muted ? _ink.background : _ink.textPrimary,
           onPressed: service.toggleMute,
         ),
         if (mobile)
@@ -361,8 +368,8 @@ class _Controls extends StatelessWidget {
             key: const ValueKey('call-audio'),
             icon: c.speakerOn ? LucideIcons.volume2 : LucideIcons.ear,
             label: c.speakerOn ? 'Speaker' : 'Audio',
-            color: c.speakerOn ? Colors.white : Colors.white24,
-            iconColor: c.speakerOn ? Colors.black : Colors.white,
+            color: c.speakerOn ? _ink.textPrimary : _ink.elevated,
+            iconColor: c.speakerOn ? _ink.background : _ink.textPrimary,
             onPressed: () => _pickAudio(context),
           ),
         if (c.video) ...[
@@ -370,15 +377,15 @@ class _Controls extends StatelessWidget {
             key: const ValueKey('call-camera'),
             icon: c.cameraOff ? LucideIcons.videoOff : LucideIcons.video,
             label: c.cameraOff ? 'Camera on' : 'Camera off',
-            color: c.cameraOff ? Colors.white : Colors.white24,
-            iconColor: c.cameraOff ? Colors.black : Colors.white,
+            color: c.cameraOff ? _ink.textPrimary : _ink.elevated,
+            iconColor: c.cameraOff ? _ink.background : _ink.textPrimary,
             onPressed: service.toggleCamera,
           ),
           if (mobile)
             _RoundButton(
               icon: LucideIcons.switchCamera,
               label: 'Flip',
-              color: Colors.white24,
+              color: _ink.elevated,
               onPressed: service.switchCamera,
             ),
         ],
@@ -386,7 +393,8 @@ class _Controls extends StatelessWidget {
           key: const ValueKey('call-hangup'),
           icon: LucideIcons.phoneOff,
           label: 'End',
-          color: const Color(0xFFE5484D),
+          color: _ink.danger,
+          iconColor: _ink.onAccent,
           onPressed: () {
             HapticFeedback.mediumImpact();
             service.hangUp();
@@ -442,13 +450,13 @@ class _RoundButton extends StatelessWidget {
     required this.label,
     required this.color,
     required this.onPressed,
-    this.iconColor = Colors.white,
+    this.iconColor,
   });
 
   final IconData icon;
   final String label;
   final Color color;
-  final Color iconColor;
+  final Color? iconColor;
   final VoidCallback onPressed;
 
   @override
@@ -465,13 +473,102 @@ class _RoundButton extends StatelessWidget {
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: onPressed,
-              child: SizedBox(width: 64, height: 64, child: Icon(icon, color: iconColor, size: 26)),
+              child: SizedBox(width: 64, height: 64, child: Icon(icon, color: iconColor ?? _ink.textPrimary, size: 26)),
             ),
           ),
           const SizedBox(height: 8),
-          Text(label,
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(color: Colors.white.withValues(alpha: 0.85))),
+          Text(label, style: Theme.of(context).textTheme.labelMedium?.copyWith(color: _ink.textSecondary)),
         ],
+      ),
+    );
+  }
+}
+
+/// A slow pear ring around the avatar: a still ring plus a soft halo that
+/// breathes out and fades (still when the system asks for no animations).
+class _PearRing extends StatefulWidget {
+  const _PearRing({required this.child, required this.active});
+
+  final Widget child;
+  final bool active;
+
+  @override
+  State<_PearRing> createState() => _PearRingState();
+}
+
+class _PearRingState extends State<_PearRing> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final d = AppMotion.of(context, const Duration(milliseconds: 2800));
+    if (d == Duration.zero || !widget.active) {
+      _c.stop();
+    } else {
+      _c.duration = d;
+      if (!_c.isAnimating) _c.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(_PearRing old) {
+    super.didUpdateWidget(old);
+    if (!widget.active) {
+      _c.stop();
+    } else if (!_c.isAnimating && AppMotion.of(context, const Duration(milliseconds: 2800)) != Duration.zero) {
+      _c.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const avatar = 96.0;
+    const gap = 6.0;
+    const ring = 3.0;
+    const box = avatar + 2 * (gap + ring);
+    return SizedBox(
+      width: box + 40,
+      height: box + 40,
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (context, child) {
+          final t = Curves.easeOut.transform(_c.value);
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              if (_c.isAnimating)
+                Container(
+                  width: box + 40 * t,
+                  height: box + 40 * t,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: _ink.brand.withValues(alpha: 0.5 * (1 - t)),
+                      width: ring,
+                    ),
+                  ),
+                ),
+              child!,
+            ],
+          );
+        },
+        child: Container(
+          width: box,
+          height: box,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: _ink.brand, width: ring),
+          ),
+          child: widget.child,
+        ),
       ),
     );
   }

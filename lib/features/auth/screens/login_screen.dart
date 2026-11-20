@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:securelyhello/shared/theme/app_fonts.dart';
 import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
+import 'package:securelyhello/features/auth/screens/auth_paper.dart';
 import 'package:securelyhello/features/auth/widgets/otp_field.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/shared/widgets/app_text_field.dart';
+import 'package:securelyhello/shared/widgets/brand_logo.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -61,40 +62,25 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       backgroundColor: context.palette.background,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Form(
+        bottom: false,
+        child: AuthPaperLayout(
+          header: Column(
+            children: [
+              const SizedBox(height: 24),
+              const BrandLogo(size: 88),
+              const SizedBox(height: 20),
+              Text(
+                L10n.of(context).loginTitle,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
+            ],
+          ),
+          sheet: Form(
             key: _formKey,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 48),
-                Center(
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: context.palette.accent.withValues(alpha: 0.1),
-                    ),
-                    child: Icon(
-                      LucideIcons.shieldCheck,
-                      size: 48,
-                      color: context.palette.accent,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  L10n.of(context).loginTitle,
-                  textAlign: TextAlign.center,
-                  style: AppFonts.heading(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: context.palette.textPrimary,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                const SizedBox(height: 48),
                 AppTextField(
                   controller: _emailController,
                   label: L10n.of(context).email,
@@ -103,7 +89,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   keyboardType: TextInputType.emailAddress,
                   validator: (v) => v!.isEmpty ? L10n.of(context).emailRequired : null,
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 AppTextField(
                   controller: _passwordController,
                   label: L10n.of(context).password,
@@ -136,28 +122,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                if (authProvider.errorMessage != null)
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    margin: const EdgeInsets.only(bottom: 24),
-                    decoration: BoxDecoration(
-                      color: context.palette.danger.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: context.palette.danger.withValues(alpha: 0.3)),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.error_outline, color: context.palette.danger, size: 20),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            authProvider.errorMessage!,
-                            style: AppFonts.body(color: context.palette.danger, fontSize: 14),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                if (authProvider.errorMessage != null) AuthErrorBanner(authProvider.errorMessage!),
                 ElevatedButton(
                   onPressed: authProvider.isLoading ? null : _login,
                   child: authProvider.isLoading
@@ -166,18 +131,18 @@ class _LoginScreenState extends State<LoginScreen> {
                           width: 24,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(context.palette.textPrimary),
+                            valueColor: AlwaysStoppedAnimation<Color>(context.palette.onBrand),
                           ),
                         )
                       : Text(L10n.of(context).logIn),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 20),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
                       L10n.of(context).noAccount,
-                      style: AppFonts.body(color: context.palette.textSecondary),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: context.palette.textSecondary),
                     ),
                     TextButton(
                       onPressed: () => Navigator.pushReplacementNamed(context, '/signup'),

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:securelyhello/shared/theme/app_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -106,20 +105,17 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 children: [
                   Text(
                     _codeSent ? 'Choose a new password' : 'Reset your password',
-                    style: AppFonts.heading(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: context.palette.textPrimary,
-                      letterSpacing: -0.5,
-                    ),
+                    style: Theme.of(context).textTheme.headlineMedium,
                   ),
                   const SizedBox(height: 8),
                   Text(
                     _codeSent
                         ? 'If ${_emailController.text.trim()} has an account, a 6-digit code is on its way. It expires in 15 minutes.'
                         : "We'll e-mail you a code. Your chats and keys on this device are not affected.",
-                    style: AppFonts.body(
-                        fontSize: 15, color: context.palette.textSecondary, height: 1.4),
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: context.palette.textSecondary, height: 1.4),
                   ),
                   const SizedBox(height: 32),
                   if (_available == false)

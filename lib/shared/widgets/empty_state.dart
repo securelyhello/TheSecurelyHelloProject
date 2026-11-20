@@ -113,21 +113,19 @@ class EmptyStateWidget extends StatelessWidget {
                 width: 88,
                 height: 88,
                 decoration: BoxDecoration(
-                  color: isError
-                      ? p.danger.withAlpha(28)
-                      : p.accentContainer.withAlpha(140),
+                  color: isError ? p.danger.withAlpha(28) : p.brand,
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
                   icon,
                   size: 36,
-                  color: isError ? p.danger : p.onAccentContainer,
+                  color: isError ? p.danger : p.onBrand,
                 ),
               ),
               const SizedBox(height: AppSpacing.lg),
               Text(
                 title,
-                style: t.titleLarge?.copyWith(fontSize: 20),
+                style: t.headlineSmall,
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: AppSpacing.sm),

@@ -444,6 +444,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver imp
               child: Row(
                 children: [
                   NavigationRail(
+                    backgroundColor: p.chatBackground,
                     selectedIndex: _tab.index,
                     extended: extended,
                     minExtendedWidth: 200,
@@ -543,11 +544,16 @@ class HomeNavigationBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = L10n.of(context);
+    final p = context.palette;
+    // Paper-dark bar with a hairline on top; the theme gives the pear pill.
     return DecoratedBox(
       decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: context.palette.divider)),
+        color: p.chatBackground,
+        border: Border(top: BorderSide(color: p.divider)),
       ),
       child: NavigationBar(
+        backgroundColor: p.chatBackground,
+        animationDuration: AppMotion.of(context, AppMotion.medium),
         selectedIndex: selected.index,
         onDestinationSelected: (i) => onSelected(HomeTab.values[i]),
         destinations: [
@@ -579,18 +585,13 @@ class _BrandMark extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const logo = BrandLogo(size: 40);
-    if (!extended) return Tooltip(message: 'Securely Hello', child: logo);
+    if (!extended) return const Tooltip(message: 'Securely Hello', child: logo);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         logo,
         const SizedBox(width: 10),
-        Text(
-          'Securely Hello',
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-        ),
+        Text('Securely Hello', style: Theme.of(context).textTheme.titleMedium),
       ],
     );
   }
@@ -613,24 +614,9 @@ class _NoChatSelected extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  width: 96,
-                  height: 96,
-                  decoration: BoxDecoration(
-                    color: p.accentContainer.withAlpha(150),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    LucideIcons.messagesSquare,
-                    size: 42,
-                    color: p.onAccentContainer,
-                  ),
-                ),
+                const BrandLogo(size: 88),
                 const SizedBox(height: 20),
-                Text(
-                  'Securely Hello',
-                  style: t.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
-                ),
+                Text('Securely Hello', style: t.headlineSmall),
                 const SizedBox(height: 8),
                 Text(
                   'Select a chat to start messaging, or start a new one from '

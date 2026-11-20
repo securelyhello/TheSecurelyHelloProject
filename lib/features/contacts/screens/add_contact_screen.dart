@@ -112,23 +112,8 @@ class _AddContactScreenState extends State<AddContactScreen> {
           ),
           child: Column(
             children: [
-              if (requests > 0)
-                ListTile(
-                  key: const ValueKey('find-requests'),
-                  leading: Icon(LucideIcons.inbox, color: context.palette.accent),
-                  title: Text(
-                    L10n.of(context).contactRequestsCount(requests),
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  trailing: Icon(
-                    LucideIcons.chevronRight,
-                    size: 18,
-                    color: context.palette.textMuted,
-                  ),
-                  onTap: () => Navigator.pushNamed(context, '/contact-requests'),
-                ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                 child: SearchField(
                   key: const ValueKey('find-people-search'),
                   controller: _search,
@@ -139,9 +124,14 @@ class _AddContactScreenState extends State<AddContactScreen> {
               ),
               AnimatedOpacity(
                 opacity: provider.isSearching ? 1 : 0,
-                duration: AppMotion.fast,
+                duration: AppMotion.of(context, AppMotion.fast),
                 child: const LinearProgressIndicator(minHeight: 2),
               ),
+              if (requests > 0)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                  child: _RequestsTile(count: requests),
+                ),
               Expanded(child: _body(provider)),
             ],
           ),
@@ -175,7 +165,9 @@ class _AddContactScreenState extends State<AddContactScreen> {
       itemBuilder: (context, i) {
         final r = results[i];
         final name = r.displayName.isNotEmpty ? r.displayName : r.username;
+        final theme = Theme.of(context);
         return ListTile(
+          minVerticalPadding: 10,
           leading: AvatarWidget(
             displayName: name,
             seed: r.userId,
@@ -186,12 +178,13 @@ class _AddContactScreenState extends State<AddContactScreen> {
             name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w600),
+            style: theme.textTheme.titleMedium,
           ),
           subtitle: Text(
             '@${r.username}',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall,
           ),
           trailing: _trailing(r, name),
         );
@@ -295,69 +288,64 @@ class _SearchIntro extends StatelessWidget {
     final p = context.palette;
     final t = Theme.of(context).textTheme;
     final username = context.select<AuthProvider, String>((a) => a.username);
-    return ListView(
-      padding: const EdgeInsets.all(24),
-      children: [
-        const SizedBox(height: 24),
-        Center(
-          child: Container(
-            width: 88,
-            height: 88,
-            decoration: BoxDecoration(
-              color: p.accentContainer.withAlpha(140),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              LucideIcons.userSearch,
-              size: 36,
-              color: p.onAccentContainer,
-            ),
-          ),
-        ),
-        const SizedBox(height: 20),
-        Text(
-          'Find people by username',
-          textAlign: TextAlign.center,
-          style: t.titleLarge?.copyWith(fontSize: 20),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Send a contact request. Once they accept, you can message each '
-          'other with end-to-end encryption.',
-          textAlign: TextAlign.center,
-          style: t.bodyMedium?.copyWith(color: p.textSecondary, height: 1.45),
-        ),
-        const SizedBox(height: 24),
-        _EntryTile(
-          key: const ValueKey('find-invite'),
-          icon: LucideIcons.qrCode,
-          title: 'Invite friends',
-          subtitle: 'Share a link or show your QR code',
-          onTap: () => Navigator.of(context)
-              .push(MaterialPageRoute<void>(builder: (_) => const InviteScreen())),
-        ),
-        if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) ...[
-          const SizedBox(height: 10),
-          _EntryTile(
+    final phone = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+    final invite = _EntryTile(
+      key: const ValueKey('find-invite'),
+      icon: LucideIcons.qrCode,
+      title: 'Invite friends',
+      subtitle: 'Share a link or show your QR code',
+      onTap: () => Navigator.of(context)
+          .push(MaterialPageRoute<void>(builder: (_) => const InviteScreen())),
+    );
+    final fromContacts = phone
+        ? _EntryTile(
             icon: LucideIcons.contact,
             title: 'From your contacts',
             subtitle: 'See who you know on Securely Hello',
             onTap: () => Navigator.of(context)
                 .push(MaterialPageRoute<void>(builder: (_) => const SuggestionsScreen())),
+          )
+        : null;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      children: [
+        Text(
+          'Find people by username',
+          style: t.titleLarge,
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Send a contact request. Once they accept, you can message each '
+          'other with end-to-end encryption.',
+          style: t.bodyMedium?.copyWith(color: p.textSecondary, height: 1.45),
+        ),
+        const SizedBox(height: 20),
+        if (fromContacts == null)
+          invite
+        else
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: invite),
+                const SizedBox(width: 12),
+                Expanded(child: fromContacts),
+              ],
+            ),
           ),
-        ],
         if (username.isNotEmpty) ...[
-          const SizedBox(height: 28),
+          const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
             decoration: BoxDecoration(
               color: p.surface,
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-              border: Border.all(color: p.divider),
+              borderRadius: BorderRadius.circular(AppRadius.card),
+              border: Border.all(color: p.border),
+              boxShadow: p.paperShadow,
             ),
             child: Row(
               children: [
-                Icon(LucideIcons.atSign, color: p.accent, size: 20),
+                _PearCircle(icon: LucideIcons.atSign),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -369,9 +357,7 @@ class _SearchIntro extends StatelessWidget {
                       ),
                       Text(
                         '@$username',
-                        style: t.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                        style: t.titleMedium,
                       ),
                     ],
                   ),
@@ -387,7 +373,7 @@ class _SearchIntro extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Text(
             'Share it so people can find you.',
             textAlign: TextAlign.center,
@@ -399,6 +385,7 @@ class _SearchIntro extends StatelessWidget {
   }
 }
 
+/// A large tile: icon in a pear circle, title, one line of help.
 class _EntryTile extends StatelessWidget {
   const _EntryTile({
     super.key,
@@ -416,20 +403,79 @@ class _EntryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final t = Theme.of(context).textTheme;
     return Material(
       color: p.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-        side: BorderSide(color: p.divider),
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        side: BorderSide(color: p.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _PearCircle(icon: icon, size: 48),
+              const SizedBox(height: 14),
+              Text(title, style: t.titleMedium),
+              const SizedBox(height: 4),
+              Text(subtitle, style: t.bodySmall),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The "Contact requests (n)" row above the results.
+class _RequestsTile extends StatelessWidget {
+  const _RequestsTile({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Material(
+      key: const ValueKey('find-requests'),
+      color: p.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.control),
+        side: BorderSide(color: p.border),
       ),
       clipBehavior: Clip.antiAlias,
       child: ListTile(
-        leading: Icon(icon, color: p.accent),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text(subtitle),
+        leading: _PearCircle(icon: LucideIcons.inbox),
+        title: Text(
+          L10n.of(context).contactRequestsCount(count),
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
         trailing: Icon(LucideIcons.chevronRight, size: 18, color: p.textMuted),
-        onTap: onTap,
+        onTap: () => Navigator.pushNamed(context, '/contact-requests'),
       ),
+    );
+  }
+}
+
+/// A Lucide icon in a pear circle (the app's one illustration device).
+class _PearCircle extends StatelessWidget {
+  const _PearCircle({required this.icon, this.size = 40});
+
+  final IconData icon;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(color: p.brand, shape: BoxShape.circle),
+      child: Icon(icon, size: size * 0.5, color: p.onBrand),
     );
   }
 }

@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/core/security/app_lock.dart';
+import 'package:securelyhello/shared/widgets/brand_logo.dart';
 
 /// Wraps the whole app: covers it while locked, and while the app is in the
 /// background when screen security is on.
@@ -66,10 +67,8 @@ class _PrivacyCover extends StatelessWidget {
   const _PrivacyCover();
 
   @override
-  Widget build(BuildContext context) => ColoredBox(
-    color: context.palette.background,
-    child: Center(child: Icon(LucideIcons.shieldCheck, size: 56, color: context.palette.accent)),
-  );
+  Widget build(BuildContext context) =>
+      ColoredBox(color: AppPalette.dark.background, child: const Center(child: BrandLogo(size: 96)));
 }
 
 class LockScreen extends StatefulWidget {
@@ -128,8 +127,17 @@ class _LockScreenState extends State<LockScreen> {
   Widget build(BuildContext context) {
     final lock = context.watch<AppLockService>();
     final wait = lock.retryIn;
+    // Always ink, in either theme: the lock screen shows no app content.
+    return Theme(
+      data: AppTheme.dark,
+      child: Builder(builder: (context) => _body(context, lock, wait)),
+    );
+  }
+
+  Widget _body(BuildContext context, AppLockService lock, Duration wait) {
+    final p = context.palette;
     return Material(
-      color: context.palette.background,
+      color: p.background,
       child: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -139,12 +147,9 @@ class _LockScreenState extends State<LockScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(LucideIcons.lock, size: 44, color: context.palette.accent),
+                  const BrandLogo(size: 88),
                   const SizedBox(height: 20),
-                  Text(
-                    L10n.of(context).lockTitle,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                  ),
+                  Text(L10n.of(context).lockTitle, style: Theme.of(context).textTheme.headlineSmall),
                   const SizedBox(height: 24),
                   TextField(
                     key: const ValueKey('lock-pin'),
@@ -157,7 +162,7 @@ class _LockScreenState extends State<LockScreen> {
                     keyboardType: TextInputType.visiblePassword,
                     textAlign: TextAlign.center,
                     enabled: wait == Duration.zero && !_checking,
-                    style: TextStyle(fontSize: 22, letterSpacing: 8, color: context.palette.textPrimary),
+                    style: TextStyle(fontSize: 22, letterSpacing: 8, color: p.textPrimary),
                     decoration: InputDecoration(
                       hintText: L10n.of(context).pin,
                       errorText: wait > Duration.zero

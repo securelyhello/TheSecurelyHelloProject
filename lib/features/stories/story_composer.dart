@@ -85,8 +85,34 @@ class StoryComposer extends StatefulWidget {
   final Uint8List? bytes;
   final String? fileName;
 
-  /// Text story backgrounds: deep, saturated colours white text reads on.
-  static const colors = [0xFF2E7D6B, 0xFF5B3FD0, 0xFFC2410C, 0xFF0E7490, 0xFFB4235A, 0xFF1F2937];
+  /// Text story backgrounds: the brand colours (pear, coral, blue, mint, ink,
+  /// kraft). Stored as ARGB ints in the story; the viewer renders any int.
+  static final colors = <int>[
+    AppPalette.light.brand.toARGB32(),
+    AppPalette.ember.toARGB32(),
+    AppPalette.light.accent.toARGB32(),
+    AppPalette.light.avatarColors[3].toARGB32(),
+    AppPalette.light.textPrimary.toARGB32(),
+    AppPalette.light.avatarColors[4].toARGB32(),
+  ];
+
+  /// Colour used when a text story carries no colour.
+  static final defaultColor = AppPalette.light.textPrimary.toARGB32();
+
+  /// Ink or cream text, whichever reads better on [background] (any colour:
+  /// older stories and other clients use their own).
+  static Color onColor(Color background) {
+    const dark = AppPalette.dark;
+    final ink = dark.onBrand;
+    final cream = dark.textPrimary;
+    double ratio(Color a, Color b) {
+      final l1 = a.computeLuminance(), l2 = b.computeLuminance();
+      final hi = l1 > l2 ? l1 : l2, lo = l1 > l2 ? l2 : l1;
+      return (hi + 0.05) / (lo + 0.05);
+    }
+
+    return ratio(background, ink) >= ratio(background, cream) ? ink : cream;
+  }
 
   @override
   State<StoryComposer> createState() => _StoryComposerState();
@@ -128,15 +154,20 @@ class _StoryComposerState extends State<StoryComposer> {
   Widget build(BuildContext context) {
     final stories = context.watch<StoryService>();
     final text = widget.kind == 'text';
-    final bg = text ? Color(StoryComposer.colors[_color]) : Colors.black;
+    const night = AppPalette.dark;
+    final bg = text ? Color(StoryComposer.colors[_color]) : night.background;
+    final fg = text ? StoryComposer.onColor(bg) : night.textPrimary;
+    final fgMuted = fg.withValues(alpha: 0.7);
     final t = Theme.of(context).textTheme;
     return Scaffold(
       key: const ValueKey('story-composer'),
       backgroundColor: bg,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
-        foregroundColor: Colors.white,
-        title: const Text('New story'),
+        foregroundColor: fg,
+        iconTheme: IconThemeData(color: fg),
+        actionsIconTheme: IconThemeData(color: fg),
+        title: Text('New story', style: t.titleLarge?.copyWith(color: fg)),
         actions: [
           if (text)
             IconButton(
@@ -162,31 +193,36 @@ class _StoryComposerState extends State<StoryComposer> {
                           maxLength: StoryService.maxText,
                           textAlign: TextAlign.center,
                           onChanged: (_) => setState(() {}),
-                          style: t.headlineSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w700),
-                          cursorColor: Colors.white,
-                          decoration: const InputDecoration(
+                          style: t.headlineSmall?.copyWith(color: fg),
+                          cursorColor: fg,
+                          decoration: InputDecoration(
                             hintText: 'Type something…',
-                            hintStyle: TextStyle(color: Colors.white60),
+                            hintStyle: TextStyle(color: fgMuted),
                             border: InputBorder.none,
                             enabledBorder: InputBorder.none,
                             focusedBorder: InputBorder.none,
                             filled: false,
-                            counterStyle: TextStyle(color: Colors.white60),
+                            counterStyle: TextStyle(color: fgMuted),
                           ),
                         ),
                       ),
                     )
                   : widget.kind == 'photo'
-                      ? Image.memory(widget.bytes!, fit: BoxFit.contain)
-                      : Center(
-                          child: Column(mainAxisSize: MainAxisSize.min, children: [
-                            const Icon(LucideIcons.clapperboard, color: Colors.white, size: 56),
-                            const SizedBox(height: 10),
-                            Text(widget.fileName ?? 'Video', style: t.bodyLarge?.copyWith(color: Colors.white)),
-                            Text(AttachmentService.formatSize(widget.bytes!.length),
-                                style: t.bodySmall?.copyWith(color: Colors.white70)),
-                          ]),
-                        ),
+                  ? Image.memory(widget.bytes!, fit: BoxFit.contain)
+                  : Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(LucideIcons.clapperboard, color: fg, size: 56),
+                          const SizedBox(height: 10),
+                          Text(widget.fileName ?? 'Video', style: t.bodyLarge?.copyWith(color: fg)),
+                          Text(
+                            AttachmentService.formatSize(widget.bytes!.length),
+                            style: t.bodySmall?.copyWith(color: fgMuted),
+                          ),
+                        ],
+                      ),
+                    ),
             ),
             if (!text)
               Padding(
@@ -194,13 +230,13 @@ class _StoryComposerState extends State<StoryComposer> {
                 child: TextField(
                   controller: _text,
                   maxLength: 200,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
+                  style: TextStyle(color: fg),
+                  decoration: InputDecoration(
                     hintText: 'Add a caption…',
-                    hintStyle: TextStyle(color: Colors.white60),
+                    hintStyle: TextStyle(color: fgMuted),
                     filled: true,
-                    fillColor: Colors.white12,
-                    counterStyle: TextStyle(color: Colors.white60),
+                    fillColor: night.elevated,
+                    counterStyle: TextStyle(color: fgMuted),
                   ),
                 ),
               ),

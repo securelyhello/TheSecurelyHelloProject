@@ -273,7 +273,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        icon: Icon(LucideIcons.shieldCheck, color: p.accent, size: 32),
+        icon: Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(color: p.brand, shape: BoxShape.circle),
+          child: Icon(LucideIcons.shieldCheck, color: p.onBrand, size: 28),
+        ),
         title: const Text('How your messages are protected'),
         content: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 440),
@@ -323,8 +328,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Material(
         color: p.surface,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          side: BorderSide(color: p.divider),
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          side: BorderSide(color: p.border),
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
@@ -354,27 +359,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   // Profile
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Material(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(AppRadius.card),
+                        boxShadow: p.paperShadow,
+                      ),
+                      child: Material(
                       color: p.surface,
-                      borderRadius: BorderRadius.circular(AppRadius.lg),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.card),
+                        side: BorderSide(color: p.border),
+                      ),
+                      clipBehavior: Clip.antiAlias,
                       child: InkWell(
-                        borderRadius: BorderRadius.circular(AppRadius.lg),
                         onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
                             builder: (_) => const EditProfileScreen())),
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(AppRadius.lg),
-                            border: Border.all(color: p.divider),
-                          ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
                           child: Row(
                             children: [
                               AvatarWidget(
                                 displayName: displayName,
                                 seed: auth.myUserId,
-                                size: AvatarSize.large,
+                                size: AvatarSize.xlarge,
                               ),
-                              const SizedBox(width: 16),
+                              const SizedBox(width: 18),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -383,16 +392,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       displayName,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: t.titleLarge?.copyWith(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.w700,
-                                      ),
+                                      style: t.headlineSmall,
                                     ),
                                     if (username.isNotEmpty)
                                       Text(
                                         '@$username',
                                         style: t.bodyMedium?.copyWith(
-                                          color: p.accent,
+                                          color: p.link,
                                         ),
                                       ),
                                     if (email != null && email.isNotEmpty)
@@ -419,6 +425,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ),
                       ),
+                    ),
                     ),
                   ),
                   if (username.isNotEmpty)
@@ -912,7 +919,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           if (_signingOut)
             Positioned.fill(
               child: ColoredBox(
-                color: Colors.black.withAlpha(90),
+                color: p.background.withValues(alpha: 0.6),
                 child: const Center(child: CircularProgressIndicator()),
               ),
             ),
@@ -959,9 +966,7 @@ class _ContactPickerState extends State<_ContactPicker> {
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
           child: Text(
             'Verify safety number with…',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            style: Theme.of(context).textTheme.titleMedium,
           ),
         ),
         Padding(

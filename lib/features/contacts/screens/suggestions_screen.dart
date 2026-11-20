@@ -74,7 +74,14 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> {
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
         children: [
           if (matches == null) ...[
-            Icon(LucideIcons.contact, size: 44, color: p.accent),
+            Center(
+              child: Container(
+                width: 88,
+                height: 88,
+                decoration: BoxDecoration(color: p.brand, shape: BoxShape.circle),
+                child: Icon(LucideIcons.contact, size: 40, color: p.onBrand),
+              ),
+            ),
             const SizedBox(height: 16),
             Text('See who you know here', textAlign: TextAlign.center, style: t.titleLarge),
             const SizedBox(height: 10),

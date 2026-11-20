@@ -107,7 +107,7 @@ class ConversationTile extends StatelessWidget {
             MessageStatusIcon(
               status: lastOwnStatus!,
               color: p.textMuted,
-              readColor: p.tickRead,
+              readColor: p.accent,
               errorColor: p.danger,
               size: 16,
             ),
@@ -171,8 +171,8 @@ class ConversationTile extends StatelessWidget {
                               style: t.titleMedium?.copyWith(
                                 fontSize: 16,
                                 fontWeight: unread
-                                    ? FontWeight.w800
-                                    : FontWeight.w700,
+                                    ? FontWeight.w600
+                                    : FontWeight.w500,
                               ),
                             ),
                           ),
@@ -185,9 +185,9 @@ class ConversationTile extends StatelessWidget {
                               ),
                               style: t.labelSmall?.copyWith(
                                 fontSize: 12,
-                                color: unread ? p.accent : p.textMuted,
+                                color: unread ? p.textPrimary : p.textMuted,
                                 fontWeight: unread
-                                    ? FontWeight.w700
+                                    ? FontWeight.w600
                                     : FontWeight.w500,
                               ),
                             ),
@@ -199,7 +199,7 @@ class ConversationTile extends StatelessWidget {
                         children: [
                           Expanded(
                             child: AnimatedSwitcher(
-                              duration: AppMotion.fast,
+                              duration: AppMotion.of(context, AppMotion.fast),
                               layoutBuilder: (current, previous) => Stack(
                                 alignment: Alignment.centerLeft,
                                 children: [...previous, ?current],

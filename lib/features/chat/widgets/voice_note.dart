@@ -280,6 +280,10 @@ class _RecordingBarState extends State<RecordingBar> {
       IconButton.filled(
         key: const ValueKey('voice-send'),
         tooltip: 'Send voice message',
+        style: IconButton.styleFrom(
+          backgroundColor: p.brand,
+          foregroundColor: p.onBrand,
+        ),
         icon: const Icon(LucideIcons.sendHorizontal),
         onPressed: _send,
       ),

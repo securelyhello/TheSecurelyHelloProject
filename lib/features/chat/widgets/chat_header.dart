@@ -97,10 +97,7 @@ class ChatHeader extends StatelessWidget {
                       name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: t.titleMedium?.copyWith(
-                        fontSize: 16.5,
-                        fontWeight: FontWeight.w700,
-                      ),
+                      style: t.titleMedium?.copyWith(fontSize: 16.5),
                     ),
                     const SizedBox(height: 1),
                     Row(
@@ -109,7 +106,7 @@ class ChatHeader extends StatelessWidget {
                           Flexible(
                             flex: 2,
                             child: AnimatedSwitcher(
-                              duration: AppMotion.fast,
+                              duration: AppMotion.of(context, AppMotion.fast),
                               layoutBuilder: (current, previous) => Stack(
                                 alignment: Alignment.centerLeft,
                                 children: [...previous, ?current],
@@ -184,7 +181,7 @@ class GroupHeader extends StatelessWidget {
                       name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: t.titleMedium?.copyWith(fontSize: 16.5, fontWeight: FontWeight.w700),
+                      style: t.titleMedium?.copyWith(fontSize: 16.5),
                     ),
                     const SizedBox(height: 1),
                     Text(

@@ -124,32 +124,29 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                 children: [
                   Center(
                     child: Container(
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: context.palette.accent.withValues(alpha: 0.1),
+                        color: context.palette.brand,
                       ),
                       child: Icon(LucideIcons.mailCheck,
-                          size: 44, color: context.palette.accent),
+                          size: 40, color: context.palette.onBrand),
                     ),
                   ),
                   const SizedBox(height: 24),
                   Text(
                     'Check your inbox',
                     textAlign: TextAlign.center,
-                    style: AppFonts.heading(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: context.palette.textPrimary,
-                      letterSpacing: -0.5,
-                    ),
+                    style: Theme.of(context).textTheme.headlineMedium,
                   ),
                   const SizedBox(height: 12),
                   Text(
                     'Enter the 6-digit code we sent to\n${auth.email ?? 'your e-mail address'}.',
                     textAlign: TextAlign.center,
-                    style: AppFonts.body(
-                        fontSize: 15, color: context.palette.textSecondary, height: 1.4),
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: context.palette.textSecondary, height: 1.4),
                   ),
                   if (required) ...[
                     const SizedBox(height: 8),
@@ -232,17 +229,17 @@ class AuthBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = error ? context.palette.danger : context.palette.accent;
+    final color = error ? context.palette.danger : context.palette.link;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.input),
         border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
-          Icon(error ? Icons.error_outline : LucideIcons.check,
+          Icon(error ? LucideIcons.circleAlert : LucideIcons.check,
               color: color, size: 20),
           const SizedBox(width: 12),
           Expanded(

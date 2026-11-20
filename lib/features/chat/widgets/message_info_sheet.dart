@@ -55,7 +55,7 @@ class _MessageInfo extends StatelessWidget {
           children: [
             Text(
               'Message info',
-              style: t.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+              style: t.titleLarge,
             ),
             const SizedBox(height: 14),
             Container(
@@ -63,7 +63,8 @@ class _MessageInfo extends StatelessWidget {
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: m.isFromMe ? p.bubbleOut : p.bubbleIn,
-                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderRadius: BorderRadius.circular(AppRadius.control),
+                border: m.isFromMe ? null : Border.all(color: p.border),
               ),
               child: Text(
                 m.content,
@@ -90,7 +91,7 @@ class _MessageInfo extends StatelessWidget {
                 MessageStatusIcon(
                   status: status,
                   color: p.textSecondary,
-                  readColor: p.tickRead,
+                  readColor: p.accent,
                   errorColor: p.danger,
                   size: 22,
                 ),
@@ -137,7 +138,7 @@ class _MessageInfo extends StatelessWidget {
             key: ValueKey('receipts-${status.name}'),
             contentPadding: EdgeInsets.zero,
             leading: MessageStatusIcon(
-                status: status, color: p.textSecondary, readColor: p.tickRead, errorColor: p.danger, size: 22),
+                status: status, color: p.textSecondary, readColor: p.accent, errorColor: p.danger, size: 22),
             title: Text(label),
             subtitle: Text((names..sort()).join(', '), style: t.bodyMedium?.copyWith(color: p.textSecondary)),
           ),

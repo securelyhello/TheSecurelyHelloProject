@@ -178,7 +178,7 @@ class _ContactInfoSheetState extends State<_ContactInfoSheet> {
             Text(
               c.displayLabel,
               textAlign: TextAlign.center,
-              style: t.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+              style: t.headlineSmall,
             ),
             if (c.username.isNotEmpty) ...[
               const SizedBox(height: 2),
@@ -375,7 +375,7 @@ class _SafetyNumberCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   'Safety number',
-                  style: t.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                  style: t.titleSmall,
                 ),
               ),
             ],

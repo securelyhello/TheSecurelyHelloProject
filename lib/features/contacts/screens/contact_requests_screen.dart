@@ -150,7 +150,7 @@ class _ContactRequestsScreenState extends State<ContactRequestsScreen> {
                     name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
                   isThreeLine: req.fromNewAccount,
                   subtitle: Column(
@@ -233,7 +233,7 @@ class _ContactRequestsScreenState extends State<ContactRequestsScreen> {
                     name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
                   subtitle: Text(
                     receiver == null

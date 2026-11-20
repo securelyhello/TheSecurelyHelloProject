@@ -139,12 +139,13 @@ class _AttachmentViewState extends State<AttachmentView> {
     final p = context.palette;
     final t = Theme.of(context).textTheme;
     final ext = _name.contains('.') ? _name.split('.').last.toUpperCase() : 'FILE';
+    final fg = widget.isSent ? p.bubbleOutText : p.bubbleInText;
     return Material(
-      color: Colors.black.withValues(alpha: 0.12),
-      borderRadius: BorderRadius.circular(AppRadius.md),
+      color: fg.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(AppRadius.control),
       child: InkWell(
         key: ValueKey('file-${m['id']}'),
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderRadius: BorderRadius.circular(AppRadius.control),
         onTap: _save,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(10, 10, 12, 10),
@@ -155,13 +156,13 @@ class _AttachmentViewState extends State<AttachmentView> {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: p.accent.withValues(alpha: 0.18),
+                  color: fg.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
                 alignment: Alignment.center,
                 child: Text(ext.length > 4 ? ext.substring(0, 4) : ext,
                     style: t.labelSmall?.copyWith(
-                        color: p.accent, fontWeight: FontWeight.w700)),
+                        color: fg, fontWeight: FontWeight.w700)),
               ),
               const SizedBox(width: 10),
               Flexible(
@@ -172,18 +173,18 @@ class _AttachmentViewState extends State<AttachmentView> {
                     Text(_name,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: t.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                        style: t.bodyMedium?.copyWith(color: fg, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 2),
                     Text('${AttachmentService.formatSize(_size)} · encrypted',
-                        style: t.bodySmall),
+                        style: t.bodySmall?.copyWith(color: fg.withValues(alpha: 0.75))),
                   ],
                 ),
               ),
               const SizedBox(width: 10),
               _saving
-                  ? const SizedBox(
-                      width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                  : Icon(LucideIcons.download, size: 20, color: p.accent),
+                  ? SizedBox(
+                      width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: fg))
+                  : Icon(LucideIcons.download, size: 20, color: fg),
             ],
           ),
         ),

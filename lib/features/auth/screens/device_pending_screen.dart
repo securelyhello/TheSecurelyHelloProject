@@ -90,13 +90,18 @@ class _DevicePendingScreenState extends State<DevicePendingScreen> {
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               children: [
-                Icon(LucideIcons.monitorSmartphone, size: 44, color: context.palette.accent),
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(shape: BoxShape.circle, color: context.palette.brand),
+                    child: Icon(LucideIcons.monitorSmartphone, size: 40, color: context.palette.onBrand),
+                  ),
+                ),
                 const SizedBox(height: 20),
                 Text(
                   _recovering ? 'Recover your account' : 'Approve this device',
                   textAlign: TextAlign.center,
-                  style: AppFonts.heading(
-                      fontSize: 26, fontWeight: FontWeight.bold, color: context.palette.textPrimary),
+                  style: Theme.of(context).textTheme.headlineSmall,
                 ),
                 const SizedBox(height: 12),
                 Text(
@@ -115,8 +120,9 @@ class _DevicePendingScreenState extends State<DevicePendingScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 18),
                     decoration: BoxDecoration(
                       color: context.palette.surface,
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(AppRadius.card),
                       border: Border.all(color: context.palette.border),
+                      boxShadow: context.palette.paperShadow,
                     ),
                     child: Column(children: [
                       Text('This device', style: AppFonts.body(color: muted, fontSize: 13)),

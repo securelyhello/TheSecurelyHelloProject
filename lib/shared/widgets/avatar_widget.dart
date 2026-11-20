@@ -29,7 +29,8 @@ enum AvatarSize {
 }
 
 /// A circular avatar: network image when available, otherwise initials on a
-/// colour derived from [seed] (or the name), so each contact is recognisable.
+/// flat colour derived from [seed] (or the name), so each contact is
+/// recognisable; the initials use the palette's matching ink.
 ///
 /// A presence dot is drawn bottom-right when [isOnline] is `true`.
 class AvatarWidget extends StatelessWidget {
@@ -149,25 +150,18 @@ class AvatarWidget extends StatelessWidget {
   }
 
   Widget _initials(BuildContext context, AppPalette p, double d) {
-    final base = p.avatarColorFor(seed ?? displayName);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final key = seed ?? displayName;
+    final on = p.onAvatarColorFor(key);
     return Container(
       width: d,
       height: d,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        gradient: LinearGradient(
-          colors: [
-            Color.lerp(base, Colors.white, isDark ? 0.08 : 0.12)!,
-            Color.lerp(base, Colors.black, isDark ? 0.35 : 0.18)!,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        color: p.avatarColorFor(key),
       ),
       alignment: Alignment.center,
       child: icon != null
-          ? Icon(icon, color: Colors.white, size: d * 0.46)
+          ? Icon(icon, color: on, size: d * 0.46)
           : Text(
               initialsOf(displayName),
               maxLines: 1,
@@ -175,9 +169,8 @@ class AvatarWidget extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 fontSize: d * 0.38,
                 height: 1,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-                letterSpacing: 0.3,
+                color: on,
+                letterSpacing: 0,
               ),
             ),
     );

@@ -84,13 +84,9 @@ class _StoryBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final gradient = switch (ring) {
-      _Ring.unseen => LinearGradient(
-          colors: [p.accent, Color.lerp(p.accent, const Color(0xFFFFB347), 0.7)!],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      _Ring.seen => LinearGradient(colors: [p.border, p.border]),
+    final ringColor = switch (ring) {
+      _Ring.unseen => p.storyRing,
+      _Ring.seen => p.border,
       _Ring.none => null,
     };
     return Semantics(
@@ -109,7 +105,7 @@ class _StoryBubble extends StatelessWidget {
                 children: [
                   Container(
                     padding: const EdgeInsets.all(3),
-                    decoration: BoxDecoration(shape: BoxShape.circle, gradient: gradient),
+                    decoration: BoxDecoration(shape: BoxShape.circle, color: ringColor),
                     child: Container(
                       padding: const EdgeInsets.all(2),
                       decoration: BoxDecoration(shape: BoxShape.circle, color: p.background),
@@ -124,11 +120,11 @@ class _StoryBubble extends StatelessWidget {
                         width: 22,
                         height: 22,
                         decoration: BoxDecoration(
-                          color: p.accent,
+                          color: p.brand,
                           shape: BoxShape.circle,
                           border: Border.all(color: p.background, width: 2),
                         ),
-                        child: Icon(LucideIcons.plus, size: 13, color: p.onAccent),
+                        child: Icon(LucideIcons.plus, size: 13, color: p.onBrand),
                       ),
                     ),
                 ],
@@ -138,9 +134,10 @@ class _StoryBubble extends StatelessWidget {
                 name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      fontWeight: ring == _Ring.unseen ? FontWeight.w700 : FontWeight.w500,
-                    ),
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: p.textPrimary,
+                  fontWeight: ring == _Ring.unseen ? FontWeight.w700 : FontWeight.w500,
+                ),
               ),
             ],
           ),

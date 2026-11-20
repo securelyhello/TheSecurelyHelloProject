@@ -18,11 +18,11 @@ class DateSeparatorChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Center(
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
           decoration: BoxDecoration(
             color: p.systemChip,
-            borderRadius: BorderRadius.circular(AppRadius.sm),
-            border: Border.all(color: p.border.withAlpha(120)),
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            border: Border.all(color: p.border),
           ),
           child: Text(
             label,
@@ -59,18 +59,18 @@ class SystemNoticeChip extends StatelessWidget {
           constraints: const BoxConstraints(maxWidth: 440),
           child: Material(
             color: p.systemChip,
-            borderRadius: BorderRadius.circular(AppRadius.md),
+            borderRadius: BorderRadius.circular(AppRadius.control),
             child: InkWell(
-              borderRadius: BorderRadius.circular(AppRadius.md),
+              borderRadius: BorderRadius.circular(AppRadius.control),
               onTap: onTap,
               child: Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
+                  horizontal: 14,
+                  vertical: 9,
                 ),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                  border: Border.all(color: p.warning.withAlpha(70)),
+                  borderRadius: BorderRadius.circular(AppRadius.control),
+                  border: Border.all(color: p.border),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -113,8 +113,8 @@ class EncryptionBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     // Calm and on-brand: reassurance, not a warning.
     final p = context.palette;
-    final bg = p.accentContainer.withValues(alpha: 0.55);
-    final fg = p.onAccentContainer;
+    final bg = p.systemChip;
+    final fg = p.onSystemChip;
     return Padding(
       padding: const EdgeInsets.fromLTRB(32, 12, 32, 8),
       child: Center(
@@ -122,14 +122,17 @@ class EncryptionBanner extends StatelessWidget {
           constraints: const BoxConstraints(maxWidth: 440),
           child: Material(
             color: bg,
-            borderRadius: BorderRadius.circular(AppRadius.md),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.control),
+              side: BorderSide(color: p.border),
+            ),
+            clipBehavior: Clip.antiAlias,
             child: InkWell(
-              borderRadius: BorderRadius.circular(AppRadius.md),
               onTap: onTap,
               child: Padding(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 9,
+                  horizontal: 14,
+                  vertical: 10,
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -137,7 +140,7 @@ class EncryptionBanner extends StatelessWidget {
                   children: [
                     Padding(
                       padding: const EdgeInsets.only(top: 1),
-                      child: Icon(LucideIcons.shieldCheck, size: 14, color: fg),
+                      child: Icon(LucideIcons.shieldCheck, size: 14, color: p.accent),
                     ),
                     const SizedBox(width: 7),
                     Flexible(
@@ -238,13 +241,13 @@ class UnreadBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 6),
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: muted ? p.textMuted : p.accent,
+        color: muted ? p.textMuted : p.brand,
         borderRadius: BorderRadius.circular(AppRadius.pill),
       ),
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: p.onAccent,
+          color: muted ? p.background : p.onBrand,
           fontWeight: FontWeight.w700,
           fontSize: 11.5,
           letterSpacing: 0,

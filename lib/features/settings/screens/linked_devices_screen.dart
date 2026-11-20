@@ -170,9 +170,9 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
                     margin: const EdgeInsets.only(bottom: 10),
                     decoration: BoxDecoration(
                       color: p.surface,
-                      borderRadius: BorderRadius.circular(AppRadius.lg),
+                      borderRadius: BorderRadius.circular(AppRadius.card),
                       border: Border.all(
-                          color: d['current'] == true ? p.accent : p.divider),
+                          color: d['current'] == true ? p.accent : p.border),
                     ),
                     child: ListTile(
                       key: ValueKey('device-${d['device_id']}'),
@@ -184,8 +184,7 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
                           Flexible(
                             child: Text(_nameOf(d),
                                 overflow: TextOverflow.ellipsis,
-                                style: t.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.w600)),
+                                style: t.titleSmall),
                           ),
                           if (d['current'] == true) ...[
                             const SizedBox(width: 8),
@@ -193,11 +192,11 @@ class _LinkedDevicesScreenState extends State<LinkedDevicesScreen> {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(
-                                color: p.accent.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(99),
+                                color: p.brand,
+                                borderRadius: BorderRadius.circular(AppRadius.pill),
                               ),
                               child: Text('This device',
-                                  style: t.labelSmall?.copyWith(color: p.accent)),
+                                  style: t.labelMedium?.copyWith(color: p.onBrand)),
                             ),
                           ],
                         ],

@@ -142,7 +142,7 @@ class _InviteScreenState extends State<InviteScreen> {
                 TextButton(onPressed: _revoke, child: const Text('Turn off links I sent')),
               ],
               const Divider(height: 40),
-              Text('Got an invite?', style: t.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+              Text('Got an invite?', style: t.titleSmall),
               const SizedBox(height: 10),
               TextField(
                 key: const ValueKey('invite-paste'),

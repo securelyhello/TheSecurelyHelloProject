@@ -53,12 +53,12 @@ class _BlockingUpdate extends StatelessWidget {
                   Container(
                     width: 88,
                     height: 88,
-                    decoration: BoxDecoration(color: p.accentContainer, shape: BoxShape.circle),
-                    child: Icon(LucideIcons.download, size: 38, color: p.onAccentContainer),
+                    decoration: BoxDecoration(color: p.brand, shape: BoxShape.circle),
+                    child: Icon(LucideIcons.download, size: 38, color: p.onBrand),
                   ),
                   const SizedBox(height: 22),
                   Text('Please update Securely Hello',
-                      textAlign: TextAlign.center, style: t.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+                      textAlign: TextAlign.center, style: t.headlineSmall),
                   const SizedBox(height: 10),
                   Text(
                     'This version is no longer supported. Update to keep your chats working; '
@@ -133,27 +133,28 @@ class _UpdateCardSliverState extends State<UpdateCardSliver> {
           key: const ValueKey('update-card'),
           padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
           decoration: BoxDecoration(
-            color: p.accentContainer.withAlpha(110),
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-            border: Border.all(color: p.accent.withAlpha(70)),
+            color: p.brand,
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            boxShadow: p.paperShadow,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Icon(LucideIcons.sparkles, size: 18, color: p.accent),
+                  Icon(LucideIcons.sparkles, size: 18, color: p.onBrand),
                   const SizedBox(width: 8),
-                  Expanded(child: Text('Update available', style: t.titleSmall?.copyWith(fontWeight: FontWeight.w700))),
-                  Text('Version ${m.versionName}', style: t.labelSmall?.copyWith(color: p.textSecondary)),
+                  Expanded(child: Text('Update available', style: t.titleSmall?.copyWith(color: p.onBrand))),
+                  Text('Version ${m.versionName}', style: t.labelMedium?.copyWith(color: p.onBrand)),
                 ],
               ),
               if (m.notes.isNotEmpty) ...[
                 const SizedBox(height: 6),
-                Text(m.notes, maxLines: 4, overflow: TextOverflow.ellipsis, style: t.bodySmall),
+                Text(m.notes,
+                    maxLines: 4, overflow: TextOverflow.ellipsis, style: t.bodySmall?.copyWith(color: p.onBrand)),
               ],
               const SizedBox(height: 8),
-              UpdateActions(updater: u, onLater: () => _later(m.versionCode)),
+              UpdateActions(updater: u, onLater: () => _later(m.versionCode), onPear: true),
             ],
           ),
         ),
@@ -178,20 +179,19 @@ Widget _unsupported(BuildContext context, AppUpdater u) {
         key: const ValueKey('update-unsupported'),
         padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
         decoration: BoxDecoration(
-          color: p.accentContainer.withAlpha(110),
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          border: Border.all(color: p.accent.withAlpha(70)),
+          color: p.surface,
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          border: Border.all(color: p.warning),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(LucideIcons.triangleAlert, size: 18, color: p.accent),
+                Icon(LucideIcons.triangleAlert, size: 18, color: p.warning),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text('This version is no longer supported',
-                      style: t.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+                  child: Text('This version is no longer supported', style: t.titleSmall),
                 ),
               ],
             ),
@@ -281,8 +281,8 @@ class AppUpdatesSection extends StatelessWidget {
       child: Material(
         color: p.surface,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          side: BorderSide(color: p.divider),
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          side: BorderSide(color: p.border),
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
@@ -378,11 +378,14 @@ class AppUpdatesSection extends StatelessWidget {
 
 /// Update button with download progress and what went wrong.
 class UpdateActions extends StatelessWidget {
-  const UpdateActions({super.key, required this.updater, this.onLater, this.blocking = false});
+  const UpdateActions({super.key, required this.updater, this.onLater, this.blocking = false, this.onPear = false});
 
   final AppUpdater updater;
   final VoidCallback? onLater;
   final bool blocking;
+
+  /// Shown on the pear update card: ink button and ink text.
+  final bool onPear;
 
   static String message(UpdateError e) => switch (e) {
         UpdateError.network => "The download didn't finish. Check your connection and try again.",
@@ -404,11 +407,15 @@ class UpdateActions extends StatelessWidget {
       crossAxisAlignment: blocking ? CrossAxisAlignment.stretch : CrossAxisAlignment.start,
       children: [
         if (updater.busy) ...[
-          LinearProgressIndicator(value: updater.progress > 0 ? updater.progress : null),
+          LinearProgressIndicator(
+            value: updater.progress > 0 ? updater.progress : null,
+            color: onPear ? p.onBrand : null,
+            backgroundColor: onPear ? p.onBrand.withValues(alpha: 0.2) : null,
+          ),
           const SizedBox(height: 6),
           Text(
             updater.progress >= 1 ? 'Checking…' : 'Downloading… ${(updater.progress * 100).round()}%',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(color: p.textSecondary),
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(color: onPear ? p.onBrand : p.textSecondary),
           ),
         ] else
           Wrap(
@@ -417,18 +424,24 @@ class UpdateActions extends StatelessWidget {
             children: [
               FilledButton.icon(
                 key: const ValueKey('update-now'),
+                style: onPear ? FilledButton.styleFrom(backgroundColor: p.onBrand, foregroundColor: p.brand) : null,
                 onPressed: updater.downloadAndInstall,
                 icon: const Icon(LucideIcons.download, size: 18),
                 label: const Text('Update'),
               ),
-              if (onLater != null) TextButton(onPressed: onLater, child: const Text('Later')),
+              if (onLater != null)
+                TextButton(
+                  style: onPear ? TextButton.styleFrom(foregroundColor: p.onBrand) : null,
+                  onPressed: onLater,
+                  child: const Text('Later'),
+                ),
             ],
           ),
         if (err != null) ...[
           const SizedBox(height: 8),
           Text(message(err),
               textAlign: blocking ? TextAlign.center : TextAlign.start,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: p.danger)),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: onPear ? p.onBrand : p.danger)),
         ],
       ],
     );

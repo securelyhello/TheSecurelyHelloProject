@@ -100,10 +100,7 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
                 icon: group != null ? LucideIcons.users : null,
                 size: AvatarSize.medium,
               ),
-              title: Text(
-                name,
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
+              title: Text(name, style: Theme.of(context).textTheme.titleMedium),
             ),
       items: [
         if (conv.unreadCount > 0)
@@ -358,16 +355,12 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
           child: ListTile(
             leading: CircleAvatar(
               radius: 26,
-              backgroundColor: p.accentContainer,
-              child: Icon(
-                LucideIcons.userPlus,
-                color: p.onAccentContainer,
-                size: 22,
-              ),
+              backgroundColor: p.brand,
+              child: Icon(LucideIcons.userPlus, color: p.onBrand, size: 22),
             ),
             title: Text(
               L10n.of(context).contactRequests,
-              style: TextStyle(fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.titleMedium,
             ),
             subtitle: Text(
               requestCount == 1
@@ -434,11 +427,9 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 18, 16, 6),
               child: Text(
-                'CONTACTS',
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: p.accent,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.9,
+                'Contacts',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: p.textSecondary,
                 ),
               ),
             ),
@@ -469,7 +460,12 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        // Large left title on paper: no colour in the bar.
+        backgroundColor: p.background,
+        toolbarHeight: 68,
+        shape: const Border(),
         title: Text(L10n.of(context).tabChats),
+        titleTextStyle: Theme.of(context).textTheme.headlineMedium,
         actions: [
           PopupMenuButton<_TopMenu>(
             tooltip: L10n.of(context).moreOptions,
@@ -533,7 +529,7 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 24),
         color: context.palette.danger,
-        child: const Icon(LucideIcons.trash2, color: Colors.white),
+        child: Icon(LucideIcons.trash2, color: context.palette.onAccent),
       ),
       confirmDismiss: (_) => _confirmDelete(name, group: group != null),
       onDismissed: (_) =>

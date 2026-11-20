@@ -116,12 +116,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 right: -4,
                 bottom: -4,
                 child: Material(
-                  color: p.accent,
+                  color: p.brand,
                   shape: const CircleBorder(),
                   child: IconButton(
                     key: const ValueKey('profile-photo-pick'),
                     tooltip: 'Change photo',
-                    icon: Icon(LucideIcons.camera, color: p.onAccent, size: 20),
+                    icon: Icon(LucideIcons.camera, color: p.onBrand, size: 20),
                     onPressed: _pickPhoto,
                   ),
                 ),

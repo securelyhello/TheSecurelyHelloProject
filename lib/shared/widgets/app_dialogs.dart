@@ -53,7 +53,6 @@ void showAppSnackBar(
 }) {
   final messenger = ScaffoldMessenger.maybeOf(context);
   if (messenger == null) return;
-  final p = context.palette;
   final icon = error
       ? LucideIcons.circleAlert
       : success
@@ -73,11 +72,8 @@ void showAppSnackBar(
               Icon(
                 icon,
                 size: 18,
-                color: error
-                    ? const Color(0xFFFF8A8A)
-                    : (Theme.of(context).brightness == Brightness.dark
-                          ? p.success
-                          : const Color(0xFF6EE7B7)),
+                // The snackbar is ink in both themes, so use the Night tokens.
+                color: error ? AppPalette.dark.danger : AppPalette.dark.success,
               ),
               const SizedBox(width: 10),
             ],
