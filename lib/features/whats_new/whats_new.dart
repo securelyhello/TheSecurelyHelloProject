@@ -12,11 +12,10 @@ abstract final class WhatsNew {
   static const _key = 'whats_new_seen';
 
   static const highlights = [
-    (LucideIcons.sparkles, 'Stories', 'Share a moment with the people you pick. It disappears after 24 hours.'),
-    (LucideIcons.phone, 'Calls that keep going', 'Calls ring like a phone call and carry on with the screen off.'),
-    (LucideIcons.messageSquareReply, 'Reply from notifications', 'Answer or mark as read without opening the app.'),
-    (LucideIcons.pin, 'Pin, archive, star, forward', 'Keep your chats tidy and find any message.'),
-    (LucideIcons.palette, 'A fresh look', 'A new design, a new icon and Gujarati.'),
+    (LucideIcons.userSearch, 'Find people has its own tab', 'Search by username and answer contact requests from one place.'),
+    (LucideIcons.refreshCw, 'Settings shows your version and checks for updates', 'See the version you have, when we last checked, and update in a tap.'),
+    (LucideIcons.palette, 'A new look and a new icon', 'Paper and ink colours, new headings, and a new logo.'),
+    (LucideIcons.monitorSmartphone, 'Calls fit on small and sideways screens', 'Call controls stay on screen on short phones and in landscape.'),
   ];
 
   /// Whether to show it: the app was used before, and not since this version.
