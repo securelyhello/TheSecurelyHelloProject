@@ -6,8 +6,8 @@ window.SITE = {
   androidApk: '/download/securelyhello.apk',
   // Smaller per-CPU APKs from tools/release_apk.py --split (empty hides them):
   //   '/download/securelyhello-arm64-v8a.apk', '/download/securelyhello-armeabi-v7a.apk'
-  androidApkArm64: '',
-  androidApkArm32: '',
+  androidApkArm64: '/download/securelyhello-arm64-v8a.apk',
+  androidApkArm32: '/download/securelyhello-armeabi-v7a.apk',
   // SHA-256 of the APK signing certificate, shown next to the APK link.
   apkCertSha256: '78:8E:E6:48:86:1E:AF:80:39:49:6C:23:42:64:79:39:93:04:D5:F9:A3:C6:34:63:79:5A:4A:C2:5E:11:B6:E1', // https://play.google.com/store/apps/details?id=securelyhello.thenn.in
   appStore: '', // https://apps.apple.com/app/id…
