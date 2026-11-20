@@ -457,41 +457,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ListTile(
                         key: const ValueKey('settings-theme'),
                         leading: const Icon(LucideIcons.sunMoon),
-                        title: Text(L10n.of(context).settingsTheme),
-                        trailing: DropdownButton<ThemeMode>(
+                        title: _rowLabel(L10n.of(context).settingsTheme),
+                        trailing: _cappedTrailing(DropdownButton<ThemeMode>(
                           value: theme.mode,
                           underline: const SizedBox(),
+                          isExpanded: true,
                           items: [
                             for (final m in ThemeMode.values)
                               DropdownMenuItem(
                                 value: m,
-                                child: Text(switch (m) {
-                                  ThemeMode.system => L10n.of(context).themeSystem,
-                                  ThemeMode.light => L10n.of(context).themeLight,
-                                  ThemeMode.dark => L10n.of(context).themeDark,
-                                }),
+                                child: Text(
+                                  switch (m) {
+                                    ThemeMode.system => L10n.of(context).themeSystem,
+                                    ThemeMode.light => L10n.of(context).themeLight,
+                                    ThemeMode.dark => L10n.of(context).themeDark,
+                                  },
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                           ],
                           onChanged: (m) => m == null ? null : theme.set(m),
-                        ),
+                        )),
                       ),
                       Builder(builder: (context) {
                         final language = context.watch<LocaleController>();
                         return ListTile(
                           key: const ValueKey('settings-language'),
                           leading: const Icon(LucideIcons.languages),
-                          title: Text(L10n.of(context).settingsLanguage),
-                          trailing: DropdownButton<String>(
+                          title: _rowLabel(L10n.of(context).settingsLanguage),
+                          trailing: _cappedTrailing(DropdownButton<String>(
                             value: language.locale?.languageCode ?? '',
                             underline: const SizedBox(),
+                            isExpanded: true,
                             items: [
-                              DropdownMenuItem(value: '', child: Text(L10n.of(context).languageSystem)),
+                              DropdownMenuItem(
+                                  value: '',
+                                  child: Text(L10n.of(context).languageSystem,
+                                      overflow: TextOverflow.ellipsis)),
                               for (final e in LocaleController.names.entries)
-                                DropdownMenuItem(value: e.key, child: Text(e.value)),
+                                DropdownMenuItem(
+                                    value: e.key,
+                                    child: Text(e.value, overflow: TextOverflow.ellipsis)),
                             ],
                             onChanged: (code) =>
                                 language.set(code == null || code.isEmpty ? null : Locale(code)),
-                          ),
+                          )),
                         );
                       }),
                     ]);
@@ -533,12 +543,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ListTile(
                         key: const ValueKey('settings-sound'),
                         leading: const Icon(LucideIcons.music),
-                        title: const Text('Sound'),
-                        trailing: DropdownButton<String>(
+                        title: _rowLabel('Sound'),
+                        trailing: _cappedTrailing(DropdownButton<String>(
                           value: n.sound,
                           underline: const SizedBox(),
+                          isExpanded: true,
                           items: const [
-                            DropdownMenuItem(value: 'default', child: Text('Phone default')),
+                            DropdownMenuItem(
+                                value: 'default',
+                                child: Text('Phone default', overflow: TextOverflow.ellipsis)),
                             DropdownMenuItem(value: 'chime', child: Text('Chime')),
                             DropdownMenuItem(value: 'pop', child: Text('Pop')),
                             DropdownMenuItem(value: 'bell', child: Text('Bell')),
@@ -551,7 +564,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   setState(() {});
                                 }
                               : null,
-                        ),
+                        )),
                       ),
                     ]);
                   }),
@@ -622,20 +635,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       builder: (context, snap) => ListTile(
                         key: const ValueKey('settings-profile-visible'),
                         leading: const Icon(LucideIcons.circleUser),
-                        title: const Text('Profile photo & about'),
-                        trailing: DropdownButton<bool>(
+                        title: _rowLabel('Profile photo & about'),
+                        trailing: _cappedTrailing(DropdownButton<bool>(
                           value: snap.data ?? true,
                           underline: const SizedBox(),
+                          isExpanded: true,
                           items: const [
-                            DropdownMenuItem(value: true, child: Text('My contacts')),
-                            DropdownMenuItem(value: false, child: Text('Nobody')),
+                            DropdownMenuItem(
+                                value: true,
+                                child: Text('My contacts', overflow: TextOverflow.ellipsis)),
+                            DropdownMenuItem(
+                                value: false,
+                                child: Text('Nobody', overflow: TextOverflow.ellipsis)),
                           ],
                           onChanged: (v) async {
                             if (v == null) return;
                             await chat.service.setProfileVisible(v);
                             setState(() {});
                           },
-                        ),
+                        )),
                       ),
                     ),
                     FutureBuilder<int>(
@@ -643,20 +661,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       builder: (context, snap) => ListTile(
                         key: const ValueKey('settings-default-timer'),
                         leading: const Icon(LucideIcons.timer),
-                        title: const Text('Disappearing messages for new chats'),
-                        trailing: DropdownButton<int>(
+                        title: _rowLabel('Disappearing messages for new chats'),
+                        trailing: _cappedTrailing(DropdownButton<int>(
                           value: snap.data ?? 0,
                           underline: const SizedBox(),
+                          isExpanded: true,
                           items: [
                             for (final s in const [0, 86400, 604800])
-                              DropdownMenuItem(value: s, child: Text(ChatService.disappearLabel(s))),
+                              DropdownMenuItem(
+                                  value: s,
+                                  child: Text(ChatService.disappearLabel(s),
+                                      overflow: TextOverflow.ellipsis)),
                           ],
                           onChanged: (v) async {
                             if (v == null) return;
                             await chat.service.setDefaultDisappearing(v);
                             setState(() {});
                           },
-                        ),
+                        )),
                       ),
                     ),
                     SwitchListTile(
@@ -749,17 +771,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       if (lock.enabled) ...[
                         ListTile(
                           leading: const Icon(LucideIcons.timer),
-                          title: const Text('Lock'),
-                          trailing: DropdownButton<int>(
+                          title: _rowLabel('Lock'),
+                          trailing: _cappedTrailing(DropdownButton<int>(
                             value: lock.timeoutSeconds,
                             underline: const SizedBox(),
+                            isExpanded: true,
                             items: [
                               for (final s in AppLockService.timeoutChoices)
                                 DropdownMenuItem(
-                                    value: s, child: Text(AppLockService.timeoutLabel(s))),
+                                    value: s,
+                                    child: Text(AppLockService.timeoutLabel(s),
+                                        overflow: TextOverflow.ellipsis)),
                             ],
                             onChanged: (v) => v == null ? null : lock.setTimeout(v),
-                          ),
+                          )),
                         ),
                         if (lock.biometricsSupported)
                           SwitchListTile(
@@ -1041,3 +1066,13 @@ class _EmailDiscoveryTileState extends State<_EmailDiscoveryTile> {
               },
       );
 }
+
+/// Row label for dropdown rows: stays on one line and never breaks mid-word,
+/// so the dropdown side gives up width first at large text scales.
+Widget _rowLabel(String text) => Text(text, softWrap: false, overflow: TextOverflow.ellipsis);
+
+/// Caps the dropdown side of a settings row so the label keeps its width.
+Widget _cappedTrailing(Widget dropdown) => ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 160),
+      child: dropdown,
+    );

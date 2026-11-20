@@ -314,39 +314,53 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
       SliverToBoxAdapter(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-          child: Wrap(
-            spacing: 8,
-            children: [
-              ChoiceChip(
-                label: Text(L10n.of(context).filterAll),
-                selected: _filter == _Filter.all,
-                showCheckmark: false,
-                onSelected: (_) => setState(() => _filter = _Filter.all),
-              ),
-              ChoiceChip(
-                label: Text(
-                  unreadChats > 0 ? L10n.of(context).filterUnreadCount(unreadChats) : L10n.of(context).filterUnread,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text(L10n.of(context).filterAll),
+                    selected: _filter == _Filter.all,
+                    showCheckmark: false,
+                    onSelected: (_) => setState(() => _filter = _Filter.all),
+                  ),
                 ),
-                selected: _filter == _Filter.unread,
-                showCheckmark: false,
-                onSelected: (_) => setState(() => _filter = _Filter.unread),
-              ),
-              ChoiceChip(
-                label: const Text('Groups'),
-                selected: _filter == _Filter.groups,
-                showCheckmark: false,
-                onSelected: (_) => setState(() => _filter = _Filter.groups),
-              ),
-              if (archivedCount > 0)
-                ChoiceChip(
-                  key: const ValueKey('filter-archived'),
-                  avatar: const Icon(LucideIcons.archive, size: 16),
-                  label: Text('Archived ($archivedCount)'),
-                  selected: _filter == _Filter.archived,
-                  showCheckmark: false,
-                  onSelected: (_) => setState(() => _filter = _Filter.archived),
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text(
+                      unreadChats > 0 ? L10n.of(context).filterUnreadCount(unreadChats) : L10n.of(context).filterUnread,
+                    ),
+                    selected: _filter == _Filter.unread,
+                    showCheckmark: false,
+                    onSelected: (_) => setState(() => _filter = _Filter.unread),
+                  ),
                 ),
-            ],
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: const Text('Groups'),
+                    selected: _filter == _Filter.groups,
+                    showCheckmark: false,
+                    onSelected: (_) => setState(() => _filter = _Filter.groups),
+                  ),
+                ),
+                if (archivedCount > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      key: const ValueKey('filter-archived'),
+                      avatar: const Icon(LucideIcons.archive, size: 16),
+                      label: Text('Archived ($archivedCount)'),
+                      selected: _filter == _Filter.archived,
+                      showCheckmark: false,
+                      onSelected: (_) => setState(() => _filter = _Filter.archived),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

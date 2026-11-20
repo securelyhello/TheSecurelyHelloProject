@@ -38,6 +38,7 @@ import 'package:securelyhello/features/chat/widgets/conversation_tile.dart';
 import 'package:securelyhello/main.dart';
 import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/core/stories/story_service.dart';
+import 'package:securelyhello/features/stories/story_composer.dart';
 import 'package:securelyhello/shared/theme/locale_controller.dart';
 import 'package:securelyhello/shared/theme/theme_controller.dart';
 
@@ -490,7 +491,7 @@ void main() {
       // ---- stories ----------------------------------------------------------
       final miraStories = StoryService(chat: mira.chat, directory: mira.directory, storage: mira.storage);
       await miraStories.start(miraId, deviceId: mira.auth.deviceId!);
-      await miraStories.postText('Sunset walk by the lake 🌅', 0xFF5B3FD0, contacts: [me.auth.myUserId!]);
+      await miraStories.postText('Sunset walk by the lake 🌅', StoryComposer.colors.first, contacts: [me.auth.myUserId!]);
       await tester.tap(find.text('Chats').last);
       await settle(600);
       final storyEnd = DateTime.now().add(const Duration(seconds: 20));
