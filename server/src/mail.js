@@ -127,3 +127,23 @@ export function codeEmail(purpose, to, code, minutes) {
     '<p style="color:#888">Securely Hello will never ask you for this code.</p>';
   return { to, subject: t.subject, text, html };
 }
+
+/**
+ * To the previous address after an e-mail change, so a hijacked session
+ * can't move the account away silently. No code, no new address.
+ */
+export function emailChangedNotice(to) {
+  const subject = 'Your Securely Hello e-mail address was changed';
+  const intro =
+    'The e-mail address of your Securely Hello account was just changed, and this address no longer signs in. ' +
+    'Your other sessions were signed out.';
+  const warn =
+    "If this wasn't you, sign in on your phone and change your password and e-mail address right away, " +
+    'or contact the operator of your Securely Hello server.';
+  return {
+    to,
+    subject,
+    text: `${intro}\n\n${warn}`,
+    html: `<p>${intro}</p><p>${warn}</p>`,
+  };
+}

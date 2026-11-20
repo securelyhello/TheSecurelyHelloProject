@@ -1,8 +1,8 @@
 // One-time e-mail codes: 6 digits, stored hashed, short-lived, single use,
 // at most CODE_MAX_ATTEMPTS guesses (right or wrong) per code.
 //
-// Every code e-mail goes through issueCode(), so this is where the global
-// daily e-mail cap (EMAIL_DAILY_CAP, see ratelimit.js) is enforced.
+// Every e-mail goes through issueCode() or sendNotice(), so this is where
+// the global daily e-mail cap (EMAIL_DAILY_CAP, see ratelimit.js) is enforced.
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 
 import { codeEmail } from './mail.js';
@@ -22,8 +22,12 @@ const capsFor = (purpose) => (purpose === 'verify' ? ['emailDaily', 'emailVerify
 
 /** @param {{pool: object, mailer: object, limits: import('./ratelimit.js').RateLimits}} deps */
 export function createCodes({ pool, mailer, limits }) {
-  const codeHash = (userId, purpose, code) =>
-    createHash('sha256').update(`securelyhello-code|${purpose}|${userId}|${code}`).digest();
+  // [bindTo] ties a code to something it may only be used for (the target
+  // address of an e-mail change), so it can't confirm anything else.
+  const codeHash = (userId, purpose, code, bindTo = null) =>
+    createHash('sha256')
+      .update(`securelyhello-code|${purpose}|${userId}|${code}${bindTo == null ? '' : `|${bindTo.toLowerCase()}`}`)
+      .digest();
 
   /**
    * Whether the daily cap has room for one [purpose] e-mail, without using
@@ -37,9 +41,9 @@ export function createCodes({ pool, mailer, limits }) {
   /**
    * Creates (or replaces) a code for [purpose] and e-mails it. Throws
    * emailCapReached() (503) when the daily cap is used up; nothing is stored
-   * or sent then.
+   * or sent then. With [bindTo], consumeCode() needs the same value.
    */
-  async function issueCode(userId, email, purpose) {
+  async function issueCode(userId, email, purpose, { bindTo = null } = {}) {
     // One atomic take across every cap: either all get a slot or none does,
     // so a full overall cap never burns a verification slot (or vice versa),
     // even under concurrent requests.
@@ -51,7 +55,7 @@ export function createCodes({ pool, mailer, limits }) {
        VALUES ($1, $2, $3, now() + make_interval(mins => $4))
        ON CONFLICT (user_id, purpose) DO UPDATE
          SET code_hash = EXCLUDED.code_hash, attempts = 0, created_at = now(), expires_at = EXCLUDED.expires_at`,
-      [userId, purpose, codeHash(userId, purpose, code), minutes],
+      [userId, purpose, codeHash(userId, purpose, code, bindTo), minutes],
     );
     await mailer.send(codeEmail(purpose, email, code, minutes));
   }
@@ -60,7 +64,7 @@ export function createCodes({ pool, mailer, limits }) {
    * Spends one attempt on the live code; consumes it if [code] matches,
    * unless [keep] (the caller still needs a second factor before acting).
    */
-  async function consumeCode(userId, purpose, code, { keep = false } = {}) {
+  async function consumeCode(userId, purpose, code, { keep = false, bindTo = null } = {}) {
     if (typeof code !== 'string' || !CODE_RE.test(code)) return false;
     const { rows } = await pool.query(
       `UPDATE email_codes SET attempts = attempts + 1
@@ -70,7 +74,7 @@ export function createCodes({ pool, mailer, limits }) {
     );
     if (!rows[0]) return false;
     const expected = rows[0].code_hash;
-    const given = codeHash(userId, purpose, code);
+    const given = codeHash(userId, purpose, code, bindTo);
     if (expected.length !== given.length || !timingSafeEqual(expected, given)) return false;
     if (keep) {
       // Give back the attempt: a right code shouldn't count against the user.
@@ -88,5 +92,15 @@ export function createCodes({ pool, mailer, limits }) {
     return del.rowCount === 1;
   }
 
-  return { canSend, issueCode, consumeCode };
+  /**
+   * Sends a notice (no code) if the overall daily cap has room. Resolves
+   * false, sending nothing, when it doesn't.
+   */
+  async function sendNotice(message) {
+    if (!(await limits.takeAll(['emailDaily'], 'global'))) return false;
+    await mailer.send(message);
+    return true;
+  }
+
+  return { canSend, issueCode, consumeCode, sendNotice };
 }

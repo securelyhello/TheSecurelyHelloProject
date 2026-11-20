@@ -2,6 +2,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import { withTransaction } from './db.js';
+import { revokeStoryKeys } from './stories.js';
 import * as v from './validate.js';
 import { HttpError, bad } from './validate.js';
 
@@ -68,6 +69,8 @@ export function registerSafetyRoutes(router, { pool, hub, services, limits, conf
         `DELETE FROM contact_requests WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1)`,
         [user.id, target],
       );
+      // Stories already shared either way stop being fetchable at once.
+      await revokeStoryKeys(client, user.id, target);
       return removed.rowCount > 0;
     });
     await services.contactsChanged(user.id, target);

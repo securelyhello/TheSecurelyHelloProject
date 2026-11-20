@@ -79,6 +79,8 @@ phone and checks it really comes from us before installing.
   | `STORIES_PER_DAY` | `30` |
   | `AUTH_PER_IP_PER_10MIN` | `0` (keeps the built-in 20 per IP, as in 1.0) |
 
+- `MIN_ANDROID_VERSION_CODE` must be a whole number and never above the newest
+  published build; a bad value stops the server from starting.
 - The server still serves the 1.0 app. Set `MIN_ANDROID_VERSION_CODE=2`
   only once most people have updated.
 - Push stays off until the `FIREBASE_*` values (app) and

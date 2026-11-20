@@ -101,14 +101,24 @@ enum UpdateUrgency {
   /// A newer build exists; the user may update.
   available,
 
-  /// This build is no longer supported: update before going on.
+  /// This build is below the minimum but no published build meets it (no
+  /// manifest, or one older than the minimum): a warning, not a block, so
+  /// a minimum alone can't lock the user out of their chats.
+  unsupported,
+
+  /// This build is no longer supported and the manifest offers one that is:
+  /// update before going on.
   required,
 }
 
 /// What [installed] should do given [manifest] and the server's minimum.
+/// Blocking ([UpdateUrgency.required]) only when [manifest] offers a build
+/// at or above the minimum from either source (security review M4).
 UpdateUrgency updateUrgency({required int installed, UpdateManifest? manifest, int? serverMinimum}) {
   final minimum = [manifest?.minSupportedVersionCode ?? 0, serverMinimum ?? 0].reduce((a, b) => a > b ? a : b);
-  if (installed < minimum) return UpdateUrgency.required;
+  if (installed < minimum) {
+    return manifest != null && manifest.versionCode >= minimum ? UpdateUrgency.required : UpdateUrgency.unsupported;
+  }
   if (manifest != null && manifest.versionCode > installed) return UpdateUrgency.available;
   return UpdateUrgency.none;
 }

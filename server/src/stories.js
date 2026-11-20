@@ -21,7 +21,20 @@ const MAX_KEY_ENVELOPE = 16 * 1024;
 
 const notFound = () => new HttpError(404, 'not_found', 'No such story');
 
-export function registerStoryRoutes(router, { pool, services, config, hub, log }) {
+/**
+ * Takes back the stories [a] and [b] sealed to each other: call when they
+ * stop being contacts (removal, block). [db] may be a transaction client.
+ */
+export async function revokeStoryKeys(db, a, b) {
+  await db.query(
+    `DELETE FROM story_keys k USING stories s
+      WHERE k.story_id = s.id
+        AND ((s.owner_id = $1 AND k.recipient_id = $2) OR (s.owner_id = $2 AND k.recipient_id = $1))`,
+    [a, b],
+  );
+}
+
+export function registerStoryRoutes(router, { pool, services, config, hub, log, limits }) {
   async function requireApprovedDevice(user) {
     if (!user.deviceId) throw new HttpError(403, 'device_required', 'Register this device first');
     if (!(await services.isDeviceApproved(user.deviceId))) {
@@ -91,6 +104,10 @@ export function registerStoryRoutes(router, { pool, services, config, hub, log }
           throw bad('attachment_ids must be your own current uploads');
         }
       }
+      // Live rows alone forget deleted stories, so posts are counted too.
+      if (!(await limits.take('storyPost', user.id))) {
+        throw new HttpError(429, 'story_quota', `You can post ${config.storiesPerDay} stories a day`);
+      }
       const inserted = await client.query(
         `INSERT INTO stories (id, owner_id, expires_at, attachment_ids)
          VALUES ($1, $2, now() + make_interval(hours => $3), $4)
@@ -125,16 +142,22 @@ export function registerStoryRoutes(router, { pool, services, config, hub, log }
     return { status: 201, body: { id: story.id, created_at: story.created_at, expires_at: story.expires_at } };
   });
 
-  /** Story keys for this device, newest first, until they expire. */
+  /**
+   * Story keys for this device, newest first, until they expire; only from
+   * people who are still contacts (both edges), or from yourself.
+   */
   router.add('GET', '/api/stories', async ({ user }) => {
     const deviceId = await requireApprovedDevice(user);
     const { rows } = await pool.query(
       `SELECT s.id AS story_id, s.owner_id, s.created_at, s.expires_at, k.envelope
          FROM story_keys k JOIN stories s ON s.id = k.story_id
         WHERE k.device_id = $1 AND s.expires_at > now()
+          AND (s.owner_id = $2
+               OR (EXISTS (SELECT 1 FROM contacts c WHERE c.owner_id = $2 AND c.contact_id = s.owner_id)
+                   AND EXISTS (SELECT 1 FROM contacts c WHERE c.owner_id = s.owner_id AND c.contact_id = $2)))
         ORDER BY s.created_at DESC
         LIMIT 1000`,
-      [deviceId],
+      [deviceId, user.id],
     );
     return rows;
   });

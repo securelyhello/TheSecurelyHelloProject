@@ -17,13 +17,44 @@ import { Router, bearerToken, clientIp, containsNul, readJsonBody, readRawBody, 
 import { logger } from './log.js';
 import { createMailer } from './mail.js';
 import { createNotifier, senderFromEnv } from './push.js';
-import { MIN_EMAIL_DAILY_CAP, RateLimits, emailLimits } from './ratelimit.js';
+import { DEFAULT_LIMITS, MIN_EMAIL_DAILY_CAP, RateLimits, emailLimits } from './ratelimit.js';
 import { RealtimeHub } from './realtime.js';
 import { Bus } from './bus.js';
 import { Metrics, checkMetricsToken } from './metrics.js';
 import { registerTurnRoutes } from './turn.js';
 import { Services } from './services.js';
 import { HttpError, bad } from './validate.js';
+
+/** Highest versionCode Google Play accepts. */
+const MAX_ANDROID_VERSION_CODE = 2_100_000_000;
+
+/**
+ * MIN_ANDROID_VERSION_CODE: unset/empty means 0 (no minimum); anything else
+ * must be a plain non-negative integer. A typo must stop the server rather
+ * than quietly become some other minimum (one too high locks everyone out).
+ */
+function androidVersionCode(raw) {
+  const text = String(raw ?? '').trim();
+  if (text === '') return 0;
+  if (!/^\d+$/.test(text) || Number(text) > MAX_ANDROID_VERSION_CODE) {
+    throw new Error(
+      `MIN_ANDROID_VERSION_CODE must be a whole number from 0 to ${MAX_ANDROID_VERSION_CODE}, got "${raw}"`,
+    );
+  }
+  return Number(text);
+}
+
+/** Things worth a warning at startup about an otherwise valid [config]. */
+export function configWarnings(config) {
+  const warnings = [];
+  if (config.minAndroidVersionCode > 0) {
+    warnings.push(
+      `MIN_ANDROID_VERSION_CODE=${config.minAndroidVersionCode}: Android builds below it must update. ` +
+        'It must never exceed the versionCode of the published build, or no client can continue.',
+    );
+  }
+  return warnings;
+}
 
 export function loadConfig(env = process.env) {
   const int = (name, def, { allowZero = false } = {}) => {
@@ -82,7 +113,10 @@ export function loadConfig(env = process.env) {
     // whatever else shares that quota.
     emailDailyCap: int('EMAIL_DAILY_CAP', 40, { allowZero: true }),
     // Builds below this Android versionCode are asked to update (0: none).
-    minAndroidVersionCode: int('MIN_ANDROID_VERSION_CODE', 0, { allowZero: true }),
+    // It must NEVER exceed the versionCode of the build actually published
+    // (Play / the in-app updater): every client, including the newest one,
+    // would then be stuck on "Update to continue" with nothing to update to.
+    minAndroidVersionCode: androidVersionCode(env.MIN_ANDROID_VERSION_CODE),
     // Stories one account may post in any 24 hours.
     storiesPerDay: int('STORIES_PER_DAY', 30),
   };
@@ -121,11 +155,13 @@ export function createApp({
     ...storeOptions,
   });
   const services = new Services({ pool, store });
+  for (const w of configWarnings(config)) log.warn(w);
   if (config.emailDailyCap < MIN_EMAIL_DAILY_CAP) {
     log.warn(`EMAIL_DAILY_CAP=${config.emailDailyCap} is too low, using ${MIN_EMAIL_DAILY_CAP}`);
   }
   const limits = new RateLimits(store, {
     ...emailLimits(config.emailDailyCap),
+    storyPost: { ...DEFAULT_LIMITS.storyPost, capacity: config.storiesPerDay },
     ...(config.signupsPerIp ? { signupIp: { capacity: config.signupsPerIp, perMs: 24 * 60 * 60_000 } } : {}),
     ...(config.authPerIp ? { authIp: { capacity: config.authPerIp, perMs: 10 * 60_000 } } : {}),
     ...limitOverrides,
@@ -159,7 +195,7 @@ export function createApp({
   registerSafetyRoutes(router, { pool, hub, services, limits, config, antiSpam });
   registerInviteRoutes(router, { pool, hub, services, limits, config, antiSpam });
   registerGroupRoutes(router, { pool, services, limits });
-  registerStoryRoutes(router, { pool, services, config, hub, log });
+  registerStoryRoutes(router, { pool, services, config, hub, log, limits });
   registerTurnRoutes(router, { config });
   router.add(
     'GET',

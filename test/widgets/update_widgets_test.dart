@@ -86,4 +86,16 @@ void main() {
     await t.pumpAndSettle();
     expect(find.byKey(const ValueKey('update-blocking')), findsOneWidget);
   });
+
+  // Security review M4.
+  testWidgets('a minimum no published build meets warns without blocking', (t) async {
+    final u = await updater();
+    await t.pumpWidget(app(u, const Scaffold(body: CustomScrollView(slivers: [UpdateCardSliver()]))));
+    await t.pumpAndSettle();
+    u.serverMinimum = 3; // the manifest offers versionCode 2
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('update-blocking')), findsNothing);
+    expect(find.byKey(const ValueKey('update-unsupported')), findsOneWidget);
+    expect(find.text('This version is no longer supported'), findsOneWidget);
+  });
 }

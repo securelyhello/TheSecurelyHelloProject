@@ -1,6 +1,7 @@
 package securelyhello.thenn
 
 import android.app.Activity
+import android.app.KeyguardManager
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
@@ -20,8 +21,16 @@ import io.flutter.plugin.common.MethodChannel
  *   screen off ([OngoingCallService]);
  * - Hang up / Mute from that notification, back to Dart as "action";
  * - the proximity sensor turns the screen off at the ear on voice calls;
- * - showing over the lock screen while a call rings or runs;
+ * - showing over the lock screen while a call rings or runs, and then only
+ *   while the call screen is what the app shows (security review H1);
+ * - dismissing the lock screen (the user unlocks) before the call screen
+ *   may be left, and telling Dart whether the phone is locked;
  * - picture-in-picture for video calls when the user leaves the app.
+ *
+ * MainActivity is the whole app, so showWhenLocked on it would put every
+ * chat over the lock screen. The flags are therefore on only while a call
+ * rings or runs AND Dart reports the call screen shown ("callScreen"); Dart
+ * keeps the call screen from being left until [dismissKeyguard] succeeds.
  */
 object CallBridge {
     private const val TAG = "SecurelyHelloCall"
@@ -30,6 +39,12 @@ object CallBridge {
 
     /** Video call running: leaving the app enters picture-in-picture. */
     @Volatile var pipEnabled = false
+
+    /** A call rings or runs. */
+    private var callActive = false
+
+    /** Dart shows the call screen (and nothing else) on top. */
+    private var callScreenShown = false
 
     fun attach(activity: Activity, messenger: BinaryMessenger) {
         val ch = MethodChannel(messenger, "securelyhello/call")
@@ -45,21 +60,32 @@ object CallBridge {
                             muted = call.argument<Boolean>("muted") == true,
                             outgoing = call.argument<Boolean>("outgoing") == true,
                             sinceMs = (call.argument<Number>("since") ?: 0).toLong(),
+                            hideContent = call.argument<Boolean>("hideContent") != false,
                         )
-                        setOverLockScreen(activity, true)
+                        callActive = true
+                        applyLockScreen(activity)
                         result.success(true)
                     }
                     "ringing" -> {
-                        setOverLockScreen(activity, true)
+                        callActive = true
+                        applyLockScreen(activity)
                         result.success(true)
                     }
                     "stop" -> {
                         OngoingCallService.stop(activity)
                         setProximity(activity, false)
-                        setOverLockScreen(activity, false)
+                        callActive = false
+                        applyLockScreen(activity)
                         pipEnabled = false
                         result.success(true)
                     }
+                    "callScreen" -> {
+                        callScreenShown = call.argument<Boolean>("shown") == true
+                        applyLockScreen(activity)
+                        result.success(null)
+                    }
+                    "keyguardLocked" -> result.success(isLocked(activity))
+                    "dismissKeyguard" -> dismissKeyguard(activity, result)
                     "proximity" -> {
                         setProximity(activity, call.argument<Boolean>("on") == true)
                         result.success(null)
@@ -92,6 +118,55 @@ object CallBridge {
     fun detach() {
         channel?.setMethodCallHandler(null)
         channel = null
+        callScreenShown = false
+    }
+
+    private fun isLocked(context: Context): Boolean {
+        val km = context.getSystemService(KeyguardManager::class.java) ?: return true
+        return km.isKeyguardLocked
+    }
+
+    /**
+     * Asks the user to unlock; replies true once the lock screen is gone
+     * (or wasn't there), false if they cancelled or it can't be dismissed.
+     */
+    private fun dismissKeyguard(activity: Activity, result: MethodChannel.Result) {
+        if (!isLocked(activity)) {
+            result.success(true)
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            result.success(false)
+            return
+        }
+        val km = activity.getSystemService(KeyguardManager::class.java)
+        if (km == null) {
+            result.success(false)
+            return
+        }
+        activity.runOnUiThread {
+            var replied = false
+            fun reply(ok: Boolean) {
+                if (replied) return
+                replied = true
+                result.success(ok)
+            }
+            try {
+                km.requestDismissKeyguard(activity, object : KeyguardManager.KeyguardDismissCallback() {
+                    override fun onDismissSucceeded() = reply(true)
+                    override fun onDismissCancelled() = reply(false)
+                    override fun onDismissError() = reply(false)
+                })
+            } catch (e: Exception) {
+                Log.w(TAG, "dismissKeyguard failed", e)
+                reply(false)
+            }
+        }
+    }
+
+    /** Over the lock screen only while a call is up on the call screen. */
+    private fun applyLockScreen(activity: Activity) {
+        setOverLockScreen(activity, callActive && callScreenShown)
     }
 
     /** Sends [action] ("hangup", "mute", "open", "pip:on"…) to Dart. */

@@ -111,9 +111,18 @@ void main() {
     });
     test('the server can raise the minimum', () {
       expect(updateUrgency(installed: 4, manifest: m, serverMinimum: 5), UpdateUrgency.required);
-      expect(updateUrgency(installed: 4, manifest: null, serverMinimum: 5), UpdateUrgency.required,
-          reason: 'even when the manifest could not be fetched');
       expect(updateUrgency(installed: 4, manifest: null), UpdateUrgency.none);
+    });
+    // Security review M4: blocking the app is only right when there is a
+    // build to update to; otherwise a server (or manifest) minimum alone
+    // could lock the user out of their chats.
+    test('without an update that meets the minimum: a warning, not a block', () {
+      expect(updateUrgency(installed: 4, manifest: null, serverMinimum: 5), UpdateUrgency.unsupported,
+          reason: 'no manifest to update from');
+      expect(updateUrgency(installed: 4, manifest: m, serverMinimum: 6), UpdateUrgency.unsupported,
+          reason: 'the published build is below the minimum too');
+      expect(updateUrgency(installed: 4, manifest: m, serverMinimum: 5), UpdateUrgency.required,
+          reason: 'the published build is exactly the minimum');
     });
     test('checks at most every 12 hours', () {
       final t = DateTime(2026, 11, 19, 10);

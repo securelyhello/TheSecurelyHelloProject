@@ -16,6 +16,40 @@ import 'package:securelyhello/shared/utils/chat_time_format.dart';
 import 'package:securelyhello/shared/widgets/app_dialogs.dart';
 import 'package:securelyhello/shared/widgets/avatar_widget.dart';
 
+/// Decrypted story videos are written to the cache as `story-<id>.mp4` for
+/// the player and deleted when the viewer is done.
+const storyVideoPrefix = 'story-';
+
+/// Deletes story videos left in [cacheDir] by a viewer that never finished
+/// (the app was killed). Run at startup (security review L7). Returns how
+/// many were deleted.
+Future<int> purgeStoryVideos(Directory cacheDir) async {
+  var n = 0;
+  try {
+    if (!await cacheDir.exists()) return 0;
+    await for (final e in cacheDir.list(followLinks: false)) {
+      final name = e.uri.pathSegments.isEmpty ? '' : e.uri.pathSegments.last;
+      if (e is File && name.startsWith(storyVideoPrefix) && name.endsWith('.mp4')) {
+        try {
+          await e.delete();
+          n++;
+        } catch (_) {}
+      }
+    }
+  } catch (e) {
+    debugPrint('Story cache not cleaned: $e');
+  }
+  return n;
+}
+
+/// [purgeStoryVideos] on the app's cache directory.
+Future<void> purgeStoryVideoCache() async {
+  if (kIsWeb) return;
+  try {
+    await purgeStoryVideos(await getTemporaryDirectory());
+  } catch (_) {}
+}
+
 /// Opens the stories of [owners] from [start] (and on through the next
 /// owners), or our own with [mine].
 Future<void> openStoryViewer(BuildContext context, {required List<String> owners, int start = 0, bool mine = false}) {
@@ -124,15 +158,35 @@ class _StoryViewerState extends State<StoryViewer> with SingleTickerProviderStat
       if (!mounted || _loadedId != s.id) return;
       if (s.type == 'video' && _videoSupported) {
         final dir = await getTemporaryDirectory();
-        final f = File('${dir.path}/story-${s.id}.mp4')..writeAsBytesSync(bytes, flush: true);
-        final v = VideoPlayerController.file(f);
-        await v.initialize();
-        if (!mounted || _loadedId != s.id) {
-          await v.dispose();
-          return;
-        }
+        final f = File('${dir.path}/$storyVideoPrefix${s.id}.mp4');
+        // Owned (and deleted on dispose) from the moment it is written: the
+        // decrypted video must not outlive the viewer (security review L7).
         _videoFile = f;
-        _video = v;
+        var kept = false;
+        try {
+          f.writeAsBytesSync(bytes, flush: true);
+          final v = VideoPlayerController.file(f);
+          try {
+            await v.initialize();
+          } catch (_) {
+            await v.dispose();
+            rethrow;
+          }
+          if (!mounted || _loadedId != s.id) {
+            await v.dispose();
+            return;
+          }
+          _video = v;
+          kept = true;
+        } finally {
+          if (!kept) {
+            if (_videoFile == f) _videoFile = null;
+            try {
+              if (f.existsSync()) f.deleteSync();
+            } catch (_) {}
+          }
+        }
+        final v = _video!;
         final d = v.value.duration;
         _progress.duration = d > Duration.zero && d < const Duration(seconds: 60) ? d : const Duration(seconds: 30);
         await v.play();

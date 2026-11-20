@@ -23,6 +23,7 @@ import 'package:securelyhello/core/calls/call_service.dart';
 import 'package:securelyhello/core/chat/group_state.dart';
 import 'package:securelyhello/features/calls/call_screen.dart';
 import 'package:securelyhello/features/chat/chat_names.dart';
+import 'package:securelyhello/features/chat/chat_quote.dart';
 import 'package:securelyhello/features/chat/widgets/attachment_view.dart';
 import 'package:securelyhello/features/chat/widgets/chat_header.dart';
 import 'package:securelyhello/features/chat/widgets/composer.dart';
@@ -249,20 +250,28 @@ class _ChatScreenState extends State<ChatScreen> {
           ? 'You'
           : (contact?.displayLabel ?? 'Them');
 
-  /// What a reply quotes. The sender says what they quoted; where this
-  /// device has that message, its own copy is shown instead (audit run 1:
-  /// "quoted replies show what the sender claims was quoted").
-  String _quotedText(Map<String, dynamic> r) {
-    final id = r['id'];
-    final local = _chat.getMessages(_id).where((m) => m.id == id).firstOrNull;
-    if (local != null && !local.deleted) {
-      return local.content.isNotEmpty ? local.content : (r['preview'] as String? ?? '');
-    }
-    return r['preview'] as String? ?? '';
+  /// Quoted messages not in the loaded page, read from storage (null while
+  /// loading or when this device doesn't have them).
+  final Map<String, Message?> _quotedFromStorage = {};
+
+  /// This device's copy of the quoted message [id]: from the loaded page,
+  /// else from storage (loaded once, then the quote is rebuilt).
+  Message? _localQuoted(String id) {
+    final inPage = _chat.getMessages(_id).where((m) => m.id == id).firstOrNull;
+    if (inPage != null) return inPage;
+    if (_quotedFromStorage.containsKey(id)) return _quotedFromStorage[id];
+    _quotedFromStorage[id] = null;
+    _chat.service.getMessage(id).then((m) {
+      if (m != null && mounted) setState(() => _quotedFromStorage[id] = m);
+    }).catchError((Object e) => debugPrint('Quoted message not read: $e'));
+    return null;
   }
 
   Widget _quote(Map<String, dynamic> r, Contact? contact, {VoidCallback? onClose}) {
     final p = context.palette;
+    final id = r['id'];
+    // The local copy (same chat) decides who wrote it and what it says.
+    final q = resolveQuote(r, id is String ? _localQuoted(id) : null, conversationId: _id);
     return Container(
       key: ValueKey('quote-${r['id']}'),
       padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
@@ -274,9 +283,9 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Row(children: [
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(_authorName(r['from'] as String? ?? '', contact),
+            Text(_authorName(q.from, contact),
                 style: TextStyle(color: p.accent, fontWeight: FontWeight.w600, fontSize: 12.5)),
-            Text(_quotedText(r),
+            Text(q.text,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(color: p.textSecondary, fontSize: 13)),

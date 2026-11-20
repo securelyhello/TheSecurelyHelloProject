@@ -22,6 +22,7 @@ import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/shared/theme/locale_controller.dart';
 import 'package:securelyhello/shared/theme/theme_controller.dart';
+import 'package:securelyhello/core/storage/app_data_lock.dart';
 import 'package:securelyhello/core/storage/local_storage.dart';
 import 'package:securelyhello/core/storage/secure_key_store.dart';
 import 'package:securelyhello/core/networking/directory_service.dart';
@@ -44,7 +45,9 @@ import 'package:securelyhello/features/auth/screens/signup_screen.dart';
 import 'package:securelyhello/features/auth/screens/verify_email_screen.dart';
 import 'package:securelyhello/features/auth/screens/forgot_password_screen.dart';
 import 'package:securelyhello/features/auth/screens/device_pending_screen.dart';
+import 'package:securelyhello/features/calls/call_screen.dart';
 import 'package:securelyhello/features/home/home_screen.dart';
+import 'package:securelyhello/features/stories/story_viewer.dart';
 import 'package:securelyhello/features/contacts/screens/add_contact_screen.dart';
 import 'package:securelyhello/features/contacts/screens/contact_requests_screen.dart';
 import 'package:securelyhello/features/chat/screens/chat_screen.dart';
@@ -54,6 +57,8 @@ Future<void> main() async {
   // Release builds must not write diagnostics to the system log.
   silenceDebugPrintInRelease();
   WidgetsFlutterBinding.ensureInitialized();
+  // Decrypted story videos a killed viewer left behind.
+  unawaited(purgeStoryVideoCache());
 
   // Lock to portrait on mobile (optional on desktop/web)
   await SystemChrome.setPreferredOrientations([
@@ -98,6 +103,9 @@ Future<void> main() async {
     storage: localStorage,
     directory: directoryService,
     p2p: connectionManager,
+    // A background run (push, notification action) may be using the
+    // database and sessions: wait for it (a while), then hold the lock.
+    beforeStart: () => AppDataLock.holdForApp(profile),
   );
 
   final authProvider = AuthProvider(
@@ -124,6 +132,7 @@ Future<void> main() async {
     calls,
     nameOf: (peer) => contactsProvider.getContact(peer)?.displayLabel ?? 'Securely Hello',
     notifier: notifications,
+    hideContent: () => !notifications.showPreview,
   );
   final push = PushService(directory: directoryService, onWake: chatService.drainRelayQueue);
   final connectionProvider = ConnectionProvider(
@@ -147,6 +156,11 @@ Future<void> main() async {
   await language.load();
   final appLock = AppLockService(store: keyStore)..onWipe = authProvider.wipeThisDevice;
   await appLock.init();
+  // Reply / Mark-as-read from a notification wait while the app is locked.
+  notifications.holdActions = () => appLock.locked;
+  appLock.addListener(() {
+    if (!appLock.locked) unawaited(notifications.runHeldActions());
+  });
   unawaited(appLock.resumePendingWipe());
   final invites = PendingInvites();
   unawaited(invites.init());
@@ -285,6 +299,8 @@ class SecurelyHelloApp extends StatelessWidget {
           locale: language.locale,
           localizationsDelegates: L10n.localizationsDelegates,
           supportedLocales: L10n.supportedLocales,
+          // The call screen hears when a page covers it (lock screen, H1).
+          navigatorObservers: [callRouteObserver],
           builder: (context, child) => UpdateGate(child: AppLockGate(child: child ?? const SizedBox())),
           initialRoute: '/splash',
           routes: {

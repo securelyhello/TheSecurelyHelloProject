@@ -145,4 +145,85 @@ void main() {
     expect(native.where((m) => m.method == 'ringing'), hasLength(1), reason: 'only the enabled one');
     off.dispose();
   });
+
+  group('lock screen (security review H1)', () {
+    void answer(Object? Function(MethodCall c) reply) {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, (c) async {
+        native.add(c);
+        return reply(c);
+      });
+    }
+
+    test('reports whether the phone is locked', () async {
+      answer((c) => c.method == 'keyguardLocked' ? true : null);
+      expect(await system.keyguardLocked(), isTrue);
+      answer((c) => c.method == 'keyguardLocked' ? false : null);
+      expect(await system.keyguardLocked(), isFalse);
+    });
+
+    test('an error reading the lock state counts as locked', () async {
+      answer((c) => throw PlatformException(code: 'x'));
+      expect(await system.keyguardLocked(), isTrue);
+    });
+
+    test('leaving the call screen asks Android to dismiss the lock screen first', () async {
+      answer((c) => c.method == 'dismissKeyguard' ? false : null);
+      expect(await system.unlockToLeave(), isFalse);
+      answer((c) => c.method == 'dismissKeyguard' ? true : null);
+      expect(await system.unlockToLeave(), isTrue);
+      expect(native.where((m) => m.method == 'dismissKeyguard'), hasLength(2));
+    });
+
+    test('a failed dismissal keeps the call screen', () async {
+      answer((c) => throw PlatformException(code: 'x'));
+      expect(await system.unlockToLeave(), isFalse);
+    });
+
+    test('off Android there is no lock screen to get past', () async {
+      final off = CallSystem(
+        listenable: source,
+        current: () => source.call,
+        nameOf: (p) => p,
+        notifier: notifier,
+        onAction: (_) async {},
+        enabled: false,
+      );
+      answer((c) => false);
+      expect(await off.unlockToLeave(), isTrue);
+      expect(await off.keyguardLocked(), isFalse);
+      off.dispose();
+    });
+
+    test('the call screen being shown or left is reported', () async {
+      await system.setCallScreenShown(true);
+      await system.setCallScreenShown(false);
+      expect(native.where((m) => m.method == 'callScreen').map((m) => m.arguments), [
+        {'shown': true},
+        {'shown': false},
+      ]);
+    });
+  });
+
+  test('the ongoing notification gets the hide-content setting (L4)', () async {
+    var hide = true;
+    final s = CallSystem(
+      listenable: source,
+      current: () => source.call,
+      nameOf: (p) => 'Name of $p',
+      notifier: notifier,
+      onAction: (_) async {},
+      hideContent: () => hide,
+      enabled: true,
+    );
+    final c = ActiveCall(id: 'c9', peer: 'p', video: false, outgoing: true)..phase = CallPhase.active;
+    source.set(c);
+    await settle();
+    expect((native.lastWhere((m) => m.method == 'ongoing').arguments as Map)['hideContent'], isTrue);
+    hide = false;
+    c.muted = true;
+    source.set(c);
+    await settle();
+    expect((native.lastWhere((m) => m.method == 'ongoing').arguments as Map)['hideContent'], isFalse);
+    s.dispose();
+  });
 }

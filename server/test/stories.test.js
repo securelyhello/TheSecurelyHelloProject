@@ -9,6 +9,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 
 import {
+  GENEROUS_LIMITS,
   addDevice,
   api,
   connectWs,
@@ -101,6 +102,57 @@ describe('stories', () => {
     assert.equal(r.status, 403);
   });
 
+  /** Two fresh contacts who have each posted a story to the other. */
+  async function swappedStories(tag) {
+    const x = await signup(srv.base, `${tag}_x`);
+    const y = await signup(srv.base, `${tag}_y`);
+    await makeContacts(srv.base, x, y);
+    const fromX = await post(srv, x, keysFor(x, [y.deviceId]));
+    const fromY = await post(srv, y, keysFor(y, [x.deviceId]));
+    assert.equal(fromX.status, 201);
+    assert.equal(fromY.status, 201);
+    assert.ok((await inbox(srv, y)).some((s) => s.story_id === fromX.body.id));
+    assert.ok((await inbox(srv, x)).some((s) => s.story_id === fromY.body.id));
+    return { x, y, fromX: fromX.body.id, fromY: fromY.body.id };
+  }
+  const keyCount = async (...storyIds) =>
+    (await srv.pool.query('SELECT count(*)::int AS n FROM story_keys WHERE story_id = ANY($1::uuid[])', [storyIds]))
+      .rows[0].n;
+
+  test('blocking takes back earlier stories in both directions', async () => {
+    const { x, y, fromX, fromY } = await swappedStories('sblk');
+    const r = await api(srv.base, 'POST', '/api/blocks', { token: x.token, body: { user_id: y.id } });
+    assert.equal(r.status, 201);
+    assert.equal((await inbox(srv, y)).some((s) => s.story_id === fromX), false, 'the blocked side loses it');
+    assert.equal((await inbox(srv, x)).some((s) => s.story_id === fromY), false, 'and so does the blocker');
+    assert.equal(await keyCount(fromX, fromY), 0, 'the key envelopes are gone');
+  });
+
+  test('removing a contact takes back earlier stories in both directions', async () => {
+    const { x, y, fromX, fromY } = await swappedStories('srem');
+    const r = await api(srv.base, 'DELETE', `/api/contacts/${x.id}`, { token: y.token });
+    assert.equal(r.status, 204);
+    assert.equal((await inbox(srv, y)).some((s) => s.story_id === fromX), false);
+    assert.equal((await inbox(srv, x)).some((s) => s.story_id === fromY), false);
+    assert.equal(await keyCount(fromX, fromY), 0);
+  });
+
+  test('the inbox only shows stories of current contacts and your own', async () => {
+    const { x, y, fromX } = await swappedStories('sfil');
+    const tablet = await addDevice(srv.base, x);
+    const own = await post(srv, x, keysFor(x, [tablet.deviceId]));
+    assert.equal(own.status, 201);
+    // As if the contact edge went away without the keys (any other path).
+    await srv.pool.query(
+      'DELETE FROM contacts WHERE (owner_id = $1 AND contact_id = $2) OR (owner_id = $2 AND contact_id = $1)',
+      [x.id, y.id],
+    );
+    assert.equal(await keyCount(fromX), 1, 'the key row is still there');
+    assert.equal((await inbox(srv, y)).some((s) => s.story_id === fromX), false, 'but not served');
+    const mine = await api(srv.base, 'GET', '/api/stories', { token: tablet.token });
+    assert.ok(mine.body.some((s) => s.story_id === own.body.id), 'own stories still reach own devices');
+  });
+
   test('envelopes must be well-formed and from the posting device', async () => {
     const forged = [{ device_id: ben.deviceId, envelope: envelopeFrom(cat, ben.deviceId) }];
     assert.equal((await post(srv, ann, forged)).status, 400);
@@ -180,5 +232,32 @@ describe('stories', () => {
     } finally {
       ws.close();
     }
+  });
+});
+
+// The live-row count alone let post -> delete -> post go on forever.
+describe('story quota counts posts, not live stories', () => {
+  let srv;
+  before(async () => {
+    // storyPost from STORIES_PER_DAY as in production; everything else generous.
+    const { storyPost: _s, ...rest } = GENEROUS_LIMITS;
+    srv = await startServer({ baseLimits: rest, env: { STORIES_PER_DAY: '3' } });
+  });
+  after(() => srv.close());
+
+  test('deleting stories does not give the quota back', async () => {
+    const x = await signup(srv.base, 'squo_x');
+    const y = await signup(srv.base, 'squo_y');
+    await makeContacts(srv.base, x, y);
+    for (let i = 0; i < 3; i++) {
+      const r = await post(srv, x, keysFor(x, [y.deviceId]));
+      assert.equal(r.status, 201, JSON.stringify(r.body));
+      assert.equal((await api(srv.base, 'DELETE', `/api/stories/${r.body.id}`, { token: x.token })).status, 200);
+    }
+    const over = await post(srv, x, keysFor(x, [y.deviceId]));
+    assert.equal(over.status, 429);
+    assert.equal(over.body.error, 'story_quota');
+    // Per user: someone else still can.
+    assert.equal((await post(srv, y, keysFor(y, [x.deviceId]))).status, 201);
   });
 });

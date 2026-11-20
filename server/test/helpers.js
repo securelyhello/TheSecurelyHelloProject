@@ -62,6 +62,7 @@ export const GENEROUS_LIMITS = {
   inviteLookup: generous,
   discovery: generous,
   groupChange: generous,
+  storyPost: { ...generous, sliding: true },
   // The global e-mail caps are always sliding windows (codes.js takes them
   // atomically together, which only sliding windows support).
   emailDaily: { ...generous, sliding: true },

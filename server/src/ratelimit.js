@@ -55,6 +55,9 @@ export const DEFAULT_LIMITS = {
   otp: { capacity: 10, perMs: 15 * MIN },
   // WebSocket connection attempts, per IP
   wsConnect: { capacity: 30, perMs: MIN },
+  // stories posted, per user, in any 24 h (sized from STORIES_PER_DAY by
+  // createApp); counts posts, so deleting a story doesn't give one back
+  storyPost: { capacity: 30, perMs: DAY, sliding: true },
   // Every e-mail we send (verification, reset, device codes), global key.
   // createApp() sizes both caps from EMAIL_DAILY_CAP (see emailLimits()).
   // Sliding windows: never more than the cap in any 24 h, which is what

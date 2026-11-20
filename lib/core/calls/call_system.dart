@@ -28,9 +28,11 @@ class CallSystem {
     required String Function(String peer) nameOf,
     required IncomingCallNotifier notifier,
     required Future<void> Function(String action) onAction,
+    bool Function()? hideContent,
     bool? enabled,
     MethodChannel channel = const MethodChannel('securelyhello/call'),
   })  : _listenable = listenable,
+        _hideContent = hideContent ?? (() => true),
         _current = current,
         _nameOf = nameOf,
         _notifier = notifier,
@@ -50,9 +52,13 @@ class CallSystem {
     required String Function(String peer) nameOf,
     required IncomingCallNotifier notifier,
     void Function()? onOpen,
+    bool Function()? hideContent,
+    bool? enabled,
   }) =>
       CallSystem(
         listenable: calls,
+        hideContent: hideContent,
+        enabled: enabled,
         current: () => calls.call,
         nameOf: nameOf,
         notifier: notifier,
@@ -76,6 +82,10 @@ class CallSystem {
   final MethodChannel _channel;
   final bool enabled;
 
+  /// "Hide content" for notifications is on: the ongoing-call notification
+  /// says "Ongoing call", not who with, and stays private on the lock screen.
+  final bool Function() _hideContent;
+
   /// True while the app is a picture-in-picture window.
   final ValueNotifier<bool> inPictureInPicture = ValueNotifier(false);
 
@@ -94,7 +104,7 @@ class CallSystem {
     // Everything the native side shows, so unchanged states aren't resent.
     final key = c == null
         ? 'none'
-        : '$ui|${c.id}|${c.muted}|${c.speakerOn}|${c.connectedAt?.millisecondsSinceEpoch}';
+        : '$ui|${c.id}|${c.muted}|${c.speakerOn}|${c.connectedAt?.millisecondsSinceEpoch}|${_hideContent()}';
     if (key == _sent) return;
     final previous = _sent;
     _sent = key;
@@ -118,6 +128,7 @@ class CallSystem {
             'muted': c.muted,
             'outgoing': ui == CallUi.outgoing,
             'since': c.connectedAt?.millisecondsSinceEpoch ?? 0,
+            'hideContent': _hideContent(),
           });
           await _channel.invokeMethod('proximity', {'on': !c.video && !c.speakerOn});
           await _channel.invokeMethod('pip', {'enabled': c.video});
@@ -152,6 +163,53 @@ class CallSystem {
     }
   }
 
+  // The lock screen (security review H1). Android shows the whole app over
+  // the lock screen while a call rings or runs (showWhenLocked on
+  // MainActivity), so only the call screen may be seen there: it can't be
+  // left until the lock screen is dismissed, and the native side shows the
+  // app over the lock screen only while the call screen is up.
+
+  /// Whether the phone is locked (KeyguardManager.isKeyguardLocked). An
+  /// error counts as locked.
+  Future<bool> keyguardLocked() async {
+    if (!enabled) return false;
+    try {
+      return await _channel.invokeMethod<bool>('keyguardLocked') ?? true;
+    } on MissingPluginException {
+      return false;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Before anything leaves the call screen (Back, minimise, opening a
+  /// chat): asks Android to dismiss the lock screen (the user unlocks).
+  /// True when the phone is unlocked and the app may show more.
+  Future<bool> unlockToLeave() async {
+    if (!enabled) return true;
+    try {
+      return await _channel.invokeMethod<bool>('dismissKeyguard') ?? false;
+    } on MissingPluginException {
+      return true;
+    } catch (e) {
+      debugPrint('Lock screen not dismissed: $e');
+      return false;
+    }
+  }
+
+  /// The call screen is (or is no longer) what the app shows. The app is
+  /// shown over the lock screen only while it is.
+  Future<void> setCallScreenShown(bool shown) async {
+    if (!enabled) return;
+    try {
+      await _channel.invokeMethod('callScreen', {'shown': shown});
+    } on MissingPluginException {
+      // Tests without the native side.
+    } catch (e) {
+      debugPrint('Call screen state not sent: $e');
+    }
+  }
+
   Future<void> openFullScreenSettings() async {
     try {
       await _channel.invokeMethod('openFullScreenSettings');
@@ -169,8 +227,19 @@ class CallSystem {
 /// Provided to the widget tree: the app's [CallSystem] and what to do when
 /// the ongoing-call notification is tapped (set by the home screen).
 class CallSystemHolder {
-  CallSystemHolder(CallService calls, {required String Function(String peer) nameOf, required IncomingCallNotifier notifier}) {
-    system = CallSystem.forService(calls, nameOf: nameOf, notifier: notifier, onOpen: () => onOpen?.call());
+  CallSystemHolder(
+    CallService calls, {
+    required String Function(String peer) nameOf,
+    required IncomingCallNotifier notifier,
+    bool Function()? hideContent,
+    bool? enabled,
+  }) {
+    system = CallSystem.forService(calls,
+        nameOf: nameOf,
+        notifier: notifier,
+        onOpen: () => onOpen?.call(),
+        hideContent: hideContent,
+        enabled: enabled);
   }
 
   late final CallSystem system;

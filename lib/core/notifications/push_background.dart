@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 
 import 'package:securelyhello/core/calls/call_service.dart';
 import 'package:securelyhello/core/chat/chat_service.dart';
+import 'package:securelyhello/core/config/release_logging.dart';
 import 'package:securelyhello/core/notifications/notification_actions.dart';
 import 'package:securelyhello/core/notifications/notification_service.dart';
 import 'package:securelyhello/core/notifications/push_service.dart';
@@ -20,6 +21,7 @@ import 'package:securelyhello/core/notifications/push_service.dart';
 /// rings and answers when the user taps Answer (CallService.replayStashedOffer).
 @pragma('vm:entry-point')
 Future<void> pushBackgroundHandler(RemoteMessage message) async {
+  silenceDebugPrintInRelease();
   // The app is running (in the background): it fetches the queue itself.
   // Two copies working on the same database and sessions must not race.
   final running = IsolateNameServer.lookupPortByName(NotificationService.portName);
@@ -61,9 +63,8 @@ Future<void> pushBackgroundHandler(RemoteMessage message) async {
         ));
       }),
       chat.onCallSignal.listen((s) {
-        if (s.data['t'] != 'offer') return;
-        if (DateTime.now().difference(s.sentAt) > CallService.maxOfferAge) return;
-        unawaited(CallService.stashOffer(s));
+        if (!shouldRingInBackground(s, contacts: names)) return;
+        unawaited(CallService.stashOffer(s, chat));
         unawaited(notifications.showIncomingCall(
           callId: '${s.data['id']}',
           name: names[s.from] ?? 'Securely Hello',
@@ -82,4 +83,13 @@ Future<void> pushBackgroundHandler(RemoteMessage message) async {
     }
   });
   debugPrint('Push handled in the background');
+}
+
+/// Whether a call signal received with the app closed rings: a fresh offer
+/// from one of our contacts ([contacts]: user id → name) only, as the app
+/// does (CallService's canCall). Security review L2.
+bool shouldRingInBackground(CallSignal s, {required Map<String, String> contacts, DateTime? now}) {
+  if (s.data['t'] != 'offer') return false;
+  if ((now ?? DateTime.now()).difference(s.sentAt) > CallService.maxOfferAge) return false;
+  return contacts.containsKey(s.from);
 }

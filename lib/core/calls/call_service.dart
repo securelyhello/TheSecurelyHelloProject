@@ -194,6 +194,13 @@ class CallService extends ChangeNotifier {
   /// The current call, also for a moment after it ended.
   ActiveCall? get call => _call;
 
+  /// Puts [c] up as the current call without signaling. Tests only.
+  @visibleForTesting
+  void debugSetCall(ActiveCall? c) {
+    _call = c;
+    notifyListeners();
+  }
+
   bool get busy => _call != null && _call!.phase != CallPhase.ended;
 
   /// A call starts ringing on this device.
@@ -336,27 +343,17 @@ class CallService extends ChangeNotifier {
   }
 
   /// Where a call offer that arrived while the app was closed waits (the
-  /// push handler decrypts it and rings; see push_background.dart).
-  static const pendingOfferKey = 'pending_call_offer';
+  /// push handler decrypts it and rings; see push_background.dart): sealed
+  /// in the account's database, not in plain preferences (review L1).
+  static const pendingOfferKey = ChatService.pendingCallOfferKey;
 
   /// Remembers an offer received in the background, for the app to pick up.
-  static Future<void> stashOffer(CallSignal s) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(pendingOfferKey, jsonEncode(s.toJson()));
-  }
+  static Future<void> stashOffer(CallSignal s, ChatService chat) => chat.stashCallOffer(s);
 
   /// Rings for an offer stashed while the app was closed, if it is recent.
   Future<void> replayStashedOffer() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(pendingOfferKey);
-    if (raw == null) return;
-    await prefs.remove(pendingOfferKey);
-    try {
-      final s = CallSignal.fromJson(jsonDecode(raw));
-      if (s != null && s.data['t'] == 'offer') await _onSignal(s);
-    } on FormatException {
-      // Ignore a damaged entry.
-    }
+    final s = await _chat.takeStashedCallOffer();
+    if (s != null && s.data['t'] == 'offer') await _onSignal(s);
   }
 
   /// Where call audio can go (earpiece, speaker, Bluetooth, wired).

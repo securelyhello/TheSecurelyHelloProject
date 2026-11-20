@@ -12,6 +12,22 @@ import 'package:securelyhello/core/calls/call_system.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/shared/widgets/avatar_widget.dart';
 
+/// Register in MaterialApp.navigatorObservers: the call screen learns when
+/// a page covers it (it is then no longer shown over the lock screen).
+final RouteObserver<PageRoute<dynamic>> callRouteObserver = RouteObserver<PageRoute<dynamic>>();
+
+/// Whether the call screen is open.
+bool get callScreenShowing => _CallScreenState._showing;
+
+/// Before leaving the call screen for something else (a chat from a
+/// notification…): on a locked phone the user must unlock first. True when
+/// that may go ahead.
+Future<bool> unlockToLeaveCallScreen(BuildContext context) async {
+  if (!callScreenShowing) return true;
+  final system = context.read<CallSystemHolder?>()?.system;
+  return system == null || await system.unlockToLeave();
+}
+
 /// Opens the call screen for the current call (once; a second call to this
 /// while it's showing does nothing).
 Future<void> showCallScreen(BuildContext context) {
@@ -34,8 +50,15 @@ class CallScreen extends StatefulWidget {
   State<CallScreen> createState() => _CallScreenState();
 }
 
-class _CallScreenState extends State<CallScreen> {
+class _CallScreenState extends State<CallScreen> with RouteAware {
   static bool _showing = false;
+
+  CallSystem? _system;
+  PageRoute<dynamic>? _route;
+
+  /// The call ended: the screen may close (even while locked).
+  bool _allowPop = false;
+  bool _leaving = false;
 
   final _remote = RTCVideoRenderer();
   final _local = RTCVideoRenderer();
@@ -47,6 +70,9 @@ class _CallScreenState extends State<CallScreen> {
   void initState() {
     super.initState();
     _showing = true;
+    _system = context.read<CallSystemHolder?>()?.system;
+    // Shown over the lock screen (while the call rings or runs) only now.
+    unawaited(_system?.setCallScreenShown(true));
     unawaited(_initRenderers());
     // The call timer.
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -65,7 +91,28 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute && route != _route) {
+      if (_route != null) callRouteObserver.unsubscribe(this);
+      _route = route;
+      callRouteObserver.subscribe(this, route);
+    }
+  }
+
+  // A page (a chat…) opened over the call screen: no longer over the lock
+  // screen. Back to the call screen: again.
+  @override
+  void didPushNext() => unawaited(_system?.setCallScreenShown(false));
+
+  @override
+  void didPopNext() => unawaited(_system?.setCallScreenShown(true));
+
+  @override
   void dispose() {
+    callRouteObserver.unsubscribe(this);
+    unawaited(_system?.setCallScreenShown(false));
     _showing = false;
     _tick?.cancel();
     if (_renderersReady) {
@@ -80,9 +127,32 @@ class _CallScreenState extends State<CallScreen> {
   void _close() {
     if (_popped) return;
     _popped = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    _allowPop = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // The call is over (the native side stopped showing over the lock
+      // screen with it); say so before the chats come into view.
+      await _system?.setCallScreenShown(false);
       if (mounted) Navigator.of(context).maybePop();
     });
+  }
+
+  /// Back during a call. On Android the app may be showing over the lock
+  /// screen: the lock screen is dismissed first (the user unlocks), and
+  /// only then does the call screen go, after the app has stopped showing
+  /// over the lock screen.
+  Future<void> _leave() async {
+    final system = _system;
+    if (_leaving || system == null) return;
+    _leaving = true;
+    try {
+      if (!await system.unlockToLeave() || !mounted) return;
+      await system.setCallScreenShown(false);
+      if (!mounted) return;
+      _allowPop = true;
+      Navigator.of(context).pop();
+    } finally {
+      _leaving = false;
+    }
   }
 
   String _status(ActiveCall c) => switch (c.phase) {
@@ -141,7 +211,11 @@ class _CallScreenState extends State<CallScreen> {
 
     return PopScope(
       // Back doesn't hang up; the call keeps going while the app is in use.
-      canPop: true,
+      // On Android it goes through [_leave] (the lock screen, H1).
+      canPop: _allowPop || !(_system?.enabled ?? false),
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) unawaited(_leave());
+      },
       child: Scaffold(
         backgroundColor: const Color(0xFF0E0F1C),
         body: Stack(

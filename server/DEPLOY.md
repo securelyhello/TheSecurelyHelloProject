@@ -43,7 +43,7 @@ host works.
    | `ATTACHMENT_MAX_MB` / `ATTACHMENT_TTL_DAYS` / `ATTACHMENT_QUOTA_MB` | no | `16` / `30` / `512` |
    | `METRICS_TOKEN` | no | 32+ random characters; enables `GET /metrics` (see Metrics) |
    | `TURN_URLS` / `TURN_SECRET` / `TURN_TTL_HOURS` | no | TURN relay for calls (see Calls and TURN); TTL default `12`, production uses `1` |
-   | `MIN_ANDROID_VERSION_CODE` | no | default `0` (off). Android builds below this `versionCode` show a blocking "Update to continue" screen. Sent in `/api/config` as `min_android_version_code`; 1.0 ignores it (see Upgrading to 1.1) |
+   | `MIN_ANDROID_VERSION_CODE` | no | default `0` (off). Android builds below this `versionCode` show a blocking "Update to continue" screen. Sent in `/api/config` as `min_android_version_code`; 1.0 ignores it (see Upgrading to 1.1). It must be a whole number from 0 to 2100000000 (a bad value stops the server from starting) and must **never exceed the newest build published in `latest.json`**; the app only blocks when a newer build is actually available, otherwise it shows a non-blocking banner. |
    | `STORIES_PER_DAY` | no | most stories one account may post in 24 h; default `30` |
    | `AUTH_PER_IP_PER_10MIN` | no | sign-in, sign-up and reset attempts per IP in 10 minutes; default `0`, which means the built-in `20`. Raise it only behind a NAT shared by many users (CI uses `200`) |
 

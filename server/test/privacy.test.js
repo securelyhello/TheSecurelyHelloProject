@@ -56,4 +56,45 @@ describe('presence privacy', () => {
       await benWs.close();
     }
   });
+
+  // Accepting a request pushes each side the other's presence; someone who
+  // hides theirs must not leak it that way (and, reciprocally, sees nobody's).
+  const acceptWhileOnline = async (x, y) => {
+    const xWs = await connectWs(srv.wsUrl, x.token);
+    const yWs = await connectWs(srv.wsUrl, y.token);
+    await xWs.next(ofType('hello'));
+    await yWs.next(ofType('hello'));
+    await makeContacts(srv.base, x, y);
+    return { xWs, yWs };
+  };
+
+  test('new contacts: both visible, both get presence', async () => {
+    const x = await signup(srv.base, 'pvis_x');
+    const y = await signup(srv.base, 'pvis_y');
+    const { xWs, yWs } = await acceptWhileOnline(x, y);
+    try {
+      const toX = await xWs.next(ofType('presence', (f) => f.user_id === y.id));
+      assert.equal(toX.online, true);
+      const toY = await yWs.next(ofType('presence', (f) => f.user_id === x.id));
+      assert.equal(toY.online, true);
+    } finally {
+      await xWs.close();
+      await yWs.close();
+    }
+  });
+
+  test('new contacts: a side that hides presence gets and gives no presence frame', async () => {
+    const x = await signup(srv.base, 'phid_x');
+    const y = await signup(srv.base, 'phid_y');
+    const off = await api(srv.base, 'PATCH', '/api/me', { token: x.token, body: { show_presence: false } });
+    assert.equal(off.status, 200);
+    const { xWs, yWs } = await acceptWhileOnline(x, y);
+    try {
+      await yWs.none(ofType('presence', (f) => f.user_id === x.id), 400);
+      await xWs.none(ofType('presence', (f) => f.user_id === y.id), 100);
+    } finally {
+      await xWs.close();
+      await yWs.close();
+    }
+  });
 });

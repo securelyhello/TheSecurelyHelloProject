@@ -205,7 +205,32 @@ class NotificationService implements IncomingCallNotifier {
     if (id != null && id.isNotEmpty) onOpenChat?.call(id);
   }
 
+  /// True while App Lock covers the app: Reply and Mark-as-read wait
+  /// (in memory) until [runHeldActions] after the unlock.
+  bool Function()? holdActions;
+  final List<NotificationAction> _held = [];
+
+  static bool _lockGated(NotificationAction a) =>
+      a.kind == NotificationActionKind.reply || a.kind == NotificationActionKind.markRead;
+
+  /// The app was unlocked: run what was held.
+  Future<void> runHeldActions() async {
+    if (holdActions?.call() ?? false) return;
+    final waiting = List.of(_held);
+    _held.clear();
+    for (final a in waiting) {
+      await _run(a);
+    }
+  }
+
+  @visibleForTesting
+  Future<void> debugRun(NotificationAction a) => _run(a);
+
   Future<void> _run(NotificationAction a) async {
+    if (_lockGated(a) && (holdActions?.call() ?? false)) {
+      _held.add(a);
+      return;
+    }
     final handler = _onAction;
     if (handler == null) {
       _pending.add(a);
@@ -474,6 +499,30 @@ class NotificationService implements IncomingCallNotifier {
     if (!_ready) return;
     final lines = _inbox.add(a.chatId, NotificationLine(sender: 'You', senderId: 'me', text: a.text, time: DateTime.now()));
     await _postChat(a.chatId, lines, silent: true);
+  }
+
+  /// Reply or Mark-as-read with the app closed while App Lock is on: not
+  /// done without the unlock (security review L3). Tapping opens the chat.
+  Future<void> showUnlockToReply(String chatId) async {
+    if (!_ready) return;
+    try {
+      await _plugin.show(
+        id: NotificationIds.chat(chatId),
+        title: 'Securely Hello',
+        body: 'Unlock Securely Hello to reply',
+        payload: chatId,
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            systemChannel,
+            'App and account',
+            importance: Importance.low,
+            visibility: NotificationVisibility.private,
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Unlock notice failed: $e');
+    }
   }
 
   Future<void> showContactRequest(String text) async {

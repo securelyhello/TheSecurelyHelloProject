@@ -119,6 +119,7 @@ class _UpdateCardSliverState extends State<UpdateCardSliver> {
   Widget build(BuildContext context) {
     final u = context.watch<AppUpdater?>();
     final m = u?.manifest;
+    if (u != null && u.urgency == UpdateUrgency.unsupported) return _unsupported(context, u);
     if (!_loaded || u == null || m == null || u.urgency != UpdateUrgency.available || _dismissed == m.versionCode) {
       return const SliverToBoxAdapter(child: SizedBox.shrink());
     }
@@ -158,6 +159,55 @@ class _UpdateCardSliverState extends State<UpdateCardSliver> {
       ),
     );
   }
+}
+
+/// Below the minimum with no build published that meets it (security
+/// review M4): a warning above the chats, not a block. Offers whatever
+/// update there is.
+Widget _unsupported(BuildContext context, AppUpdater u) {
+  final p = context.palette;
+  final t = Theme.of(context).textTheme;
+  final m = u.manifest;
+  final installed = u.installedVersionCode;
+  final canUpdate = m != null && installed != null && m.versionCode > installed;
+  return SliverToBoxAdapter(
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Container(
+        key: const ValueKey('update-unsupported'),
+        padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+        decoration: BoxDecoration(
+          color: p.accentContainer.withAlpha(110),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: Border.all(color: p.accent.withAlpha(70)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(LucideIcons.triangleAlert, size: 18, color: p.accent),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('This version is no longer supported',
+                      style: t.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Some things may stop working. Get the latest Securely Hello from securelyhello.thenn.in.',
+              style: t.bodySmall,
+            ),
+            if (canUpdate) ...[
+              const SizedBox(height: 8),
+              UpdateActions(updater: u),
+            ],
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 /// Update button with download progress and what went wrong.

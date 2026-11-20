@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:securelyhello/core/backup/chat_backup.dart';
 import 'package:securelyhello/core/chat/attachment_service.dart';
@@ -287,11 +288,17 @@ class ChatService {
     required P2PConnectionManager p2p,
     required DirectoryService directory,
     DeviceManager? deviceManager,
+    Future<void> Function()? beforeStart,
   })  : _storage = storage,
         _p2p = p2p,
         _directory = directory,
+        _beforeStart = beforeStart,
         _devices = deviceManager ??
             DeviceManager(storage: storage, directory: directory);
+
+  /// Run at the start of [start], before the database or sessions are
+  /// touched: the app takes the cross-isolate data lock here (M2).
+  final Future<void> Function()? _beforeStart;
 
   /// Emits a contact id whenever that conversation's messages or metadata
   /// changed (new message, status update, system notice…).
@@ -352,11 +359,15 @@ class ChatService {
     required String deviceId,
   }) async {
     if (_started && _myUserId == myUserId && _myDeviceId == deviceId) return;
+    await _beforeStart?.call();
     await stop();
 
     _identity = identity;
     _myUserId = myUserId;
     _myDeviceId = deviceId;
+    // Which of our own devices get copies: the stored answer, before
+    // anything is sent or received (unknown: this device only).
+    await loadOwnTrust();
     _sessions = SessionManager(
       storage: _storage,
       directory: _directory,
@@ -455,6 +466,7 @@ class ChatService {
     _started = false;
     profiles.reset();
     _ownTrusted = null;
+    _ownTrustRefresh = null;
     _ownDevices = const [];
     _profileTargets.clear();
     _profileChecked.clear();
@@ -667,7 +679,8 @@ class ChatService {
   /// They get nothing until confirmed (see [trustOwnDevice]).
   List<Map<String, dynamic>> get untrustedOwnDevices => [
         for (final d in _ownDevices)
-          if (d['device_id'] != _myDeviceId && d['approved_at'] != null && !(_ownTrusted?.containsKey(d['device_id']) ?? true)) d,
+          // The server lists approved devices only (no approved_at field).
+          if (d['device_id'] != _myDeviceId && !(_ownTrusted?.containsKey(d['device_id']) ?? true)) d,
       ];
 
   Stream<void> get onOwnDevicesChanged => _ownDevicesChanged.stream;
@@ -675,7 +688,22 @@ class ChatService {
 
   /// Re-checks which of our devices are trusted. The first time (1.1's first
   /// run) every device we have is trusted; after that only by signatures.
-  Future<void> refreshOwnTrust() async {
+  /// Runs after one already running (it may predate a change).
+  Future<void> refreshOwnTrust() {
+    final previous = _ownTrustRefresh;
+    late final Future<void> f;
+    f = (previous == null ? _refreshOwnTrustNow() : previous.then((_) => _refreshOwnTrustNow()))
+        .whenComplete(() {
+      if (identical(_ownTrustRefresh, f)) _ownTrustRefresh = null;
+    });
+    _ownTrustRefresh = f;
+    return f;
+  }
+
+  /// The refresh running (or queued) last, if any.
+  Future<void>? _ownTrustRefresh;
+
+  Future<void> _refreshOwnTrustNow() async {
     final me = _myUserId;
     if (me == null) return;
     try {
@@ -691,7 +719,76 @@ class ChatService {
       await _storage.kvSet('own_trusted', OwnDeviceTrust.encode(trusted));
       if (!_ownDevicesChanged.isClosed) _ownDevicesChanged.add(null);
     } catch (e) {
+      // Offline or the server failed: keep what was stored.
       debugPrint('Own device check failed: $e');
+      try {
+        _ownTrusted ??= OwnDeviceTrust.decode(await _storage.kvGet('own_trusted'));
+      } catch (_) {}
+    }
+  }
+
+  /// Reads the stored trust map (start(), before any send). Null when
+  /// nothing was stored yet: then only this device is trusted until
+  /// [refreshOwnTrust] has run.
+  @visibleForTesting
+  Future<void> loadOwnTrust() async {
+    _ownTrusted = OwnDeviceTrust.decode(await _storage.kvGet('own_trusted'));
+  }
+
+  /// Sets who we are without [start] (no network). Tests only.
+  @visibleForTesting
+  void debugUseAccount({required String userId, required String deviceId, CryptoIdentity? identity}) {
+    _myUserId = userId;
+    _myDeviceId = deviceId;
+    _identity = identity ?? _identity;
+  }
+
+  /// Whether our device [deviceId] (signing key [signingKey]) may get
+  /// copies of what we send and may send us sync, history, profile, group
+  /// and other own-device payloads. While [trusted] is unknown, only
+  /// [thisDevice] is.
+  static bool ownDeviceAllowed(Map<String, String>? trusted,
+      {required String deviceId, required String? signingKey, required String? thisDevice}) {
+    if (trusted == null) return deviceId == thisDevice;
+    return signingKey != null && trusted[deviceId] == signingKey;
+  }
+
+  bool isOwnDeviceTrusted(String deviceId, String? signingKey) =>
+      ownDeviceAllowed(_ownTrusted, deviceId: deviceId, signingKey: signingKey, thisDevice: _myDeviceId);
+
+  /// A payload from our own [deviceId]: only from a trusted device with the
+  /// signing key we trust. A device approved since the last check (or the
+  /// first check still running) is looked at again first, so a new device
+  /// approved with a valid signature gets through. (No throttling: a payload
+  /// dropped here is lost, and its ratchet step is already taken.)
+  Future<bool> _ownSenderTrusted(String deviceId) async {
+    final sessions = _sessions;
+    final me = _myUserId;
+    if (sessions == null || me == null) return false;
+    Future<bool> check({required bool refresh}) async {
+      final keys = (await sessions.devices(me, refresh: refresh)).where((d) => d.deviceId == deviceId).firstOrNull;
+      return keys != null && isOwnDeviceTrusted(deviceId, keys.signingKey);
+    }
+
+    try {
+      if (await check(refresh: false)) return true;
+    } catch (e) {
+      debugPrint('Own device list unavailable: $e');
+    }
+    // A check already running (start, devices_changed) may settle it.
+    final running = _ownTrustRefresh;
+    if (running != null) {
+      await running;
+      try {
+        if (await check(refresh: false)) return true;
+      } catch (_) {}
+    }
+    await refreshOwnTrust();
+    try {
+      return await check(refresh: true);
+    } catch (e) {
+      debugPrint('Own device list unavailable: $e');
+      return false;
     }
   }
 
@@ -705,11 +802,31 @@ class ChatService {
     unawaited(resendUnsent());
   }
 
-  bool _ownDeviceTrusted(DeviceKeys d) {
-    final t = _ownTrusted;
-    // Before the first check (offline start) nothing is withheld that 1.0
-    // would have sent; the check runs at start.
-    return t == null || t[d.deviceId] == d.signingKey;
+  bool _ownDeviceTrusted(DeviceKeys d) => isOwnDeviceTrusted(d.deviceId, d.signingKey);
+
+  // A call offer received with the app closed (push_background.dart)
+
+  static const pendingCallOfferKey = 'pending_call_offer';
+
+  /// Keeps [s] for the app to ring for: sealed in the database.
+  Future<void> stashCallOffer(CallSignal s) =>
+      _storage.kvSetSealed(pendingCallOfferKey, jsonEncode(s.toJson()));
+
+  /// The stashed offer, once (then it is gone).
+  Future<CallSignal?> takeStashedCallOffer() async {
+    try {
+      // 1.1.0 kept it in plain preferences: drop that copy unread.
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.containsKey(pendingCallOfferKey)) await prefs.remove(pendingCallOfferKey);
+    } catch (_) {}
+    final raw = await _storage.kvGetSealed(pendingCallOfferKey);
+    if (raw == null) return null;
+    await _storage.kvDelete(pendingCallOfferKey);
+    try {
+      return CallSignal.fromJson(jsonDecode(raw));
+    } on FormatException {
+      return null; // a damaged entry
+    }
   }
 
   // Privacy (1.1)
@@ -1678,6 +1795,13 @@ class ChatService {
     }
 
     if (envelope.senderId == me) {
+      // Sync, history, profile, group, timer, edits… only from our own
+      // devices this device trusts (security review M1).
+      if (!await _ownSenderTrusted(envelope.senderDevice)) {
+        debugPrint('Dropped ${payload.kind.name} from an unconfirmed device of ours');
+        await _storage.markEnvelopeSeen(seenKey);
+        return;
+      }
       if (payload.kind == PayloadKind.sync) {
         await _applySync(payload);
       } else if (payload.kind == PayloadKind.profile) {

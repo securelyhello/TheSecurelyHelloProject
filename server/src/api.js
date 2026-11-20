@@ -3,9 +3,11 @@
 // Bearer session token unless registered with {auth:false}. The acting user
 // is always taken from the session, never from the request body.
 import { emailCapReached } from './codes.js';
+import { emailChangedNotice } from './mail.js';
 import { withTransaction } from './db.js';
 import { emailHash } from './invites.js';
 import { hasBlocked } from './safety.js';
+import { revokeStoryKeys } from './stories.js';
 import { burnPasswordCheck, hashPassword, hashToken, newSessionToken, verifyPassword } from './security.js';
 import * as v from './validate.js';
 import { HttpError, bad } from './validate.js';
@@ -68,7 +70,7 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
 
   // E-mail codes (verification, password reset)
 
-  const { canSend, issueCode, consumeCode } = codes;
+  const { canSend, issueCode, consumeCode, sendNotice } = codes;
 
   /** With EMAIL_VERIFICATION=required, unverified accounts can't reach anyone. */
   async function requireVerified(userId) {
@@ -516,29 +518,58 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     if (!mailer.enabled) throw new HttpError(503, 'email_unavailable', 'E-mail is not configured on this server');
     if (!(await canSend('email'))) throw emailCapReached();
     await limit('emailSend', `change:${user.id}`);
+    // The code is bound to this address, and the address only becomes the
+    // pending one once its code is out (a failed send leaves nothing behind).
+    await issueCode(user.id, email, 'email', { bindTo: email });
     await pool.query('UPDATE users SET pending_email = $2 WHERE id = $1', [user.id, email]);
-    await issueCode(user.id, email, 'email');
     return { status: 202, body: { sent: true } };
   });
 
-  /** Confirms the new e-mail with the code it received. */
-  router.add('POST', '/api/me/email/confirm', async ({ body, user }) => {
+  /**
+   * Confirms the new e-mail with the code it received. The old address is
+   * told, and every other session is signed out.
+   */
+  router.add('POST', '/api/me/email/confirm', async ({ body, user, token }) => {
     v.requireObject(body);
-    if (!(await consumeCode(user.id, 'email', body.code))) {
-      throw new HttpError(400, 'invalid_code', 'That code is wrong or has expired');
-    }
+    const invalid = () => new HttpError(400, 'invalid_code', 'That code is wrong or has expired');
+    const { rows: pending } = await pool.query('SELECT email, pending_email FROM users WHERE id = $1', [user.id]);
+    const target = pending[0]?.pending_email;
+    const oldEmail = pending[0]?.email;
+    // Burns an attempt even without a pending change, like any wrong code.
+    if (!(await consumeCode(user.id, 'email', body.code, { bindTo: target ?? '' })) || !target) throw invalid();
+    let row;
+    let revoked;
     try {
-      const { rows } = await pool.query(
-        `UPDATE users u SET email = pending_email, pending_email = NULL, email_verified_at = now(), updated_at = now()
-          WHERE u.id = $1 AND pending_email IS NOT NULL RETURNING ${USER_COLUMNS}`,
-        [user.id],
-      );
-      if (!rows[0]) throw new HttpError(400, 'invalid_code', 'There is no e-mail change to confirm');
-      return me(rows[0]);
+      ({ row, revoked } = await withTransaction(pool, async (client) => {
+        // Only the address the code was for, even if a new change started meanwhile.
+        const { rows } = await client.query(
+          `UPDATE users u SET email = pending_email, pending_email = NULL, email_verified_at = now(), updated_at = now()
+            WHERE u.id = $1 AND pending_email = $2 RETURNING ${USER_COLUMNS}`,
+          [user.id, target],
+        );
+        if (!rows[0]) throw invalid();
+        const res = await client.query(
+          'DELETE FROM sessions WHERE user_id = $1 AND token_hash <> $2 RETURNING token_hash',
+          [user.id, hashToken(token)],
+        );
+        return { row: rows[0], revoked: res.rows.map((r) => r.token_hash) };
+      }));
     } catch (err) {
       if (err.code === '23505') throw new HttpError(409, 'email_taken', 'That e-mail address is already in use');
       throw err;
     }
+    await services.revokeCachedSessions(user.id, revoked);
+    hub.disconnectSessions(user.id, revoked);
+    if (oldEmail && oldEmail.toLowerCase() !== target.toLowerCase()) {
+      try {
+        if (!(await sendNotice(emailChangedNotice(oldEmail)))) {
+          log.warn('e-mail change notice skipped: daily e-mail cap reached', { user: user.id });
+        }
+      } catch (err) {
+        log.warn('e-mail change notice failed', { user: user.id, error: err.message });
+      }
+    }
+    return me(row);
   });
 
   router.add('DELETE', '/api/me', async ({ body, user }) => {
@@ -651,9 +682,14 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
     );
   }
 
-  /** After an acceptance, tell each side whether the other is online. */
+  /**
+   * After an acceptance, tell each side whether the other is online, unless
+   * either hides presence (hiding works both ways, as in profiles()).
+   */
   async function becameContacts(a, b) {
     await services.contactsChanged(a, b);
+    const hidden = await services.presenceHidden([a, b]);
+    if (hidden.size > 0) return;
     const pres = await services.presence([a, b]);
     hub.sendTo(a, { type: 'presence', user_id: b, ...pres.get(b) });
     hub.sendTo(b, { type: 'presence', user_id: a, ...pres.get(a) });
@@ -863,6 +899,8 @@ export function registerRoutes(router, { pool, hub, store, services, limits, con
           WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1)`,
         [user.id, contactId],
       );
+      // Stories already shared either way stop being fetchable at once.
+      await revokeStoryKeys(client, user.id, contactId);
       return rowCount;
     });
     if (!removed) throw notFound('Not a contact');

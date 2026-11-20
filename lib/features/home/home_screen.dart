@@ -279,6 +279,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// Someone signed in on a new device: approve it here or remove it.
   Future<void> _askApproval(String? deviceId) async {
     if (!mounted || deviceId == null) return;
+    // Not over a call shown on the lock screen: whoever holds a locked phone
+    // must not approve devices (H1). It stays pending under Linked devices.
+    if (callScreenShowing && (await _callSystem?.system.keyguardLocked() ?? false)) return;
+    if (!mounted) return;
     final devices = await _auth.listDevices();
     final d = devices.where((x) => x['device_id'] == deviceId).firstOrNull;
     if (d == null || d['approved'] == true || !mounted) return;
@@ -328,8 +332,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   /// A notification was tapped: show that conversation.
-  void _openFromNotification(String contactUserId) {
+  Future<void> _openFromNotification(String contactUserId) async {
     if (!mounted) return;
+    // During a call the app may be showing over the lock screen: the chat
+    // opens only once the phone is unlocked (security review H1).
+    if (!await unlockToLeaveCallScreen(context) || !mounted) return;
     final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.twoPane;
     if (wide) {
       _openChat(contactUserId);

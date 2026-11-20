@@ -36,6 +36,7 @@ class OngoingCallService : Service() {
             muted = intent.getBooleanExtra(EXTRA_MUTED, false),
             outgoing = intent.getBooleanExtra(EXTRA_OUTGOING, false),
             sinceMs = intent.getLongExtra(EXTRA_SINCE, 0),
+            hideContent = intent.getBooleanExtra(EXTRA_HIDE, true),
         )
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -72,9 +73,18 @@ class OngoingCallService : Service() {
         private const val EXTRA_MUTED = "muted"
         private const val EXTRA_OUTGOING = "outgoing"
         private const val EXTRA_SINCE = "since"
+        private const val EXTRA_HIDE = "hide_content"
         const val EXTRA_OPEN_CALL = "securelyhello.open_call"
 
-        fun start(context: Context, name: String, video: Boolean, muted: Boolean, outgoing: Boolean, sinceMs: Long) {
+        fun start(
+            context: Context,
+            name: String,
+            video: Boolean,
+            muted: Boolean,
+            outgoing: Boolean,
+            sinceMs: Long,
+            hideContent: Boolean,
+        ) {
             ensureChannel(context)
             val intent = Intent(context, OngoingCallService::class.java)
                 .putExtra(EXTRA_NAME, name)
@@ -82,13 +92,14 @@ class OngoingCallService : Service() {
                 .putExtra(EXTRA_MUTED, muted)
                 .putExtra(EXTRA_OUTGOING, outgoing)
                 .putExtra(EXTRA_SINCE, sinceMs)
+                .putExtra(EXTRA_HIDE, hideContent)
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
                 else context.startService(intent)
             } catch (e: Exception) {
                 Log.w(TAG, "call service not started", e)
                 context.getSystemService(NotificationManager::class.java)
-                    .notify(NOTIFICATION_ID, build(context, name, video, muted, outgoing, sinceMs))
+                    .notify(NOTIFICATION_ID, build(context, name, video, muted, outgoing, sinceMs, hideContent))
             }
         }
 
@@ -117,6 +128,7 @@ class OngoingCallService : Service() {
             muted: Boolean,
             outgoing: Boolean,
             sinceMs: Long,
+            hideContent: Boolean,
         ): Notification {
             val open = PendingIntent.getActivity(
                 context,
@@ -141,12 +153,15 @@ class OngoingCallService : Service() {
             val kind = if (video) "Video call" else "Voice call"
             builder
                 .setSmallIcon(R.drawable.ic_stat_notify)
-                .setContentTitle(name)
+                // "Hide content" on: not who the call is with (review L4).
+                .setContentTitle(if (hideContent) "Ongoing call" else name)
                 .setContentText(if (outgoing && sinceMs == 0L) "Calling…" else "$kind · end-to-end encrypted")
                 .setContentIntent(open)
                 .setOngoing(true)
                 .setCategory(Notification.CATEGORY_CALL)
-                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setVisibility(
+                    if (hideContent) Notification.VISIBILITY_PRIVATE else Notification.VISIBILITY_PUBLIC,
+                )
                 .setOnlyAlertOnce(true)
                 .addAction(
                     Notification.Action.Builder(null, if (muted) "Unmute" else "Mute", action(ACTION_MUTE, 2)).build(),

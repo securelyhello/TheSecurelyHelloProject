@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 
-import { loadConfig } from '../src/app.js';
+import { configWarnings, loadConfig } from '../src/app.js';
 import { api, startServer } from './helpers.js';
 
 // The app checks /api/config on start; a minimum version there makes old
@@ -33,4 +33,22 @@ describe('minimum app version in /api/config', () => {
 test('AUTH_PER_IP_PER_10MIN: 0 keeps the default limit; set it for test servers', () => {
   assert.equal(loadConfig({}).authPerIp, 0);
   assert.equal(loadConfig({ AUTH_PER_IP_PER_10MIN: '200' }).authPerIp, 200);
+});
+
+// A minimum above the published build would lock every user out, so a
+// malformed value must stop the server rather than turn into something else.
+test('MIN_ANDROID_VERSION_CODE: a non-negative integer or startup fails', () => {
+  assert.equal(loadConfig({}).minAndroidVersionCode, 0);
+  assert.equal(loadConfig({ MIN_ANDROID_VERSION_CODE: '' }).minAndroidVersionCode, 0);
+  assert.equal(loadConfig({ MIN_ANDROID_VERSION_CODE: '0' }).minAndroidVersionCode, 0);
+  assert.equal(loadConfig({ MIN_ANDROID_VERSION_CODE: ' 3 ' }).minAndroidVersionCode, 3);
+  for (const bad of ['-1', '2.5', '20x', 'two', '1e3', '2100000001']) {
+    assert.throws(() => loadConfig({ MIN_ANDROID_VERSION_CODE: bad }), /MIN_ANDROID_VERSION_CODE/, bad);
+  }
+});
+
+test('MIN_ANDROID_VERSION_CODE set: the server warns at startup', () => {
+  const warnings = configWarnings(loadConfig({ MIN_ANDROID_VERSION_CODE: '7' }));
+  assert.ok(warnings.some((w) => /MIN_ANDROID_VERSION_CODE=7/.test(w) && /published/.test(w)), JSON.stringify(warnings));
+  assert.equal(configWarnings(loadConfig({})).some((w) => /MIN_ANDROID/.test(w)), false);
 });

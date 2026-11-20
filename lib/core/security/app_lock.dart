@@ -66,9 +66,14 @@ class AppLockService extends ChangeNotifier {
   /// failures (signs out and deletes this account's database).
   Future<void> Function()? onWipe;
 
-  AppLockService({required SecureKeyStore store, LocalAuthentication? auth})
+  AppLockService({required SecureKeyStore store, LocalAuthentication? auth, bool? desktop})
     : _store = store,
-      _auth = auth ?? LocalAuthentication();
+      _auth = auth ?? LocalAuthentication(),
+      _desktop = desktop ?? (!kIsWeb && (Platform.isLinux || Platform.isWindows || Platform.isMacOS));
+
+  /// On desktop, `inactive` only means the window lost focus while it is
+  /// still on screen; there is no app switcher to hide from.
+  final bool _desktop;
 
   bool _enabled = false;
   bool _locked = false;
@@ -319,7 +324,9 @@ class AppLockService extends ChangeNotifier {
       _obscured = false;
     } else {
       _backgroundSince ??= DateTime.now();
-      _obscured = true;
+      // A visible but unfocused desktop window stays readable (it still
+      // counts towards the lock timeout).
+      _obscured = !(_desktop && state == AppLifecycleState.inactive);
       if (_enabled && _timeout == 0) _locked = true;
     }
     notifyListeners();

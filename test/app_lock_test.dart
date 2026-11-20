@@ -143,6 +143,32 @@ void main() {
       expect(lock.obscured, isFalse);
     });
 
+    test('phones cover the screen as soon as the app is inactive', () {
+      final phone = AppLockService(store: store, desktop: false);
+      phone.onLifecycle(AppLifecycleState.inactive);
+      expect(phone.obscured, isTrue, reason: 'the app switcher must show nothing');
+      phone.onLifecycle(AppLifecycleState.resumed);
+      expect(phone.obscured, isFalse);
+    });
+
+    test('an unfocused desktop window stays readable; a hidden one is covered', () {
+      final desk = AppLockService(store: store, desktop: true);
+      desk.onLifecycle(AppLifecycleState.inactive);
+      expect(desk.obscured, isFalse, reason: 'inactive on desktop = lost focus, still on screen');
+      desk.onLifecycle(AppLifecycleState.hidden);
+      expect(desk.obscured, isTrue);
+      desk.onLifecycle(AppLifecycleState.resumed);
+      expect(desk.obscured, isFalse);
+    });
+
+    test('an unfocused desktop window still counts towards the lock timeout', () async {
+      final desk = AppLockService(store: store, desktop: true);
+      await desk.setPin('2468');
+      await desk.setTimeout(0);
+      desk.onLifecycle(AppLifecycleState.inactive);
+      expect(desk.locked, isTrue);
+    });
+
     test('disable forgets the PIN', () async {
       await lock.setPin('2468');
       await lock.disable();
