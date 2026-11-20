@@ -24,6 +24,7 @@ Writes (website/download/ is git-ignored; copy it to the server with the site):
   website/download/securelyhello.apk                 the same file, for the site's button
   website/download/securelyhello-<versionName>-<abi>.apk   with --split
   website/download/latest.json                       what the app checks (lib/core/update/)
+                                                     (with the size in bytes of each APK)
 
 The version comes from pubspec.yaml (version: <name>+<code>). The APK's
 signing certificate is checked against apkCertSha256 in website/config.js
@@ -97,7 +98,7 @@ def sha256_file(path):
     return h.hexdigest()
 
 
-def manifest(version_name, version_code, url, sha256, min_code, notes, abis=None):
+def manifest(version_name, version_code, url, sha256, min_code, notes, abis=None, size=None):
     if min_code > version_code:
         sys.exit('--min-supported cannot be above the version being published')
     if len(notes) > 2000:
@@ -107,6 +108,7 @@ def manifest(version_name, version_code, url, sha256, min_code, notes, abis=None
         'versionName': version_name,
         'url': url,
         'sha256': sha256,
+        **({'size': size} if size else {}),
         'minSupportedVersionCode': min_code,
         'notes': notes,
         **({'abis': abis} if abis else {}),
@@ -157,8 +159,10 @@ def main(argv=None):
         split_dest = os.path.join(args.out, split_name)
         shutil.copyfile(path, split_dest)
         shutil.copyfile(path, os.path.join(args.out, f'securelyhello-{abi}.apk'))
-        abis[abi] = {'url': f'{base}/{split_name}', 'sha256': sha256_file(split_dest)}
-    data = manifest(name, code, f'{base}/{filename}', sha256_file(dest), args.min_supported, args.notes, abis)
+        abis[abi] = {'url': f'{base}/{split_name}', 'sha256': sha256_file(split_dest),
+                     'size': os.path.getsize(split_dest)}
+    data = manifest(name, code, f'{base}/{filename}', sha256_file(dest), args.min_supported, args.notes, abis,
+                    size=os.path.getsize(dest))
     with open(os.path.join(args.out, 'latest.json'), 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
         f.write('\n')

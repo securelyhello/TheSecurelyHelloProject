@@ -12,6 +12,16 @@ void main() {
     expect(line.trim(), 'version: ${AppVersion.name}+${AppVersion.code}');
   });
 
+  test('no other file in lib/ hard-codes a version number', () {
+    final literal = RegExp(r"'\d+\.\d+\.\d+'");
+    final offenders = [
+      for (final f in Directory('lib').listSync(recursive: true).whereType<File>())
+        if (f.path.endsWith('.dart') && !f.path.endsWith('core/config/app_version.dart') && literal.hasMatch(f.readAsStringSync()))
+          f.path,
+    ];
+    expect(offenders, isEmpty);
+  });
+
   group("What's new", () {
     test('shown once after an update', () async {
       SharedPreferences.setMockInitialValues({'whats_new_seen': '1.0.0'});

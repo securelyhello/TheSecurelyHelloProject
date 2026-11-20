@@ -45,7 +45,7 @@ enum _Filter { all, unread, groups, archived }
 
 enum _ConvAction { read, pin, mute, archive, info, clear, delete }
 
-enum _TopMenu { findPeople, requests, search, starred }
+enum _TopMenu { search, starred }
 
 class _ConversationListScreenState extends State<ConversationListScreen> {
   final _search = TextEditingController();
@@ -397,7 +397,14 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
       slivers.add(
         SliverFillRemaining(
           hasScrollBody: false,
-          child: EmptyStateWidget.noMessages(onAction: _newChat),
+          // With no contacts yet the useful first step is finding people;
+          // otherwise start a chat with one of them.
+          child: contactsProvider.contacts.isEmpty
+              ? EmptyStateWidget.noMessages(
+                  onAction: () => openFindPeople(context),
+                  findPeople: true,
+                )
+              : EmptyStateWidget.noMessages(onAction: _newChat),
         ),
       );
     } else if (visible.isEmpty && contactHits.isEmpty) {
@@ -469,10 +476,6 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
             icon: const Icon(LucideIcons.ellipsisVertical),
             onSelected: (v) {
               switch (v) {
-                case _TopMenu.findPeople:
-                  Navigator.pushNamed(context, '/add-contact');
-                case _TopMenu.requests:
-                  Navigator.pushNamed(context, '/contact-requests');
                 case _TopMenu.search:
                   Navigator.of(context)
                       .push(MaterialPageRoute<void>(builder: (_) => const MessageSearchScreen()));
@@ -484,18 +487,6 @@ class _ConversationListScreenState extends State<ConversationListScreen> {
             itemBuilder: (context) => [
               const PopupMenuItem(value: _TopMenu.search, child: Text('Search messages')),
               const PopupMenuItem(value: _TopMenu.starred, child: Text('Starred messages')),
-              PopupMenuItem(
-                value: _TopMenu.findPeople,
-                child: Text(L10n.of(context).findPeople),
-              ),
-              PopupMenuItem(
-                value: _TopMenu.requests,
-                child: Text(
-                  requestCount > 0
-                      ? L10n.of(context).contactRequestsCount(requestCount)
-                      : L10n.of(context).contactRequests,
-                ),
-              ),
             ],
           ),
           const SizedBox(width: 4),

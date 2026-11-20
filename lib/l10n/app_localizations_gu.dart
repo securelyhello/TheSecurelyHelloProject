@@ -139,6 +139,9 @@ class L10nGu extends L10n {
   String get tabContacts => 'સંપર્કો';
 
   @override
+  String get tabFindPeople => 'શોધો';
+
+  @override
   String get tabCalls => 'કૉલ';
 
   @override

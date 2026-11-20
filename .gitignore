@@ -63,3 +63,13 @@ website/download/
 
 # Gradle output of the Android build
 android/build/
+
+# Chillax font files (Fontshare, ITF Free Font License). Licensed for use in
+# our app and on our site, but the licence forbids redistributing the files,
+# and this repository is public. Fetch them with: python3 tools/fetch_fonts.py
+assets/fonts/Chillax-Medium.ttf
+assets/fonts/Chillax-Semibold.ttf
+assets/fonts/FFL-Chillax.txt
+website/assets/fonts/Chillax-Medium.woff2
+website/assets/fonts/Chillax-Semibold.woff2
+website/assets/fonts/FFL-Chillax.txt

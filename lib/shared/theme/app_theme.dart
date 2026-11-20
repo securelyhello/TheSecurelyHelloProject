@@ -28,24 +28,41 @@ abstract final class AppSpacing {
 
 /// Corner radii.
 abstract final class AppRadius {
-  static const double sm = 8;
-  static const double md = 12;
+  static const double sm = 10;
+  static const double md = 14;
   static const double lg = 16;
-  static const double xl = 20;
-  static const double xxl = 28;
+  static const double xl = 24;
+  static const double xxl = 32;
   static const double pill = 999;
 
+  /// Named roles for the same scale.
+  static const double input = md;
+  static const double control = lg;
+  static const double card = xl;
+  static const double sheet = xl;
+  static const double onboarding = xxl;
+
   /// Message bubble outer corner and the tighter corner used inside a group.
-  static const double bubble = 18;
-  static const double bubbleGrouped = 5;
+  static const double bubble = 20;
+  static const double bubbleGrouped = 6;
 }
 
-/// Animation durations and curves — kept short and restrained.
+/// Animation durations and curves: short, with one decisive curve.
 abstract final class AppMotion {
-  static const Duration fast = Duration(milliseconds: 150);
-  static const Duration medium = Duration(milliseconds: 220);
+  static const Duration fast = Duration(milliseconds: 120);
+  static const Duration medium = Duration(milliseconds: 200);
   static const Duration slow = Duration(milliseconds: 320);
-  static const Curve curve = Curves.easeOutCubic;
+
+  /// The default curve: fast out, soft landing.
+  static const Curve snap = Cubic(0.22, 1, 0.36, 1);
+  static const Curve curve = snap;
+
+  /// Slight overshoot. Only for the primary button and FAB press.
+  static const Curve spring = Cubic(0.34, 1.56, 0.64, 1);
+
+  /// [d], or zero when the system asks for no animations.
+  static Duration of(BuildContext context, Duration d) =>
+      MediaQuery.maybeDisableAnimationsOf(context) ?? false ? Duration.zero : d;
 }
 
 /// Layout breakpoints.
@@ -89,9 +106,9 @@ abstract final class AppTheme {
       secondaryContainer: p.accentContainer,
       onSecondaryContainer: p.onAccentContainer,
       tertiary: p.info,
-      onTertiary: p.onAccent,
+      onTertiary: isDark ? p.onBrand : Colors.white,
       error: p.danger,
-      onError: isDark ? const Color(0xFF1A0505) : Colors.white,
+      onError: isDark ? p.onBrand : Colors.white,
       surface: p.surface,
       onSurface: p.textPrimary,
       onSurfaceVariant: p.textSecondary,
@@ -102,12 +119,14 @@ abstract final class AppTheme {
       surfaceContainerHighest: p.inputFill,
       outline: p.border,
       outlineVariant: p.divider,
-      shadow: Colors.black,
+      shadow: isDark ? Colors.black : const Color(0xFF12161C),
       scrim: Colors.black,
       inverseSurface: isDark
-          ? const Color(0xFFE8E8F0)
-          : const Color(0xFF1C1F24),
-      onInverseSurface: isDark ? const Color(0xFF12121A) : Colors.white,
+          ? const Color(0xFFF1EFE6)
+          : const Color(0xFF12161C),
+      onInverseSurface: isDark
+          ? const Color(0xFF12161C)
+          : const Color(0xFFF7F5EC),
       inversePrimary: p.accent,
     );
 
@@ -125,7 +144,7 @@ abstract final class AppTheme {
 
     OutlineInputBorder inputBorder(Color c, [double w = 1]) =>
         OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppRadius.md),
+          borderRadius: BorderRadius.circular(AppRadius.input),
           borderSide: BorderSide(color: c, width: w),
         );
 
@@ -148,7 +167,7 @@ abstract final class AppTheme {
         scrolledUnderElevation: 0,
         centerTitle: false,
         titleSpacing: AppSpacing.md,
-        titleTextStyle: text.titleLarge?.copyWith(fontSize: 20),
+        titleTextStyle: text.titleLarge,
         iconTheme: IconThemeData(color: p.textPrimary, size: 22),
         actionsIconTheme: IconThemeData(color: p.textSecondary, size: 22),
         systemOverlayStyle: overlay,
@@ -161,7 +180,7 @@ abstract final class AppTheme {
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.lg),
+          borderRadius: BorderRadius.circular(AppRadius.card),
           side: BorderSide(color: p.border),
         ),
       ),
@@ -197,43 +216,49 @@ abstract final class AppTheme {
       ),
 
       // Elevated and outlined buttons are full width by default; the auth
-      // screens rely on that.
+      // screens rely on that. Pear fill, ink label, flat (the optional ledge
+      // fights Material's ink and press states).
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: p.accent,
-          foregroundColor: p.onAccent,
-          disabledBackgroundColor: p.accent.withAlpha(77),
+          backgroundColor: p.brand,
+          foregroundColor: p.onBrand,
+          disabledBackgroundColor: p.brand.withAlpha(77),
           disabledForegroundColor: p.textMuted,
           elevation: 0,
+          shadowColor: Colors.transparent,
           minimumSize: const Size(double.infinity, 52),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(26),
+            borderRadius: BorderRadius.circular(AppRadius.pill),
           ),
-          textStyle: text.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+          textStyle: text.labelLarge?.copyWith(fontSize: 16),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: p.accent,
+          foregroundColor: p.textPrimary,
           minimumSize: const Size(double.infinity, 52),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(26),
+            borderRadius: BorderRadius.circular(AppRadius.pill),
           ),
-          side: BorderSide(color: p.accent, width: 1.5),
-          textStyle: text.labelLarge,
+          side: BorderSide(color: p.textPrimary, width: 1.5),
+          textStyle: text.labelLarge?.copyWith(fontSize: 16),
         ),
       ),
-      // Filled buttons are intrinsic width — used in dialogs, rows, sheets.
+      // Filled buttons are intrinsic width: dialogs, rows, sheets.
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          minimumSize: const Size(64, 44),
+          backgroundColor: p.brand,
+          foregroundColor: p.onBrand,
+          disabledBackgroundColor: p.brand.withAlpha(77),
+          disabledForegroundColor: p.textMuted,
+          minimumSize: const Size(64, 48),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(AppRadius.pill),
           ),
-          textStyle: text.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+          textStyle: text.labelLarge,
         ),
       ),
       textButtonTheme: TextButtonThemeData(
@@ -242,7 +267,7 @@ abstract final class AppTheme {
           minimumSize: const Size(48, 44),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppRadius.md),
+            borderRadius: BorderRadius.circular(AppRadius.control),
           ),
           textStyle: text.labelLarge,
         ),
@@ -252,32 +277,34 @@ abstract final class AppTheme {
       ),
 
       floatingActionButtonTheme: FloatingActionButtonThemeData(
-        backgroundColor: p.accent,
-        foregroundColor: p.onAccent,
-        elevation: 2,
-        highlightElevation: 4,
+        extendedTextStyle: text.labelLarge,
+        backgroundColor: p.brand,
+        foregroundColor: p.onBrand,
+        elevation: isDark ? 0 : 6,
+        highlightElevation: isDark ? 0 : 8,
+        focusElevation: isDark ? 0 : 6,
+        hoverElevation: isDark ? 0 : 8,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.lg),
+          borderRadius: BorderRadius.circular(AppRadius.control + 4),
         ),
       ),
 
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: p.surface,
         surfaceTintColor: Colors.transparent,
-        indicatorColor: p.accentContainer,
+        indicatorColor: p.brand,
         elevation: 0,
         height: 68,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
-          return text.labelMedium?.copyWith(
+          return AppTypography.tabLabel.copyWith(
             color: selected ? p.textPrimary : p.textMuted,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
           );
         }),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
           return IconThemeData(
-            color: selected ? p.onAccentContainer : p.textMuted,
+            color: selected ? p.onBrand : p.textMuted,
             size: 22,
           );
         }),
@@ -285,21 +312,20 @@ abstract final class AppTheme {
 
       navigationRailTheme: NavigationRailThemeData(
         backgroundColor: p.surface,
-        indicatorColor: p.accentContainer,
-        selectedIconTheme: IconThemeData(color: p.onAccentContainer, size: 22),
+        indicatorColor: p.brand,
+        selectedIconTheme: IconThemeData(color: p.onBrand, size: 22),
         unselectedIconTheme: IconThemeData(color: p.textMuted, size: 22),
-        selectedLabelTextStyle: text.labelMedium?.copyWith(
+        selectedLabelTextStyle: AppTypography.tabLabel.copyWith(
           color: p.textPrimary,
-          fontWeight: FontWeight.w700,
         ),
-        unselectedLabelTextStyle: text.labelMedium?.copyWith(
+        unselectedLabelTextStyle: AppTypography.tabLabel.copyWith(
           color: p.textMuted,
         ),
       ),
 
       badgeTheme: BadgeThemeData(
-        backgroundColor: p.accent,
-        textColor: p.onAccent,
+        backgroundColor: p.brand,
+        textColor: p.onBrand,
         textStyle: text.labelSmall?.copyWith(fontWeight: FontWeight.w700),
       ),
 
@@ -309,9 +335,11 @@ abstract final class AppTheme {
         modalBackgroundColor: p.elevated,
         showDragHandle: true,
         dragHandleColor: p.border,
+        elevation: isDark ? 0 : 8,
+        shadowColor: p.onBrand,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(
-            top: Radius.circular(AppRadius.xl),
+            top: Radius.circular(AppRadius.sheet),
           ),
         ),
         constraints: const BoxConstraints(maxWidth: 640),
@@ -320,10 +348,11 @@ abstract final class AppTheme {
       popupMenuTheme: PopupMenuThemeData(
         color: p.elevated,
         surfaceTintColor: Colors.transparent,
-        elevation: 6,
+        elevation: isDark ? 0 : 6,
+        shadowColor: p.onBrand,
         textStyle: text.bodyMedium,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.md),
+          borderRadius: BorderRadius.circular(AppRadius.control),
           side: BorderSide(color: p.border),
         ),
       ),
@@ -334,7 +363,7 @@ abstract final class AppTheme {
           surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
           shape: WidgetStatePropertyAll(
             RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppRadius.md),
+              borderRadius: BorderRadius.circular(AppRadius.control),
               side: BorderSide(color: p.border),
             ),
           ),
@@ -344,36 +373,36 @@ abstract final class AppTheme {
       dialogTheme: DialogThemeData(
         backgroundColor: p.elevated,
         surfaceTintColor: Colors.transparent,
-        elevation: 8,
+        elevation: isDark ? 0 : 8,
+        shadowColor: p.onBrand,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.xl),
+          borderRadius: BorderRadius.circular(AppRadius.card),
           side: BorderSide(color: p.border),
         ),
-        titleTextStyle: text.titleLarge?.copyWith(fontSize: 20),
+        titleTextStyle: text.titleLarge,
         contentTextStyle: text.bodyMedium?.copyWith(color: p.textSecondary),
       ),
 
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? p.onAccent : p.textMuted,
+          (s) => s.contains(WidgetState.selected) ? p.onBrand : p.textMuted,
         ),
         trackColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? p.accent : p.inputFill,
+          (s) => s.contains(WidgetState.selected) ? p.brand : p.inputFill,
         ),
         trackOutlineColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? p.accent : p.border,
+          (s) => s.contains(WidgetState.selected) ? p.ledge : p.border,
         ),
       ),
 
+      // Selected chip: ink fill with paper text; unselected: card with a rule.
       chipTheme: ChipThemeData(
-        backgroundColor: p.inputFill,
-        selectedColor: p.accentContainer,
+        backgroundColor: p.surface,
+        selectedColor: p.textPrimary,
         labelStyle: text.labelLarge?.copyWith(color: p.textSecondary),
-        secondaryLabelStyle: text.labelLarge?.copyWith(
-          color: p.onAccentContainer,
-        ),
-        side: BorderSide.none,
-        checkmarkColor: p.onAccentContainer,
+        secondaryLabelStyle: text.labelLarge?.copyWith(color: p.background),
+        side: BorderSide(color: p.border),
+        checkmarkColor: p.background,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.pill),
         ),
@@ -390,23 +419,23 @@ abstract final class AppTheme {
 
       snackBarTheme: SnackBarThemeData(
         backgroundColor: isDark
-            ? const Color(0xFF26263A)
-            : const Color(0xFF1F2329),
+            ? const Color(0xFF2D333B)
+            : const Color(0xFF12161C),
         contentTextStyle: text.bodyMedium?.copyWith(
-          color: const Color(0xFFF4F4F8),
+          color: const Color(0xFFF1EFE6),
         ),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.md),
+          borderRadius: BorderRadius.circular(AppRadius.control),
         ),
         behavior: SnackBarBehavior.floating,
         elevation: 4,
-        actionTextColor: isDark ? p.accent : const Color(0xFFC2BAFF),
+        actionTextColor: const Color(0xFFF7D21A),
         width: null,
       ),
 
       tooltipTheme: TooltipThemeData(
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF2A2A40) : const Color(0xFF2B3038),
+          color: isDark ? const Color(0xFF2D333B) : const Color(0xFF12161C),
           borderRadius: BorderRadius.circular(AppRadius.sm),
         ),
         textStyle: text.bodySmall?.copyWith(color: Colors.white),
@@ -421,7 +450,7 @@ abstract final class AppTheme {
 
       textSelectionTheme: TextSelectionThemeData(
         cursorColor: p.accent,
-        selectionColor: p.accent.withAlpha(80),
+        selectionColor: p.accent.withAlpha(70),
         selectionHandleColor: p.accent,
       ),
 

@@ -139,6 +139,9 @@ class L10nHi extends L10n {
   String get tabContacts => 'संपर्क';
 
   @override
+  String get tabFindPeople => 'खोजें';
+
+  @override
   String get tabCalls => 'कॉल';
 
   @override

@@ -1,75 +1,116 @@
 # Securely Hello — brand
 
 Playful but grown-up: a friendly hello that keeps your secrets. The look is
-calm, rounded and warm, never cartoonish, and never borrowed from another
-messenger.
+warm paper and ink with one bright pear-yellow for the action. It is calm and
+rounded, never cartoonish, and never borrowed from another messenger.
 
-## The mark
+## The mark: Sealed note
 
-A speech bubble shaped like a shield, with a keyhole at its heart. A small
-coral sparkle at the top right is the "hello".
+A speech bubble whose top carries an envelope flap. Where the flap folds to
+its point, a pear-yellow seal closes it: a private note, sealed, that is
+still a conversation. The bubble is cream on an ink tile.
 
 | File | Use |
 |---|---|
-| `assets/brand/logo.svg` | The app icon: the mark on the Iris gradient, with rounded corners. |
-| `assets/brand/mark.svg` | The mark alone, white on transparent: on photos, on Iris, in monochrome. |
-| `website/assets/og.png` | Social preview (1200×630). |
+| `assets/brand/logo.svg` | The app icon: cream bubble, ink flap, pear seal on the ink tile (`#12161C`, corner radius 116 of 512). |
+| `assets/brand/mark.svg` | The mark alone, as one ink even-odd silhouette (flap band and seal ring cut out, seal disc solid). Android monochrome and notification icons are this shape. |
+| `website/assets/og.png` | Social preview (1200×630): paper, the icon, the name in Chillax. |
 
-Every platform icon (Android adaptive, monochrome and notification, iOS,
-macOS, Windows, web, website favicon) is generated from these two files by
-`tools/make_icons.py`. Change the SVGs, then run the script; don't edit the
-PNGs by hand.
+Geometry (512 viewBox): the bubble is the path in `logo.svg`; the flap is the
+polyline 150,160 → 256,236 → 362,160 in ink, 24 wide with round caps and
+joins; the seal is a circle at 256,236, radius 30, pear fill, 8 ink stroke.
+The mark sits inside 100–412 on both axes.
+
+Every platform icon (Android adaptive, monochrome and notification, legacy
+PNGs, iOS, macOS, Windows, web, website favicon and social preview, the PNGs
+in `assets/brand`) is generated from these two files by
+`tools/make_icons.py` (`pip install cairosvg pillow`). Change the SVGs, then
+run the script; don't edit the PNGs by hand. Android vectors get the flap as
+a plain outline, with no strokes.
+
+**Wordmark.** "Securely Hello" in Chillax Semibold, sentence case, ink. No
+styled or coloured word, no tagline lock-up.
 
 **Do**
 
 - Keep clear space of at least a quarter of the icon's width around it.
-- Use the white mark on Iris, on ink (`#0E0F1C`) or on a photo dark enough
-  for white to read.
+- Use the cream-on-ink icon as is, or the ink silhouette on paper
+  (`#F7F5EC`), or the paper silhouette on ink.
 - Keep it at 24 px or larger (16 px only as a favicon).
 
 **Don't**
 
-- Recolour the mark, outline it, add shadows to it, or rotate it.
-- Put the gradient icon on a busy background.
-- Separate the sparkle from the bubble, or use the keyhole alone.
+- Use a gradient, a glow or a shadow on or behind the mark.
+- Recolour the bubble, the flap or the seal, outline the mark, or rotate it.
+- Separate the seal from the flap, or use the flap or the seal alone.
+- Put the tile on a busy background.
 
 ## Colour
 
-| Token | Light | Dark | Use |
-|---|---|---|---|
-| Iris (accent) | `#5546D9` | `#9C8FFF` | Primary actions, outgoing bubbles, links on surfaces |
-| Iris gradient | `#7B6CFA` → `#4434C9` | same | The icon, hero moments |
-| Ember | `#FF7A59` | `#FF7A59` | Sparkle, story rings, small highlights; never body text |
-| Mint | `#1FA463` | `#3DD69B` | Online, success, answer a call |
-| Ink (background) | `#F7F6FC` | `#0E0F1C` | Screens |
-| Surface | `#FFFFFF` | `#15162A` | Bars, cards, incoming bubbles (dark: `#1C1E36`) |
-| Text | `#16152C` / `#4A4868` / `#65638A` | `#F4F4FB` / `#BCBEDA` / `#9295B8` | Primary / secondary / muted |
-| Danger | `#C92A3A` | `#FF7A7A` | Destructive actions, missed calls |
+Paper is the light theme, Night the dark one. Tokens live in
+`lib/shared/theme/app_palette.dart`; screens use `context.palette`, never raw
+colours. Hue never changes between themes, only lightness, to pass contrast.
 
-All text meets WCAG AA (4.5:1) on its background, muted text included. The
-tokens live in `lib/shared/theme/app_palette.dart`. Screens use
-`context.palette`, never raw colours.
+| Token | Paper (light) | Night (dark) | Use |
+|---|---|---|---|
+| Background | `#F7F5EC` | `#0B1015` | Screens |
+| Chat background | `#F0EDE0` | `#10151B` | Behind messages |
+| Surface | `#FCFBF6` | `#151A21` | Cards, bars, sheets |
+| Elevated | `#FCFBF6` | `#1E252D` | Dialogs, menus |
+| Input fill | `#F0EDE0` | `#1E252D` | Fields |
+| Border / divider | `#D7D4C9` / `#E6E1D1` | `#2D333B` / `#222830` | 1 px rules |
+| Text primary | `#12161C` | `#F1EFE6` | Names, messages |
+| Text secondary | `#3C424A` | `#C7C4BA` | Supporting text |
+| Text muted | `#565B63` | `#999FA7` | Times, hints |
+| Accent | `#0064BE` | `#F7D21A` | Controls and text in the colour scheme; blue on paper, pear on night |
+| Link | `#0064BE` | `#60AAF3` | Links |
+| Brand (pear) / on brand | `#F7D21A` / `#12161C` | same | Primary buttons, FAB, selected pill, badges |
+| Ledge | `#C9A000` | `#C9A000` | The 4 px edge under pear buttons |
+| Outgoing bubble | `#F7D21A`, text `#12161C`, meta `#4A4420` | `#E9C619`, same | Your messages |
+| Incoming bubble | `#FCFBF6` + 1 px `#D7D4C9`, text `#12161C`, meta `#565B63` | `#1E252D`, text `#F1EFE6`, meta `#999FA7` | Their messages |
+| Read ticks | `#0050A0` | `#12161C` | On the outgoing bubble |
+| Story ring | `#FF5E63` | `#FF7979` | Unseen stories; the one loud colour |
+| Online / success | `#1E9E5A` / `#00713E` | `#69D98D` | Online, success, answer a call |
+| Danger | `#BE222A` | `#FB817F` | Destructive actions, missed calls |
+| Warning | `#8A5A00` | `#F7D21A` | Cautions |
+
+Avatars are drawn from pear, coral, blue, mint, kraft `#A9773F` and sugar
+`#C9DDF0`, with ink initials on the light ones.
+
+Contrast is checked in `test/palette_contrast_test.dart`: every text token is
+at least 4.5:1 on background and surface, accent, online, danger and read
+ticks at least 3:1, brand text at least 4.5:1 on pear.
+
+On paper, pear is a fill and never text or a thin line on cream: it only
+appears behind ink.
 
 ## Type
 
 | Face | Use |
 |---|---|
-| Plus Jakarta Sans (500–800) | Titles, names, buttons on the website |
-| Inter (400–700) | Everything people read |
-| Source Code Pro (400, 600) | Safety numbers and codes |
+| Chillax 600 | Display, titles, names, buttons, wordmark |
+| Chillax 500 | Tab labels |
+| Inter 400 / 500 | Body text and messages |
+| Source Code Pro | Safety numbers and codes |
 
-The fonts ship with the app (`assets/fonts`, SIL Open Font License). The app
-never fetches fonts from the network. Hindi and Gujarati use the phone's own
-fonts.
+Scale: 12, 14, 16, 19, 23, 28, 34. Headings track −0.02 em. Sentence case
+everywhere, no uppercase labels. Chillax (ITF Free Font License, Fontshare)
+and Inter, Source Code Pro (SIL Open Font License) ship with the app
+(`assets/fonts`) and the app never fetches fonts from the network. Hindi and
+Gujarati use the phone's own fonts.
 
 ## Shape, depth and motion
 
-- **Rounded.** Radii are 8, 12, 16, 20 and 28 (pill for buttons and chips).
-  Bubbles use 18 with a tighter corner where messages group.
-- **Soft depth.** Elevation comes from surface colour and a light border,
-  plus a soft shadow in the light theme. No heavy drop shadows.
-- **Motion.** 150, 220 and 320 ms with an ease-out curve. Movement is small
-  and purposeful: sheets rise, the welcome logo floats, story rings fill.
+- **Rounded.** Radii: small 10, input 14, control 16, card and sheet 24,
+  onboarding 32, pill. Bubbles use 20, with 6 on grouped corners.
+- **Paper depth.** On paper, cards, sheets and the FAB carry a hard-ish paper
+  shadow: (1.5, 2.5) blur 1.5 plus (6, 14) blur 16, ink at 10–13 %. On Night,
+  depth is lightness steps, not shadows.
+- **Controls.** Pear buttons are 52 dp tall with an ink label and an optional
+  4 px ledge. Selected chips are ink with paper text; unselected are card
+  with a 1 px rule.
+- **Motion.** 120, 200 and 320 ms with a snap curve `(0.22, 1, 0.36, 1)`. A
+  spring `(0.34, 1.56, 0.64, 1)` only on the primary button and FAB press.
   With "remove animations" on, things appear without moving.
 - **Touch.** Every tap target is at least 48 dp.
 

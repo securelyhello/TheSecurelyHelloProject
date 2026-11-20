@@ -53,13 +53,15 @@ class EmptyStateWidget extends StatelessWidget {
     );
   }
 
-  factory EmptyStateWidget.noMessages({VoidCallback? onAction}) {
+  /// [findPeople] labels the action "Find people" (for someone with no
+  /// contacts) instead of "Start a chat".
+  factory EmptyStateWidget.noMessages({VoidCallback? onAction, bool findPeople = false}) {
     return EmptyStateWidget._l10n(
       icon: LucideIcons.messagesSquare,
       title: (l) => l.emptyChatsTitle,
       subtitle: (l) => l.emptyChatsBody,
-      action: onAction != null ? (l) => l.startChat : null,
-      actionIcon: LucideIcons.squarePen,
+      action: onAction != null ? (l) => findPeople ? l.findPeople : l.startChat : null,
+      actionIcon: findPeople ? LucideIcons.userSearch : LucideIcons.squarePen,
       onAction: onAction,
     );
   }

@@ -100,6 +100,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.44.9
+      - run: python3 tools/fetch_fonts.py
       - run: cp .env.example .env && flutter pub get
       - run: flutter test test/decoder_fuzz_test.dart
         env:

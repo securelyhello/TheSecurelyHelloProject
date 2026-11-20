@@ -351,6 +351,12 @@ abstract class L10n {
   /// **'Contacts'**
   String get tabContacts;
 
+  /// No description provided for @tabFindPeople.
+  ///
+  /// In en, this message translates to:
+  /// **'Find people'**
+  String get tabFindPeople;
+
   /// No description provided for @tabCalls.
   ///
   /// In en, this message translates to:

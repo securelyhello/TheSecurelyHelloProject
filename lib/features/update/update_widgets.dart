@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:securelyhello/core/config/app_version.dart';
 import 'package:securelyhello/core/update/app_updater.dart';
 import 'package:securelyhello/core/update/update_manifest.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
@@ -208,6 +209,171 @@ Widget _unsupported(BuildContext context, AppUpdater u) {
       ),
     ),
   );
+}
+
+/// Settings > "App updates": this build's version, whether it is up to
+/// date, and a button that checks right now. Shows the available update
+/// itself (notes, size, progress, errors) whatever the chat-list card's
+/// "Later" was set to.
+///
+/// Where nothing updates the app itself (Google Play builds, desktop) it
+/// shows the version and where new ones come from.
+class AppUpdatesSection extends StatelessWidget {
+  /// [distribution] is `play` for Google Play builds; defaults to this
+  /// build's own.
+  const AppUpdatesSection({super.key, this.distribution = AppUpdater.distribution});
+
+  final String distribution;
+
+  /// "90.0 MB" for [bytes]; KB below a tenth of a megabyte.
+  @visibleForTesting
+  static String formatSize(int bytes) {
+    const mb = 1024 * 1024;
+    if (bytes < mb ~/ 10) return '${(bytes / 1024).ceil()} KB';
+    return '${(bytes / mb).toStringAsFixed(1)} MB';
+  }
+
+  /// "just now", "5 minutes ago", "3 hours ago", "yesterday", "4 days ago".
+  @visibleForTesting
+  static String ago(DateTime then, DateTime now) {
+    final d = now.difference(then);
+    if (d.inMinutes < 1) return 'just now';
+    if (d.inMinutes < 60) return d.inMinutes == 1 ? '1 minute ago' : '${d.inMinutes} minutes ago';
+    if (d.inHours < 24) return d.inHours == 1 ? '1 hour ago' : '${d.inHours} hours ago';
+    if (d.inDays == 1) return 'yesterday';
+    return '${d.inDays} days ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final u = context.watch<AppUpdater?>();
+    final p = context.palette;
+    final t = Theme.of(context).textTheme;
+    final on = u != null && u.enabled;
+    final name = on ? u.installedVersionName : AppVersion.name;
+    final code = (on ? u.installedVersionCode : null) ?? AppVersion.code;
+
+    Widget tile({Key? key, required IconData icon, required String title, String? subtitle}) => ListTile(
+          key: key,
+          leading: Icon(icon),
+          title: Text(title),
+          subtitle: subtitle == null ? null : Text(subtitle),
+        );
+
+    final version = tile(
+      key: const ValueKey('settings-version'),
+      icon: LucideIcons.info,
+      title: 'Securely Hello $name',
+      subtitle: 'Build $code',
+    );
+
+    final children = <Widget>[version];
+    if (!on) {
+      children.add(tile(
+        icon: LucideIcons.download,
+        title: distribution == 'play' ? 'Updates come from Google Play' : 'Get new versions at securelyhello.thenn.in',
+      ));
+    } else {
+      children.add(_status(context, u, p, t));
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Material(
+        color: p.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          side: BorderSide(color: p.divider),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
+            for (var i = 0; i < children.length; i++) ...[
+              if (i > 0) const Divider(indent: 56),
+              children[i],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _status(BuildContext context, AppUpdater u, AppPalette p, TextTheme t) {
+    final m = u.manifest;
+    final installed = u.installedVersionCode;
+    final newer = m != null && installed != null && m.versionCode > installed;
+    final urgency = u.urgency;
+    final size = u.downloadSize;
+
+    String status;
+    IconData icon = LucideIcons.refreshCw;
+    if (u.checking) {
+      status = 'Checking\u2026';
+    } else if (urgency == UpdateUrgency.required || urgency == UpdateUrgency.unsupported) {
+      status = 'This version is no longer supported';
+      icon = LucideIcons.triangleAlert;
+    } else if (urgency == UpdateUrgency.available && m != null) {
+      status = 'Version ${m.versionName} is ready${size == null ? '' : ' \u00b7 ${formatSize(size)}'}';
+      icon = LucideIcons.sparkles;
+    } else if (u.lastCheckFailed) {
+      status = "Couldn't check \u2014 check your connection";
+      icon = LucideIcons.wifiOff;
+    } else if (u.lastChecked != null) {
+      status = "You're up to date \u00b7 checked ${ago(u.lastChecked!, DateTime.now())}";
+      icon = LucideIcons.check;
+    } else {
+      status = 'Not checked yet';
+    }
+
+    final showUpdate = !u.checking &&
+        newer &&
+        (urgency == UpdateUrgency.available || urgency == UpdateUrgency.required || urgency == UpdateUrgency.unsupported);
+
+    String? detail;
+    if (!u.checking) {
+      if (urgency == UpdateUrgency.required) {
+        detail = 'Update to keep your chats working; your messages and keys stay on this device.';
+      } else if (urgency == UpdateUrgency.unsupported) {
+        detail = 'Some things may stop working. Get the latest Securely Hello from securelyhello.thenn.in.';
+      }
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 20, color: p.textSecondary),
+              const SizedBox(width: 16),
+              Expanded(child: Text(status, key: const ValueKey('update-status'), style: t.bodyLarge)),
+            ],
+          ),
+          if (detail != null) ...[
+            const SizedBox(height: 6),
+            Text(detail, style: t.bodySmall?.copyWith(color: p.textSecondary)),
+          ],
+          if (showUpdate && m.notes.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(m.notes, style: t.bodySmall),
+          ],
+          if (showUpdate || u.busy || u.error != null) ...[
+            const SizedBox(height: 10),
+            UpdateActions(updater: u),
+          ],
+          const SizedBox(height: 8),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: OutlinedButton(
+              key: const ValueKey('update-check'),
+              onPressed: u.checking || u.busy ? null : () => u.check(force: true),
+              child: const Text('Check for updates'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Update button with download progress and what went wrong.

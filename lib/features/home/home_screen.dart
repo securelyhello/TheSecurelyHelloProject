@@ -30,6 +30,7 @@ import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
 import 'package:securelyhello/core/providers/contacts_provider.dart';
 import 'package:securelyhello/features/chat/screens/chat_screen.dart';
+import 'package:securelyhello/features/contacts/screens/add_contact_screen.dart';
 import 'package:securelyhello/features/chat/screens/conversation_list_screen.dart';
 import 'package:securelyhello/features/calls/calls_screen.dart';
 import 'package:securelyhello/features/home/chat_navigation.dart';
@@ -39,8 +40,8 @@ import 'package:securelyhello/shared/widgets/app_dialogs.dart';
 
 /// Signed-in shell.
 ///
-/// * Phones / narrow windows: tabs (Chats, Contacts, Settings) with a bottom
-///   navigation bar; conversations open as the `/chat` route.
+/// * Phones / narrow windows: tabs (Chats, Find people, Calls, Settings) with
+///   a bottom navigation bar; conversations open as the `/chat` route.
 /// * Wide windows (≥ [AppBreakpoints.twoPane]): navigation rail, the list
 ///   pane on the left and the open conversation on the right.
 class HomeScreen extends StatefulWidget {
@@ -50,8 +51,9 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
-  int _currentIndex = 0;
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver implements HomeTabSelector {
+  HomeTab _tab = HomeTab.chats;
+  ModalRoute<dynamic>? _route;
   String? _selectedChat;
   StreamSubscription<String>? _newRequestSub;
   StreamSubscription<Message>? _messageSub;
@@ -70,9 +72,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (mounted && n != _missed) setState(() => _missed = n);
   }
 
-  Future<void> _selectTab(int i) async {
-    setState(() => _currentIndex = i);
-    if (i == 1 && _missed > 0) {
+  /// From anywhere in the app (a screen pushed over the shell included):
+  /// back to the shell, then [tab].
+  @override
+  void select(HomeTab tab) {
+    if (!mounted) return;
+    final route = _route;
+    if (route != null && route.isActive) {
+      Navigator.of(context).popUntil((r) => r == route);
+    }
+    unawaited(_selectTab(tab));
+  }
+
+  Future<void> _selectTab(HomeTab tab) async {
+    setState(() => _tab = tab);
+    if (tab == HomeTab.calls && _missed > 0) {
       setState(() => _missed = 0);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('calls_seen_at', DateTime.now().millisecondsSinceEpoch);
@@ -85,9 +99,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late final ChatProvider _chat;
   late final ContactsProvider _contacts;
 
-  /// Chats (people are behind "New chat"), Calls, Settings.
+  /// In [HomeTab] order.
   static const _tabs = <Widget>[
     ConversationListScreen(),
+    AddContactScreen(embedded: true),
     CallsScreen(),
     SettingsScreen(),
   ];
@@ -103,7 +118,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _notifications.onOpenChat = _openFromNotification;
     WidgetsBinding.instance.addObserver(this);
     _auth.addListener(_onAuthChanged);
+    HomeTabScope.attach(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _startSession());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _route = ModalRoute.of(context);
   }
 
   /// The session ended without the user asking (token revoked or expired,
@@ -258,6 +280,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    HomeTabScope.detach(this);
     _contacts.removeListener(_syncProfiles);
     _historySub?.cancel();
     _callLogSub?.cancel();
@@ -349,8 +372,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() {
       _selectedChat = contactUserId;
       // Conversations live in the Chats tab; jump there when opening one
-      // from Contacts so the list and the pane agree.
-      if (_currentIndex == 1) _currentIndex = 0;
+      // from Find people so the list and the pane agree.
+      if (_tab == HomeTab.findPeople) _tab = HomeTab.chats;
     });
   }
 
@@ -380,40 +403,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         : _buildNarrow(context, unread, requests);
   }
 
-  Widget _badgeIcon(IconData icon, int count) => Badge(
-    isLabelVisible: count > 0,
-    label: Text(count > 99 ? '99+' : '$count'),
-    child: Icon(icon),
-  );
 
   Widget _buildNarrow(BuildContext context, int unread, int requests) {
     return Scaffold(
-      body: IndexedStack(index: _currentIndex, children: _tabs),
-      bottomNavigationBar: DecoratedBox(
-        decoration: BoxDecoration(
-          border: Border(top: BorderSide(color: context.palette.divider)),
-        ),
-        child: NavigationBar(
-          selectedIndex: _currentIndex,
-          onDestinationSelected: _selectTab,
-          destinations: [
-            NavigationDestination(
-              icon: _badgeIcon(LucideIcons.messageCircle, unread + requests),
-              label: L10n.of(context).tabChats,
-              tooltip: '',
-            ),
-            NavigationDestination(
-              icon: _badgeIcon(LucideIcons.phone, _missed),
-              label: L10n.of(context).tabCalls,
-              tooltip: '',
-            ),
-            NavigationDestination(
-              icon: Icon(LucideIcons.settings),
-              label: L10n.of(context).tabSettings,
-              tooltip: '',
-            ),
-          ],
-        ),
+      body: IndexedStack(index: _tab.index, children: _tabs),
+      bottomNavigationBar: HomeNavigationBar(
+        selected: _tab,
+        onSelected: _selectTab,
+        unread: unread,
+        requests: requests,
+        missed: _missed,
       ),
     );
   }
@@ -445,36 +444,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               child: Row(
                 children: [
                   NavigationRail(
-                    selectedIndex: _currentIndex,
+                    selectedIndex: _tab.index,
                     extended: extended,
                     minExtendedWidth: 200,
                     labelType: extended
                         ? NavigationRailLabelType.none
                         : NavigationRailLabelType.all,
-                    onDestinationSelected: _selectTab,
+                    onDestinationSelected: (i) => _selectTab(HomeTab.values[i]),
                     leading: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       child: _BrandMark(extended: extended),
                     ),
                     destinations: [
-                      NavigationRailDestination(
-                        icon: _badgeIcon(LucideIcons.messageCircle, unread + requests),
-                        label: Text(L10n.of(context).tabChats),
-                      ),
-                      NavigationRailDestination(
-                        icon: _badgeIcon(LucideIcons.phone, _missed),
-                        label: Text(L10n.of(context).tabCalls),
-                      ),
-                      NavigationRailDestination(
-                        icon: Icon(LucideIcons.settings),
-                        label: Text(L10n.of(context).tabSettings),
-                      ),
+                      for (final tab in HomeTab.values)
+                        NavigationRailDestination(
+                          icon: _tabIcon(tab, unread: unread, requests: requests, missed: _missed),
+                          label: Text(_tabLabel(L10n.of(context), tab)),
+                        ),
                     ],
                   ),
                   VerticalDivider(width: 1, color: p.divider),
                   SizedBox(
                     width: AppBreakpoints.listPaneWidth,
-                    child: IndexedStack(index: _currentIndex, children: _tabs),
+                    child: IndexedStack(index: _tab.index, children: _tabs),
                   ),
                   VerticalDivider(width: 1, color: p.divider),
                   // No cross-fade here: the outgoing ChatScreen must be
@@ -498,6 +490,85 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
     );
   }
+}
+
+IconData _iconData(HomeTab tab) => switch (tab) {
+  HomeTab.chats => LucideIcons.messageCircle,
+  HomeTab.findPeople => LucideIcons.userSearch,
+  HomeTab.calls => LucideIcons.phone,
+  HomeTab.settings => LucideIcons.settings,
+};
+
+String _tabLabel(L10n l, HomeTab tab) => switch (tab) {
+  HomeTab.chats => l.tabChats,
+  HomeTab.findPeople => l.tabFindPeople,
+  HomeTab.calls => l.tabCalls,
+  HomeTab.settings => l.tabSettings,
+};
+
+/// Chats: unread messages. Find people: contact requests waiting. Calls:
+/// missed calls.
+Widget _tabIcon(HomeTab tab, {required int unread, required int requests, required int missed}) {
+  final count = switch (tab) {
+    HomeTab.chats => unread,
+    HomeTab.findPeople => requests,
+    HomeTab.calls => missed,
+    HomeTab.settings => null,
+  };
+  if (count == null) return Icon(_iconData(tab));
+  return Badge(
+    isLabelVisible: count > 0,
+    label: Text(count > 99 ? '99+' : '$count'),
+    child: Icon(_iconData(tab)),
+  );
+}
+
+/// The bottom bar of the phone layout.
+class HomeNavigationBar extends StatelessWidget {
+  const HomeNavigationBar({
+    super.key,
+    required this.selected,
+    required this.onSelected,
+    this.unread = 0,
+    this.requests = 0,
+    this.missed = 0,
+  });
+
+  final HomeTab selected;
+  final ValueChanged<HomeTab> onSelected;
+  final int unread;
+  final int requests;
+  final int missed;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = L10n.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: context.palette.divider)),
+      ),
+      child: NavigationBar(
+        selectedIndex: selected.index,
+        onDestinationSelected: (i) => onSelected(HomeTab.values[i]),
+        destinations: [
+          for (final tab in HomeTab.values)
+            NavigationDestination(
+              key: ValueKey('tab-${_keyName(tab)}'),
+              icon: _tabIcon(tab, unread: unread, requests: requests, missed: missed),
+              label: _tabLabel(l, tab),
+              tooltip: '',
+            ),
+        ],
+      ),
+    );
+  }
+
+  static String _keyName(HomeTab tab) => switch (tab) {
+    HomeTab.chats => 'chats',
+    HomeTab.findPeople => 'find-people',
+    HomeTab.calls => 'calls',
+    HomeTab.settings => 'settings',
+  };
 }
 
 class _BrandMark extends StatelessWidget {

@@ -4,99 +4,49 @@ import 'package:securelyhello/shared/theme/app_fonts.dart';
 import 'package:securelyhello/shared/theme/app_colors.dart';
 import 'package:securelyhello/shared/theme/app_palette.dart';
 
-/// Securely Hello — Type scale.
+/// Securely Hello type scale: 12 / 14 / 16 / 19 / 23 / 28 / 34.
 ///
-/// Headings → Manrope (geometric, bold, premium).
-/// Body / Labels → Inter (highly legible at small sizes).
+/// Headings, names, titles and buttons are Chillax 600 (tab labels 500) with
+/// -0.02em tracking, in sentence case. Body and messages are Inter 400/500.
+/// Hindi and Gujarati fall back to the system fonts glyph by glyph.
 abstract final class AppTypography {
-  // ─── Display ───────────────────────────────────────────────────────
-  static TextStyle get displayLarge => AppFonts.heading(
-    fontSize: 57,
-    fontWeight: FontWeight.w700,
-    letterSpacing: -0.25,
-    height: 1.12,
-    color: AppColors.textPrimary,
-  );
+  static TextStyle _heading(double size, double height, {FontWeight? weight}) =>
+      AppFonts.heading(
+        fontSize: size,
+        fontWeight: weight ?? FontWeight.w600,
+        letterSpacing: -0.02 * size,
+        height: height,
+        color: AppColors.textPrimary,
+      );
 
-  static TextStyle get displayMedium => AppFonts.heading(
-    fontSize: 45,
-    fontWeight: FontWeight.w700,
-    letterSpacing: 0,
-    height: 1.16,
-    color: AppColors.textPrimary,
-  );
+  // Display.
+  static TextStyle get displayLarge => _heading(34, 1.15);
+  static TextStyle get displayMedium => _heading(34, 1.15);
+  static TextStyle get displaySmall => _heading(28, 1.2);
 
-  static TextStyle get displaySmall => AppFonts.heading(
-    fontSize: 36,
-    fontWeight: FontWeight.w600,
-    letterSpacing: 0,
-    height: 1.22,
-    color: AppColors.textPrimary,
-  );
+  // Headline.
+  static TextStyle get headlineLarge => _heading(34, 1.15);
+  static TextStyle get headlineMedium => _heading(28, 1.2);
+  static TextStyle get headlineSmall => _heading(23, 1.25);
 
-  // ─── Headline ──────────────────────────────────────────────────────
-  static TextStyle get headlineLarge => AppFonts.heading(
-    fontSize: 32,
-    fontWeight: FontWeight.w600,
-    letterSpacing: 0,
-    height: 1.25,
-    color: AppColors.textPrimary,
-  );
+  // Title.
+  static TextStyle get titleLarge => _heading(19, 1.3);
+  static TextStyle get titleMedium => _heading(16, 1.4);
+  static TextStyle get titleSmall => _heading(14, 1.4);
 
-  static TextStyle get headlineMedium => AppFonts.heading(
-    fontSize: 28,
-    fontWeight: FontWeight.w600,
-    letterSpacing: 0,
-    height: 1.29,
-    color: AppColors.textPrimary,
-  );
-
-  static TextStyle get headlineSmall => AppFonts.heading(
-    fontSize: 24,
-    fontWeight: FontWeight.w600,
-    letterSpacing: 0,
-    height: 1.33,
-    color: AppColors.textPrimary,
-  );
-
-  // ─── Title ─────────────────────────────────────────────────────────
-  static TextStyle get titleLarge => AppFonts.heading(
-    fontSize: 22,
-    fontWeight: FontWeight.w600,
-    letterSpacing: 0,
-    height: 1.27,
-    color: AppColors.textPrimary,
-  );
-
-  static TextStyle get titleMedium => AppFonts.heading(
-    fontSize: 16,
-    fontWeight: FontWeight.w600,
-    letterSpacing: 0.15,
-    height: 1.50,
-    color: AppColors.textPrimary,
-  );
-
-  static TextStyle get titleSmall => AppFonts.heading(
-    fontSize: 14,
-    fontWeight: FontWeight.w600,
-    letterSpacing: 0.1,
-    height: 1.43,
-    color: AppColors.textPrimary,
-  );
-
-  // ─── Body ──────────────────────────────────────────────────────────
+  // Body.
   static TextStyle get bodyLarge => AppFonts.body(
     fontSize: 16,
     fontWeight: FontWeight.w400,
-    letterSpacing: 0.5,
-    height: 1.50,
+    letterSpacing: 0,
+    height: 1.5,
     color: AppColors.textPrimary,
   );
 
   static TextStyle get bodyMedium => AppFonts.body(
     fontSize: 14,
     fontWeight: FontWeight.w400,
-    letterSpacing: 0.25,
+    letterSpacing: 0,
     height: 1.43,
     color: AppColors.textPrimary,
   );
@@ -104,37 +54,44 @@ abstract final class AppTypography {
   static TextStyle get bodySmall => AppFonts.body(
     fontSize: 12,
     fontWeight: FontWeight.w400,
-    letterSpacing: 0.4,
+    letterSpacing: 0,
     height: 1.33,
     color: AppColors.textSecondary,
   );
 
-  // ─── Label ─────────────────────────────────────────────────────────
-  static TextStyle get labelLarge => AppFonts.body(
+  // Label. Large is the button label (Chillax 600); the smaller two are Inter.
+  static TextStyle get labelLarge => AppFonts.heading(
     fontSize: 14,
     fontWeight: FontWeight.w600,
-    letterSpacing: 0.1,
+    letterSpacing: 0,
     height: 1.43,
     color: AppColors.textPrimary,
   );
 
   static TextStyle get labelMedium => AppFonts.body(
     fontSize: 12,
-    fontWeight: FontWeight.w600,
-    letterSpacing: 0.5,
+    fontWeight: FontWeight.w500,
+    letterSpacing: 0,
     height: 1.33,
     color: AppColors.textSecondary,
   );
 
   static TextStyle get labelSmall => AppFonts.body(
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: FontWeight.w500,
-    letterSpacing: 0.5,
-    height: 1.45,
+    letterSpacing: 0,
+    height: 1.33,
     color: AppColors.textHint,
   );
 
-  // ─── Palette-aware TextTheme ───────────────────────────────────────
+  /// Tab labels (bottom bar and rail): Chillax 500.
+  static TextStyle get tabLabel => AppFonts.heading(
+    fontSize: 12,
+    fontWeight: FontWeight.w500,
+    letterSpacing: 0,
+    height: 1.33,
+  );
+
   /// The type scale coloured for [palette] (used by both light and dark).
   static TextTheme textThemeFor(AppPalette palette) => TextTheme(
     displayLarge: displayLarge.copyWith(color: palette.textPrimary),
@@ -146,22 +103,15 @@ abstract final class AppTypography {
     titleLarge: titleLarge.copyWith(color: palette.textPrimary),
     titleMedium: titleMedium.copyWith(color: palette.textPrimary),
     titleSmall: titleSmall.copyWith(color: palette.textPrimary),
-    bodyLarge: bodyLarge.copyWith(
-      color: palette.textPrimary,
-      letterSpacing: 0.1,
-    ),
-    bodyMedium: bodyMedium.copyWith(
-      color: palette.textPrimary,
-      letterSpacing: 0.1,
-    ),
+    bodyLarge: bodyLarge.copyWith(color: palette.textPrimary),
+    bodyMedium: bodyMedium.copyWith(color: palette.textPrimary),
     bodySmall: bodySmall.copyWith(color: palette.textSecondary),
     labelLarge: labelLarge.copyWith(color: palette.textPrimary),
     labelMedium: labelMedium.copyWith(color: palette.textSecondary),
     labelSmall: labelSmall.copyWith(color: palette.textMuted),
   );
 
-  // ─── Full TextTheme ────────────────────────────────────────────────
-  /// Returns the complete [TextTheme] wired to our type scale.
+  /// The complete [TextTheme] in the Night colours.
   static TextTheme get textTheme => TextTheme(
     displayLarge: displayLarge,
     displayMedium: displayMedium,

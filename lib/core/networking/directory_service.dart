@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart' as hash;
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
+import 'package:securelyhello/core/config/app_version.dart';
 import 'package:securelyhello/core/networking/tls_pinning.dart';
 import 'package:securelyhello/core/security/proof_of_work.dart';
 import 'package:securelyhello/core/storage/secure_key_store.dart';
@@ -115,7 +116,7 @@ class ContactEvent {
 /// send.
 class DirectoryService {
   static const _requestTimeout = Duration(seconds: 20);
-  static const _userAgent = 'SecurelyHello/1.0 (Flutter)';
+  static String get _userAgent => 'SecurelyHello/${AppVersion.name} (Flutter)';
 
   final Uri _base;
   final SessionTokenStore _tokenStore;
@@ -161,7 +162,7 @@ class DirectoryService {
   })  : _base = parseBaseUrl(baseUrl, release: release, pinned: pinning.enabled),
         _tokenStore = tokenStore,
         _pinning = pinning,
-        _http = httpClient ?? IOClient(pinning.httpClient());
+        _http = httpClient ?? IOClient(pinning.httpClient()..userAgent = _userAgent);
 
   final TlsPinning _pinning;
 

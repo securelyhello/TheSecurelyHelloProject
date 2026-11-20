@@ -138,6 +138,9 @@ class L10nEn extends L10n {
   String get tabContacts => 'Contacts';
 
   @override
+  String get tabFindPeople => 'Find people';
+
+  @override
   String get tabCalls => 'Calls';
 
   @override

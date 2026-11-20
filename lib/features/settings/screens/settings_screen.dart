@@ -25,6 +25,7 @@ import 'package:securelyhello/features/settings/screens/blocked_users_screen.dar
 import 'package:securelyhello/features/settings/screens/edit_profile_screen.dart';
 import 'package:securelyhello/features/settings/screens/legal_screen.dart';
 import 'package:securelyhello/features/settings/screens/two_factor_screen.dart';
+import 'package:securelyhello/features/update/update_widgets.dart';
 import 'package:securelyhello/features/settings/widgets/delete_account_dialog.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/shared/theme/locale_controller.dart';
@@ -42,8 +43,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  static const _appVersion = '1.0.0';
-
   bool _signingOut = false;
 
   void _showPublicKeys(AuthProvider auth) {
@@ -866,6 +865,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ]),
 
+                  // App updates (and the version)
+                  const SectionHeader('App updates', padding: EdgeInsets.fromLTRB(28, 20, 28, 8)),
+                  const AppUpdatesSection(),
+
                   // About
                   SectionHeader(
                     L10n.of(context).settingsAbout,
@@ -893,14 +896,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       title: const Text('Terms of service'),
                       trailing: Icon(LucideIcons.chevronRight, size: 18, color: p.textMuted),
                       onTap: () => LegalScreen.open(context, LegalScreen.terms),
-                    ),
-                    ListTile(
-                      leading: const Icon(LucideIcons.info),
-                      title: const Text('Version'),
-                      trailing: Text(
-                        _appVersion,
-                        style: t.bodyMedium?.copyWith(color: p.textSecondary),
-                      ),
                     ),
                   ]),
                   const SizedBox(height: 24),

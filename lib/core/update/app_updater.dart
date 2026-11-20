@@ -10,6 +10,7 @@ import 'package:http/io_client.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:securelyhello/core/config/app_version.dart';
 import 'package:securelyhello/core/networking/app_trust.dart';
 import 'package:securelyhello/core/update/update_manifest.dart';
 
@@ -51,7 +52,7 @@ class AppUpdater extends ChangeNotifier {
     bool? enabled,
     Future<Directory> Function()? downloadDir,
     this.pinnedCertSha256 = _defaultPin,
-  })  : _client = client ?? IOClient(AppTrust.httpClient()),
+  })  : _client = client ?? IOClient(AppTrust.httpClient()..userAgent = userAgent),
         manifestUrl = manifestUrl ?? Uri.parse(defaultManifestUrl),
         enabled = enabled ?? defaultEnabled,
         _downloadDir = downloadDir ?? getTemporaryDirectory;
@@ -59,6 +60,13 @@ class AppUpdater extends ChangeNotifier {
   static const channel = MethodChannel('securelyhello/updater');
 
   static const _distribution = String.fromEnvironment('DISTRIBUTION');
+
+  /// `play` in Google Play builds (`--dart-define=DISTRIBUTION=play`).
+  static const distribution = _distribution;
+
+  /// Sent with every request, also as an explicit header so it shows on
+  /// the manifest and APK requests whatever the HTTP client is.
+  static String get userAgent => 'SecurelyHello/${AppVersion.name} (Android)';
   static const defaultManifestUrl = String.fromEnvironment('UPDATE_MANIFEST_URL',
       defaultValue: 'https://securelyhello.thenn.in/download/latest.json');
 
@@ -73,7 +81,7 @@ class AppUpdater extends ChangeNotifier {
   static const _lastCheckKey = 'update_last_check';
   static const _manifestKey = 'update_manifest';
   static const _maxManifestBytes = 64 * 1024;
-  static const _maxApkBytes = 300 * 1024 * 1024;
+  static const _maxApkBytes = UpdateManifest.maxApkBytes;
 
   final http.Client _client;
   final Uri manifestUrl;
@@ -91,9 +99,25 @@ class AppUpdater extends ChangeNotifier {
   double _progress = 0;
   UpdateError? _error;
   bool _lastCheckFailed = false;
+  bool _checking = false;
+  DateTime? _lastChecked;
 
   UpdateManifest? get manifest => _manifest;
   int? get installedVersionCode => _installed?['versionCode'] as int?;
+
+  /// The installed version's name from the phone, or this build's own when
+  /// the phone hasn't been asked (or doesn't say).
+  String get installedVersionName => _installed?['versionName'] as String? ?? AppVersion.name;
+
+  /// Bytes of the APK this phone would download, when the manifest says.
+  int? get downloadSize => _manifest?.downloadFor(_installed?['abi'] as String?).size;
+
+  /// True while the manifest is being fetched.
+  bool get checking => _checking;
+
+  /// When the manifest was last fetched successfully (known after the first
+  /// [check] of this run).
+  DateTime? get lastChecked => _lastChecked;
   bool get busy => _busy;
 
   /// Download progress, 0–1.
@@ -116,7 +140,7 @@ class AppUpdater extends ChangeNotifier {
 
   /// Looks for an update if 12 hours have passed (or [force]). Never throws.
   Future<void> check({bool force = false}) async {
-    if (!enabled) return;
+    if (!enabled || _checking) return;
     try {
       _installed ??= await _native('info');
       final prefs = await SharedPreferences.getInstance();
@@ -131,6 +155,7 @@ class AppUpdater extends ChangeNotifier {
         }
       }
       final last = prefs.getInt(_lastCheckKey);
+      if (last != null) _lastChecked = DateTime.fromMillisecondsSinceEpoch(last);
       final now = DateTime.now();
       if (!force && !shouldCheck(lastCheck: last == null ? null : DateTime.fromMillisecondsSinceEpoch(last), now: now)) {
         notifyListeners();
@@ -140,7 +165,9 @@ class AppUpdater extends ChangeNotifier {
         debugPrint('Update manifest must be HTTPS; not checking');
         return;
       }
-      final res = await _client.get(manifestUrl).timeout(const Duration(seconds: 20));
+      _checking = true;
+      notifyListeners();
+      final res = await _client.get(manifestUrl, headers: {'User-Agent': userAgent}).timeout(const Duration(seconds: 20));
       if (res.statusCode != 200 || res.bodyBytes.length > _maxManifestBytes) {
         throw HttpException('manifest: HTTP ${res.statusCode}');
       }
@@ -149,9 +176,12 @@ class AppUpdater extends ChangeNotifier {
       _lastCheckFailed = false;
       await prefs.setString(_manifestKey, utf8.decode(res.bodyBytes));
       await prefs.setInt(_lastCheckKey, now.millisecondsSinceEpoch);
+      _lastChecked = now;
     } catch (e) {
       debugPrint('Update check failed: $e');
       _lastCheckFailed = true;
+    } finally {
+      _checking = false;
     }
     notifyListeners();
   }
@@ -222,7 +252,8 @@ class AppUpdater extends ChangeNotifier {
   /// Streams the APK to [file], hashing as it goes. False (with [error]
   /// set) when it isn't the file the manifest describes.
   Future<bool> _download(UpdateDownload d, File file) async {
-    final res = await _client.send(http.Request('GET', d.url)).timeout(const Duration(seconds: 30));
+    final req = http.Request('GET', d.url)..headers['User-Agent'] = userAgent;
+    final res = await _client.send(req).timeout(const Duration(seconds: 30));
     if (res.statusCode != 200) throw HttpException('APK: HTTP ${res.statusCode}');
     final total = res.contentLength;
     if (total != null && total > _maxApkBytes) throw const HttpException('APK too large');

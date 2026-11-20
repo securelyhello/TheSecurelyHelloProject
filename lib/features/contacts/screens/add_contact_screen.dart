@@ -7,6 +7,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import 'package:securelyhello/features/contacts/screens/suggestions_screen.dart';
+import 'package:securelyhello/features/home/chat_navigation.dart';
+import 'package:securelyhello/l10n/app_localizations.dart';
 import 'package:securelyhello/features/contacts/screens/invite_screen.dart';
 import 'package:securelyhello/core/providers/auth_provider.dart';
 import 'package:securelyhello/core/providers/chat_provider.dart';
@@ -19,8 +21,16 @@ import 'package:securelyhello/shared/widgets/search_field.dart';
 import 'package:securelyhello/shared/widgets/skeleton_loader.dart';
 
 /// Find people by username and send / answer contact requests.
+///
+/// Shown as the Find people tab of the home shell ([embedded]) and as the
+/// `/add-contact` route elsewhere.
 class AddContactScreen extends StatefulWidget {
-  const AddContactScreen({super.key});
+  const AddContactScreen({super.key, this.embedded = false});
+
+  /// A tab of the home shell: no back button, the search box does not grab
+  /// focus (the keyboard would cover the screen on every start) and the
+  /// results stay when you switch tabs.
+  final bool embedded;
 
   @override
   State<AddContactScreen> createState() => _AddContactScreenState();
@@ -40,9 +50,12 @@ class _AddContactScreenState extends State<AddContactScreen> {
   @override
   void dispose() {
     _search.dispose();
-    // Leave no stale results behind for the next visit.
-    final provider = _provider;
-    Future.microtask(provider.clearSearch);
+    // Leave no stale results behind for the next visit (a tab lives as
+    // long as the shell, so it keeps its results).
+    if (!widget.embedded) {
+      final provider = _provider;
+      Future.microtask(provider.clearSearch);
+    }
     super.dispose();
   }
 
@@ -80,14 +93,18 @@ class _AddContactScreenState extends State<AddContactScreen> {
       await context.read<ChatProvider>().getOrCreateConversation(r.userId);
     } catch (_) {}
     if (!mounted) return;
-    Navigator.pushNamed(context, '/chat', arguments: r.userId);
+    openChat(context, r.userId);
   }
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ContactsProvider>();
+    final requests = provider.receivedRequests.length;
     return Scaffold(
-      appBar: AppBar(title: const Text('Find people')),
+      appBar: AppBar(
+        automaticallyImplyLeading: !widget.embedded,
+        title: Text(L10n.of(context).findPeople),
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(
@@ -95,12 +112,28 @@ class _AddContactScreenState extends State<AddContactScreen> {
           ),
           child: Column(
             children: [
+              if (requests > 0)
+                ListTile(
+                  key: const ValueKey('find-requests'),
+                  leading: Icon(LucideIcons.inbox, color: context.palette.accent),
+                  title: Text(
+                    L10n.of(context).contactRequestsCount(requests),
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  trailing: Icon(
+                    LucideIcons.chevronRight,
+                    size: 18,
+                    color: context.palette.textMuted,
+                  ),
+                  onTap: () => Navigator.pushNamed(context, '/contact-requests'),
+                ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                 child: SearchField(
+                  key: const ValueKey('find-people-search'),
                   controller: _search,
                   hint: 'Search by username',
-                  autofocus: true,
+                  autofocus: !widget.embedded,
                   onChanged: _onChanged,
                 ),
               ),

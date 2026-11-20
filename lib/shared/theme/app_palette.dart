@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 
-import 'package:securelyhello/shared/theme/app_colors.dart';
-
 /// Semantic colour tokens for Securely Hello.
 ///
 /// Screens and widgets read colours from here (`context.palette`) rather than
-/// from [AppColors] constants, so the same UI renders correctly in the dark
+/// from fixed colour constants, so the same UI renders correctly in the dark
 /// (primary) and light themes.
 @immutable
 class AppPalette extends ThemeExtension<AppPalette> {
@@ -24,6 +22,10 @@ class AppPalette extends ThemeExtension<AppPalette> {
     required this.onAccent,
     required this.accentContainer,
     required this.onAccentContainer,
+    required this.brand,
+    required this.onBrand,
+    required this.ledge,
+    required this.storyRing,
     required this.bubbleOut,
     required this.bubbleOutText,
     required this.bubbleOutMeta,
@@ -43,6 +45,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
     required this.shimmerHighlight,
     required this.selection,
     required this.avatarColors,
+    required this.avatarOnColors,
   });
 
   /// Deepest background (scaffold).
@@ -69,10 +72,25 @@ class AppPalette extends ThemeExtension<AppPalette> {
   /// Hints, timestamps, placeholders (still ≥ 4.5:1 on [background]).
   final Color textMuted;
 
+  /// Readable accent for text, icons, links and focus rings
+  /// (`colorScheme.primary`): blue on Paper, pear on Night.
   final Color accent;
   final Color onAccent;
   final Color accentContainer;
   final Color onAccentContainer;
+
+  /// Pear, the brand fill for primary buttons, FAB, nav indicator, badges.
+  /// Never use it as text on Paper; pair it with [onBrand].
+  final Color brand;
+
+  /// Ink on [brand].
+  final Color onBrand;
+
+  /// Underside of a pressed-down pear button (optional 4px ledge).
+  final Color ledge;
+
+  /// Ring around a contact with an unseen story.
+  final Color storyRing;
 
   final Color bubbleOut;
   final Color bubbleOutText;
@@ -105,102 +123,135 @@ class AppPalette extends ThemeExtension<AppPalette> {
   /// Fallback avatar colours, picked deterministically per name.
   final List<Color> avatarColors;
 
-  /// Dark: deep ink with Iris (indigo-violet) and Ember (coral) accents.
+  /// Initials colour for each entry of [avatarColors] (ink on light fills).
+  final List<Color> avatarOnColors;
+
+  /// Night: ink-blue surfaces stepped by lightness, pear accent.
   static const dark = AppPalette(
-    background: Color(0xFF0E0F1C),
-    chatBackground: Color(0xFF0B0C17),
-    surface: Color(0xFF15162A),
-    elevated: Color(0xFF1C1E36),
-    inputFill: Color(0xFF1F2140),
-    border: Color(0xFF2D3052),
-    divider: Color(0xFF212341),
-    textPrimary: Color(0xFFF4F4FB),
-    textSecondary: Color(0xFFBCBEDA),
-    // 6.2:1 on the background.
-    textMuted: Color(0xFF9295B8),
-    accent: Color(0xFF9C8FFF),
-    onAccent: Color(0xFF14123A),
-    accentContainer: Color(0xFF2B2766),
-    onAccentContainer: Color(0xFFDCD8FF),
-    bubbleOut: Color(0xFF5546D9),
-    bubbleOutText: Color(0xFFFFFFFF),
-    bubbleOutMeta: Color(0xFFD9D4FF),
-    bubbleIn: Color(0xFF1C1E36),
-    bubbleInText: Color(0xFFF4F4FB),
-    bubbleInMeta: Color(0xFFA5A8CA),
-    tickRead: Color(0xFF86F2CB),
-    link: Color(0xFFB3BEFF),
-    systemChip: Color(0xFF1C1E36),
-    onSystemChip: Color(0xFFC9CBE6),
-    success: Color(0xFF3DD69B),
-    warning: Color(0xFFFFC266),
-    danger: Color(0xFFFF7A7A),
-    info: Color(0xFF7FB2FF),
-    online: Color(0xFF3DD69B),
-    shimmerBase: Color(0xFF1C1E36),
-    shimmerHighlight: Color(0xFF2A2C4C),
-    selection: Color(0xFF26234F),
-    avatarColors: [
-      Color(0xFF6C5CE7),
-      Color(0xFFE8674A),
-      Color(0xFF1597A8),
-      Color(0xFFD6336C),
-      Color(0xFFE09B00),
-      Color(0xFF2F9E5E),
-      Color(0xFF2B7BD6),
-      Color(0xFFA83FC4),
-    ],
+    background: Color(0xFF0B1015),
+    chatBackground: Color(0xFF10151B),
+    surface: Color(0xFF151A21),
+    elevated: Color(0xFF1E252D),
+    inputFill: Color(0xFF1E252D),
+    border: Color(0xFF2D333B),
+    divider: Color(0xFF222830),
+    textPrimary: Color(0xFFF1EFE6),
+    textSecondary: Color(0xFFC7C4BA),
+    textMuted: Color(0xFF999FA7),
+    accent: Color(0xFFF7D21A),
+    onAccent: Color(0xFF12161C),
+    accentContainer: Color(0xFF3A3410),
+    onAccentContainer: Color(0xFFF7E27A),
+    brand: Color(0xFFF7D21A),
+    onBrand: Color(0xFF12161C),
+    ledge: Color(0xFFC9A000),
+    storyRing: Color(0xFFFF7979),
+    bubbleOut: Color(0xFFE9C619),
+    bubbleOutText: Color(0xFF12161C),
+    bubbleOutMeta: Color(0xFF4A4420),
+    bubbleIn: Color(0xFF1E252D),
+    bubbleInText: Color(0xFFF1EFE6),
+    bubbleInMeta: Color(0xFF999FA7),
+    tickRead: Color(0xFF12161C),
+    link: Color(0xFF60AAF3),
+    systemChip: Color(0xFF1E252D),
+    onSystemChip: Color(0xFFC7C4BA),
+    success: Color(0xFF69D98D),
+    warning: Color(0xFFF7D21A),
+    danger: Color(0xFFFB817F),
+    info: Color(0xFF60AAF3),
+    online: Color(0xFF69D98D),
+    shimmerBase: Color(0xFF1E252D),
+    shimmerHighlight: Color(0xFF2D333B),
+    selection: Color(0xFF242B34),
+    avatarColors: _avatarFills,
+    avatarOnColors: _avatarInks,
   );
 
-  /// Light: soft lavender neutrals, Iris accents.
+  /// Paper: warm off-white, ink text, blue accent, pear fills.
   static const light = AppPalette(
-    background: Color(0xFFF7F6FC),
-    chatBackground: Color(0xFFF0EEF9),
-    surface: Color(0xFFFFFFFF),
-    elevated: Color(0xFFFFFFFF),
-    inputFill: Color(0xFFEFEDF8),
-    border: Color(0xFFDEDBEE),
-    divider: Color(0xFFEAE8F4),
-    textPrimary: Color(0xFF16152C),
-    textSecondary: Color(0xFF4A4868),
-    // 5.4:1 on the background.
-    textMuted: Color(0xFF65638A),
-    accent: Color(0xFF5546D9),
+    background: Color(0xFFF7F5EC),
+    chatBackground: Color(0xFFF0EDE0),
+    surface: Color(0xFFFCFBF6),
+    elevated: Color(0xFFFCFBF6),
+    inputFill: Color(0xFFF0EDE0),
+    border: Color(0xFFD7D4C9),
+    divider: Color(0xFFE6E1D1),
+    textPrimary: Color(0xFF12161C),
+    textSecondary: Color(0xFF3C424A),
+    textMuted: Color(0xFF565B63),
+    accent: Color(0xFF0064BE),
     onAccent: Color(0xFFFFFFFF),
-    accentContainer: Color(0xFFE9E6FF),
-    onAccentContainer: Color(0xFF2C2380),
-    bubbleOut: Color(0xFF5546D9),
-    bubbleOutText: Color(0xFFFFFFFF),
-    bubbleOutMeta: Color(0xFFDCD8FF),
-    bubbleIn: Color(0xFFFFFFFF),
-    bubbleInText: Color(0xFF16152C),
-    bubbleInMeta: Color(0xFF65638A),
-    tickRead: Color(0xFF86F2CB),
-    link: Color(0xFF3B48C9),
-    systemChip: Color(0xFFFFFFFF),
-    onSystemChip: Color(0xFF4A4868),
-    success: Color(0xFF16834F),
-    warning: Color(0xFFA85A00),
-    danger: Color(0xFFC92A3A),
-    info: Color(0xFF2456C9),
-    online: Color(0xFF1FA463),
-    shimmerBase: Color(0xFFE8E6F3),
-    shimmerHighlight: Color(0xFFF5F4FB),
-    selection: Color(0xFFECE9FF),
-    avatarColors: [
-      Color(0xFF6C5CE7),
-      Color(0xFFE0603F),
-      Color(0xFF128A99),
-      Color(0xFFD02F68),
-      Color(0xFFC98A00),
-      Color(0xFF268A50),
-      Color(0xFF2A70C2),
-      Color(0xFF9C36B5),
-    ],
+    accentContainer: Color(0xFFDCE9F7),
+    onAccentContainer: Color(0xFF00407A),
+    brand: Color(0xFFF7D21A),
+    onBrand: Color(0xFF12161C),
+    ledge: Color(0xFFC9A000),
+    // Plan value #FF5E63 is 2.7:1 on Paper; lightness lowered to reach 3:1.
+    storyRing: Color(0xFFFF4A4F),
+    bubbleOut: Color(0xFFF7D21A),
+    bubbleOutText: Color(0xFF12161C),
+    bubbleOutMeta: Color(0xFF4A4420),
+    bubbleIn: Color(0xFFFCFBF6),
+    bubbleInText: Color(0xFF12161C),
+    bubbleInMeta: Color(0xFF565B63),
+    tickRead: Color(0xFF0050A0),
+    link: Color(0xFF0064BE),
+    systemChip: Color(0xFFFCFBF6),
+    onSystemChip: Color(0xFF3C424A),
+    success: Color(0xFF00713E),
+    warning: Color(0xFF8A5A00),
+    danger: Color(0xFFBE222A),
+    info: Color(0xFF0064BE),
+    online: Color(0xFF1E9E5A),
+    shimmerBase: Color(0xFFE6E1D1),
+    shimmerHighlight: Color(0xFFF7F5EC),
+    selection: Color(0xFFF4EBB8),
+    avatarColors: _avatarFills,
+    avatarOnColors: _avatarInks,
   );
 
-  /// The warm second colour (story rings, highlights, call accept).
-  static const ember = Color(0xFFFF7A59);
+  /// Pear, coral, blue, mint, kraft, sugar.
+  static const _avatarFills = [
+    Color(0xFFF7D21A),
+    Color(0xFFFF5E63),
+    Color(0xFF0064BE),
+    Color(0xFF7ED6A4),
+    Color(0xFFA9773F),
+    Color(0xFFC9DDF0),
+  ];
+
+  /// Initials on each fill above: ink on the light ones, white on blue.
+  static const _avatarInks = [
+    Color(0xFF12161C),
+    Color(0xFF12161C),
+    Color(0xFFFFFFFF),
+    Color(0xFF12161C),
+    Color(0xFF12161C),
+    Color(0xFF12161C),
+  ];
+
+  /// Paper-style shadow for cards, sheets and the FAB: a tight contact shadow
+  /// plus a soft long one at ink 10-13%. Night uses lightness steps instead,
+  /// so it is empty there.
+  List<BoxShadow> get paperShadow => background.computeLuminance() < 0.5
+      ? const []
+      : const [
+          BoxShadow(
+            color: Color(0x1A12161C),
+            offset: Offset(1.5, 2.5),
+            blurRadius: 1.5,
+          ),
+          BoxShadow(
+            color: Color(0x2112161C),
+            offset: Offset(6, 14),
+            blurRadius: 16,
+          ),
+        ];
+
+  /// Coral, the warm second colour (call accept, highlights). Story rings use
+  /// [storyRing].
+  static const ember = Color(0xFFFF5E63);
 
   /// Deterministic avatar colour for [seed] (usually a user id or name).
   Color avatarColorFor(String seed) {
@@ -210,6 +261,16 @@ class AppPalette extends ThemeExtension<AppPalette> {
       hash = (hash * 31 + unit) & 0x7fffffff;
     }
     return avatarColors[hash % avatarColors.length];
+  }
+
+  /// Initials colour that is readable on [avatarColorFor] for the same seed.
+  Color onAvatarColorFor(String seed) {
+    if (seed.isEmpty) return avatarOnColors.first;
+    var hash = 0;
+    for (final unit in seed.codeUnits) {
+      hash = (hash * 31 + unit) & 0x7fffffff;
+    }
+    return avatarOnColors[hash % avatarOnColors.length];
   }
 
   @override
@@ -228,6 +289,10 @@ class AppPalette extends ThemeExtension<AppPalette> {
     Color? onAccent,
     Color? accentContainer,
     Color? onAccentContainer,
+    Color? brand,
+    Color? onBrand,
+    Color? ledge,
+    Color? storyRing,
     Color? bubbleOut,
     Color? bubbleOutText,
     Color? bubbleOutMeta,
@@ -247,6 +312,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
     Color? shimmerHighlight,
     Color? selection,
     List<Color>? avatarColors,
+    List<Color>? avatarOnColors,
   }) {
     return AppPalette(
       background: background ?? this.background,
@@ -263,6 +329,10 @@ class AppPalette extends ThemeExtension<AppPalette> {
       onAccent: onAccent ?? this.onAccent,
       accentContainer: accentContainer ?? this.accentContainer,
       onAccentContainer: onAccentContainer ?? this.onAccentContainer,
+      brand: brand ?? this.brand,
+      onBrand: onBrand ?? this.onBrand,
+      ledge: ledge ?? this.ledge,
+      storyRing: storyRing ?? this.storyRing,
       bubbleOut: bubbleOut ?? this.bubbleOut,
       bubbleOutText: bubbleOutText ?? this.bubbleOutText,
       bubbleOutMeta: bubbleOutMeta ?? this.bubbleOutMeta,
@@ -282,6 +352,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
       shimmerHighlight: shimmerHighlight ?? this.shimmerHighlight,
       selection: selection ?? this.selection,
       avatarColors: avatarColors ?? this.avatarColors,
+      avatarOnColors: avatarOnColors ?? this.avatarOnColors,
     );
   }
 
@@ -304,6 +375,10 @@ class AppPalette extends ThemeExtension<AppPalette> {
       onAccent: l(onAccent, other.onAccent),
       accentContainer: l(accentContainer, other.accentContainer),
       onAccentContainer: l(onAccentContainer, other.onAccentContainer),
+      brand: l(brand, other.brand),
+      onBrand: l(onBrand, other.onBrand),
+      ledge: l(ledge, other.ledge),
+      storyRing: l(storyRing, other.storyRing),
       bubbleOut: l(bubbleOut, other.bubbleOut),
       bubbleOutText: l(bubbleOutText, other.bubbleOutText),
       bubbleOutMeta: l(bubbleOutMeta, other.bubbleOutMeta),
@@ -323,6 +398,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
       shimmerHighlight: l(shimmerHighlight, other.shimmerHighlight),
       selection: l(selection, other.selection),
       avatarColors: t < 0.5 ? avatarColors : other.avatarColors,
+      avatarOnColors: t < 0.5 ? avatarOnColors : other.avatarOnColors,
     );
   }
 }

@@ -272,8 +272,8 @@ void main() {
       await shot('05_home_empty');
 
       // ---- find Mira and send a request ----------------------------------
-      unawaited(nav().pushNamed('/add-contact'));
-      await waitFor(find.text('Search by username'), 'add-contact screen');
+      await tester.tap(find.byKey(const ValueKey('tab-find-people')));
+      await waitFor(find.text('Search by username'), 'Find people tab');
       await shot('06_find_people_empty');
       await tester.tap(find.byKey(const ValueKey('find-invite')));
       await waitFor(find.byKey(const ValueKey('invite-qr')), 'invite screen with QR code');
@@ -281,7 +281,7 @@ void main() {
       await shot('06b_invite');
       nav().pop();
       await settle(600);
-      await tester.enterText(find.byType(EditableText).first, 'mira_$tag');
+      await tester.enterText(find.byKey(const ValueKey('find-people-search')), 'mira_$tag');
       await waitFor(find.text('Mira Kapoor'), 'search result');
       await shot('07_find_people_result');
       expect(await me.contacts.sendContactRequest(miraId), isTrue);
@@ -299,7 +299,7 @@ void main() {
           isTrue);
       await settle(1500);
       await shot('09_request_accepted_snackbar');
-      nav().pop();
+      await tester.tap(find.byKey(const ValueKey('tab-chats')));
       await settle(600);
 
       // ---- messages arrive while the list is showing ---------------------

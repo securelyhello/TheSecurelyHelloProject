@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import 'package:securelyhello/core/providers/contacts_provider.dart';
+import 'package:securelyhello/features/home/chat_navigation.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 import 'package:securelyhello/shared/widgets/app_dialogs.dart';
 import 'package:securelyhello/shared/widgets/avatar_widget.dart';
@@ -118,7 +119,7 @@ class _ContactRequestsScreenState extends State<ContactRequestsScreen> {
                 'up here.',
             actionLabel: 'Find people',
             actionIcon: LucideIcons.userPlus,
-            onAction: () => Navigator.pushNamed(context, '/add-contact'),
+            onAction: () => openFindPeople(context),
           ),
         ),
       );

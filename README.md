@@ -150,6 +150,10 @@ contacts. Deployment and configuration: `server/DEPLOY.md`.
 
 ## Setup
 
+0. Run `python3 tools/fetch_fonts.py` once before building. It downloads the
+   Chillax font files into `assets/fonts/` and `website/assets/fonts/`. The
+   font is licensed for our app and site, but the licence forbids
+   redistributing it, so the files are not in this repository.
 1. `cp .env.example .env` and set `API_BASE_URL` to your server
    (`http://127.0.0.1:8787` for local development). With `API_BASE_URL`
    unset or empty, release builds use `https://api.hello.thenn.in` and

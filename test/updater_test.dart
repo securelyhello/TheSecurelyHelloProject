@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -8,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:securelyhello/core/config/app_version.dart';
 import 'package:securelyhello/core/update/app_updater.dart';
 import 'package:securelyhello/core/update/update_manifest.dart';
 
@@ -20,6 +22,7 @@ Map<String, dynamic> manifestJson({
   String url = 'https://securelyhello.thenn.in/download/securelyhello-1.1.0.apk',
   String? hash,
   int min = 1,
+  Object? size,
 }) =>
     {
       'versionCode': versionCode,
@@ -28,6 +31,7 @@ Map<String, dynamic> manifestJson({
       'sha256': hash ?? apkSha,
       'minSupportedVersionCode': min,
       'notes': 'Stories, a new look and faster hang-ups.',
+      if (size != null) 'size': size,
     };
 
 void main() {
@@ -92,6 +96,53 @@ void main() {
       ]) {
         expect(() => UpdateManifest.parse({...manifestJson(), 'abis': bad}, source: source), throwsFormatException,
             reason: '$bad');
+      }
+    });
+
+    test('size is optional, and a manifest without one still parses', () {
+      final m = UpdateManifest.parse(manifestJson(), source: source);
+      expect(m.size, isNull);
+      expect(m.downloadFor(null).size, isNull);
+      expect(m.downloadFor('arm64-v8a').size, isNull);
+    });
+
+    test('size is read from the top level and from each ABI', () {
+      final arm = sha256.convert(utf8.encode('arm')).toString();
+      final m = UpdateManifest.parse({
+        ...manifestJson(size: 90 * 1024 * 1024),
+        'abis': {
+          'armeabi-v7a': {
+            'url': 'https://securelyhello.thenn.in/download/securelyhello-1.1.0-armeabi-v7a.apk',
+            'sha256': arm,
+            'size': 30 * 1024 * 1024,
+          },
+          'arm64-v8a': {
+            'url': 'https://securelyhello.thenn.in/download/securelyhello-1.1.0-arm64-v8a.apk',
+            'sha256': arm,
+          },
+        },
+      }, source: source);
+      expect(m.size, 90 * 1024 * 1024);
+      expect(m.downloadFor(null).size, 90 * 1024 * 1024);
+      expect(m.downloadFor('armeabi-v7a').size, 30 * 1024 * 1024);
+      expect(m.downloadFor('arm64-v8a').size, isNull, reason: 'that split has no size of its own');
+    });
+
+    test('a size that is not a positive integer up to 300 MB is rejected', () {
+      const max = 300 * 1024 * 1024;
+      expect(UpdateManifest.parse(manifestJson(size: max), source: source).size, max);
+      for (final bad in [0, -1, max + 1, '1000', 1.5, true, <int>[]]) {
+        expect(() => UpdateManifest.parse(manifestJson(size: bad), source: source), throwsFormatException,
+            reason: 'top level $bad');
+        expect(
+            () => UpdateManifest.parse({
+                  ...manifestJson(),
+                  'abis': {
+                    'armeabi-v7a': {'url': 'https://securelyhello.thenn.in/x.apk', 'sha256': apkSha, 'size': bad},
+                  },
+                }, source: source),
+            throwsFormatException,
+            reason: 'per ABI $bad');
       }
     });
 
@@ -187,6 +238,132 @@ void main() {
       final u2 = AppUpdater(client: again, manifestUrl: source, enabled: true, downloadDir: () async => dir);
       await u2.check();
       expect(u2.urgency, UpdateUrgency.available);
+    });
+
+    test('says who it is: the manifest and the APK are both asked for with our User-Agent', () async {
+      final seen = <Uri, String?>{};
+      final client = MockClient((r) async {
+        seen[r.url] = r.headers['User-Agent'];
+        return r.url == source
+            ? http.Response(jsonEncode(manifestJson()), 200)
+            : http.Response.bytes(apkBytes, 200);
+      });
+      final u = AppUpdater(
+          client: client, manifestUrl: source, enabled: true, downloadDir: () async => dir, pinnedCertSha256: null);
+      await u.check();
+      await u.downloadAndInstall();
+      final want = 'SecurelyHello/${AppVersion.name} (Android)';
+      expect(AppUpdater.userAgent, want);
+      expect(seen[source], want);
+      expect(seen.entries.singleWhere((e) => e.key.path.endsWith('.apk')).value, want);
+    });
+
+    test('lastChecked: null before the first check, set after a good one, kept after a bad one', () async {
+      var u = updater();
+      expect(u.lastChecked, isNull);
+      final before = DateTime.now();
+      await u.check();
+      expect(u.lastChecked, isNotNull);
+      expect(u.lastChecked!.isBefore(before.subtract(const Duration(seconds: 1))), isFalse);
+
+      // A failed forced check leaves the last good time alone.
+      final good = u.lastChecked;
+      final failing = AppUpdater(
+          client: MockClient((_) async => http.Response('', 500)),
+          manifestUrl: source,
+          enabled: true,
+          downloadDir: () async => dir);
+      await failing.check(force: true);
+      expect(failing.lastCheckFailed, isTrue);
+      expect(failing.lastChecked, isNotNull, reason: 'loaded from the saved preference');
+      expect(failing.lastChecked!.millisecondsSinceEpoch, good!.millisecondsSinceEpoch);
+    });
+
+    test('lastChecked is known after a restart even when the 12-hour wait skips the request', () async {
+      await updater().check();
+      final again = AppUpdater(
+          client: MockClient((_) async => fail('checked again within 12 h')),
+          manifestUrl: source,
+          enabled: true,
+          downloadDir: () async => dir);
+      expect(again.lastChecked, isNull);
+      await again.check();
+      expect(again.lastChecked, isNotNull);
+    });
+
+    test('checking is true only while the manifest is being fetched', () async {
+      final seen = <bool>[];
+      final release = Completer<void>();
+      final client = MockClient((r) async {
+        await release.future;
+        return http.Response(jsonEncode(manifestJson()), 200);
+      });
+      final u = AppUpdater(client: client, manifestUrl: source, enabled: true, downloadDir: () async => dir);
+      u.addListener(() => seen.add(u.checking));
+      expect(u.checking, isFalse);
+      final run = u.check();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(u.checking, isTrue);
+      expect(seen, contains(true), reason: 'listeners are told before the request');
+      release.complete();
+      await run;
+      expect(u.checking, isFalse);
+      expect(seen.last, isFalse);
+    });
+
+    test('checking is cleared when the request fails, and a second check meanwhile does nothing', () async {
+      var gets = 0;
+      final release = Completer<void>();
+      final client = MockClient((r) async {
+        gets++;
+        await release.future;
+        return http.Response('', 500);
+      });
+      final u = AppUpdater(client: client, manifestUrl: source, enabled: true, downloadDir: () async => dir);
+      final first = u.check();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await u.check(force: true);
+      expect(gets, 1);
+      release.complete();
+      await first;
+      expect(u.checking, isFalse);
+      expect(u.lastCheckFailed, isTrue);
+    });
+
+    test('installedVersionName: from the phone, or this build when it does not say', () async {
+      var u = updater();
+      expect(u.installedVersionName, AppVersion.name, reason: 'before the native call');
+      await u.check();
+      expect(u.installedVersionName, '1.0.0');
+      native['info'] = {'versionCode': 1, 'certSha256': 'AA:BB'};
+      u = updater();
+      await u.check();
+      expect(u.installedVersionName, AppVersion.name);
+    });
+
+    test('downloadSize is the size of the APK this phone would get', () async {
+      native['info'] = {'versionCode': 1, 'versionName': '1.0.0', 'certSha256': 'AA:BB', 'abi': 'armeabi-v7a'};
+      var u = updater(manifest: manifestJson(size: 90 * 1024 * 1024));
+      expect(u.downloadSize, isNull);
+      await u.check();
+      expect(u.downloadSize, 90 * 1024 * 1024);
+
+      u = updater(manifest: {
+        ...manifestJson(size: 90 * 1024 * 1024),
+        'abis': {
+          'armeabi-v7a': {
+            'url': 'https://securelyhello.thenn.in/download/securelyhello-1.1.0-armeabi-v7a.apk',
+            'sha256': apkSha,
+            'size': 30 * 1024 * 1024,
+          },
+        },
+      });
+      await u.check(force: true);
+      expect(u.downloadSize, 30 * 1024 * 1024);
+
+      u = updater();
+      await u.check(force: true);
+      expect(u.downloadSize, isNull, reason: 'a manifest without sizes');
     });
 
     test('downloads, verifies and installs', () async {

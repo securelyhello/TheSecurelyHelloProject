@@ -252,7 +252,7 @@ class _ContactListScreenState extends State<ContactListScreen> {
             style: TextStyle(fontWeight: FontWeight.w600),
           ),
           subtitle: Text(L10n.of(context).searchByUsername),
-          onTap: () => Navigator.pushNamed(context, '/add-contact'),
+          onTap: () => openFindPeople(context),
         ),
       ),
       SliverToBoxAdapter(
@@ -304,7 +304,7 @@ class _ContactListScreenState extends State<ContactListScreen> {
         SliverFillRemaining(
           hasScrollBody: false,
           child: EmptyStateWidget.noContacts(
-            onAction: () => Navigator.pushNamed(context, '/add-contact'),
+            onAction: () => openFindPeople(context),
           ),
         ),
       );
