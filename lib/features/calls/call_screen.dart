@@ -215,6 +215,9 @@ class _CallScreenState extends State<CallScreen> with RouteAware {
     final t = Theme.of(context).textTheme;
     final fg = _ink.textPrimary;
     final muted = _ink.textSecondary;
+    // A short window (landscape phone, split screen): a smaller ring without
+    // its pulsing halo, tighter gaps.
+    final compact = MediaQuery.sizeOf(context).height < 480;
 
     return PopScope(
       // Back doesn't hang up; the call keeps going while the app is in use.
@@ -235,48 +238,67 @@ class _CallScreenState extends State<CallScreen> with RouteAware {
             SafeArea(
               child: Column(
                 children: [
-                  const SizedBox(height: 24),
-                  if (!remoteVideo) ...[
-                    const SizedBox(height: 24),
-                    _PearRing(
-                      active: c.phase != CallPhase.ended,
-                      child: AvatarWidget(displayName: name, seed: c.peer, size: AvatarSize.xlarge),
-                    ),
-                    const SizedBox(height: 28),
-                  ],
-                  Text(
-                    name,
-                    key: const ValueKey('call-name'),
-                    textAlign: TextAlign.center,
-                    style: t.headlineSmall?.copyWith(color: fg),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _status(c),
-                    key: const ValueKey('call-status'),
-                    style: t.bodyLarge?.copyWith(color: muted),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(LucideIcons.lock, size: 13, color: _ink.textMuted),
-                      const SizedBox(width: 5),
-                      Text('End-to-end encrypted', style: t.bodySmall?.copyWith(color: _ink.textMuted)),
-                    ],
-                  ),
-                  if (c.mediaUnavailable && c.phase != CallPhase.incoming)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Text(
-                        c.video ? 'Camera and microphone unavailable' : 'Microphone unavailable',
-                        key: const ValueKey('call-no-media'),
-                        style: t.bodySmall?.copyWith(color: _ink.warning),
+                  // Who and how the call is going. Scrolls when the window is
+                  // too short for it (the buttons below stay put).
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, box) => SingleChildScrollView(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(minHeight: box.maxHeight),
+                          child: Column(
+                            children: [
+                              SizedBox(height: compact ? 8 : 24),
+                              if (!remoteVideo) ...[
+                                SizedBox(height: compact ? 0 : 24),
+                                _PearRing(
+                                  active: c.phase != CallPhase.ended,
+                                  compact: compact,
+                                  child: AvatarWidget(
+                                    displayName: name,
+                                    seed: c.peer,
+                                    size: compact ? AvatarSize.large : AvatarSize.xlarge,
+                                  ),
+                                ),
+                                SizedBox(height: compact ? 12 : 28),
+                              ],
+                              Text(
+                                name,
+                                key: const ValueKey('call-name'),
+                                textAlign: TextAlign.center,
+                                style: t.headlineSmall?.copyWith(color: fg),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                _status(c),
+                                key: const ValueKey('call-status'),
+                                style: t.bodyLarge?.copyWith(color: muted),
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(LucideIcons.lock, size: 13, color: _ink.textMuted),
+                                  const SizedBox(width: 5),
+                                  Text('End-to-end encrypted', style: t.bodySmall?.copyWith(color: _ink.textMuted)),
+                                ],
+                              ),
+                              if (c.mediaUnavailable && c.phase != CallPhase.incoming)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 12),
+                                  child: Text(
+                                    c.video ? 'Camera and microphone unavailable' : 'Microphone unavailable',
+                                    key: const ValueKey('call-no-media'),
+                                    style: t.bodySmall?.copyWith(color: _ink.warning),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
-                  const Spacer(),
+                  ),
                   _Controls(call: c, service: calls),
-                  const SizedBox(height: 28),
+                  SizedBox(height: compact ? 12 : 28),
                 ],
               ),
             ),
@@ -487,10 +509,13 @@ class _RoundButton extends StatelessWidget {
 /// A slow pear ring around the avatar: a still ring plus a soft halo that
 /// breathes out and fades (still when the system asks for no animations).
 class _PearRing extends StatefulWidget {
-  const _PearRing({required this.child, required this.active});
+  const _PearRing({required this.child, required this.active, this.compact = false});
 
   final Widget child;
   final bool active;
+
+  /// For short windows: a 64dp avatar and no pulsing halo.
+  final bool compact;
 
   @override
   State<_PearRing> createState() => _PearRingState();
@@ -502,22 +527,24 @@ class _PearRingState extends State<_PearRing> with SingleTickerProviderStateMixi
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final d = AppMotion.of(context, const Duration(milliseconds: 2800));
-    if (d == Duration.zero || !widget.active) {
-      _c.stop();
-    } else {
-      _c.duration = d;
-      if (!_c.isAnimating) _c.repeat();
-    }
+    _sync();
   }
 
   @override
   void didUpdateWidget(_PearRing old) {
     super.didUpdateWidget(old);
-    if (!widget.active) {
+    _sync();
+  }
+
+  /// Breathing only while the call is live, the window has room for the
+  /// halo, and the system allows animation.
+  void _sync() {
+    final d = AppMotion.of(context, const Duration(milliseconds: 2800));
+    if (d == Duration.zero || !widget.active || widget.compact) {
       _c.stop();
-    } else if (!_c.isAnimating && AppMotion.of(context, const Duration(milliseconds: 2800)) != Duration.zero) {
-      _c.repeat();
+    } else {
+      _c.duration = d;
+      if (!_c.isAnimating) _c.repeat();
     }
   }
 
@@ -529,13 +556,15 @@ class _PearRingState extends State<_PearRing> with SingleTickerProviderStateMixi
 
   @override
   Widget build(BuildContext context) {
-    const avatar = 96.0;
+    final avatar = widget.compact ? 64.0 : 96.0;
     const gap = 6.0;
     const ring = 3.0;
-    const box = avatar + 2 * (gap + ring);
+    final box = avatar + 2 * (gap + ring);
+    // Room for the halo to grow into.
+    final halo = widget.compact ? 0.0 : 40.0;
     return SizedBox(
-      width: box + 40,
-      height: box + 40,
+      width: box + halo,
+      height: box + halo,
       child: AnimatedBuilder(
         animation: _c,
         builder: (context, child) {

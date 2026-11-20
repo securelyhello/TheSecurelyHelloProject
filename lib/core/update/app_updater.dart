@@ -100,6 +100,7 @@ class AppUpdater extends ChangeNotifier {
   UpdateError? _error;
   bool _lastCheckFailed = false;
   bool _checking = false;
+  Future<void>? _cleanup;
   DateTime? _lastChecked;
 
   UpdateManifest? get manifest => _manifest;
@@ -141,8 +142,15 @@ class AppUpdater extends ChangeNotifier {
   /// Looks for an update if 12 hours have passed (or [force]). Never throws.
   Future<void> check({bool force = false}) async {
     if (!enabled || _checking) return;
+    if (force && _error != null && !_busy) {
+      // An error from an earlier install attempt is stale once the user asks
+      // again; the new result will say whether there is still an update.
+      _error = null;
+      notifyListeners();
+    }
     try {
       _installed ??= await _native('info');
+      _cleanup ??= _deleteStaleDownloads(); // in the background: not the check's business
       final prefs = await SharedPreferences.getInstance();
       if (_manifest == null) {
         final saved = prefs.getString(_manifestKey);
@@ -184,6 +192,35 @@ class AppUpdater extends ChangeNotifier {
       _checking = false;
     }
     notifyListeners();
+  }
+
+  /// Completes when the start-up cleanup of old downloads has finished.
+  @visibleForTesting
+  Future<void>? get cleanupDone => _cleanup;
+
+  static final _cachedApk = RegExp(r'^securelyhello-(\d+)\.apk$');
+
+  /// Once per run: removes `securelyhello-<code>.apk` files left in the
+  /// download directory by an earlier update, once the installed build is
+  /// that version or newer. Never throws.
+  Future<void> _deleteStaleDownloads() async {
+    final installed = installedVersionCode;
+    if (installed == null) return;
+    try {
+      final dir = await _downloadDir();
+      if (!dir.existsSync()) return;
+      for (final e in dir.listSync(followLinks: false)) {
+        if (e is! File) continue;
+        final code = int.tryParse(_cachedApk.firstMatch(e.uri.pathSegments.last)?.group(1) ?? '');
+        if (code != null && code <= installed) {
+          try {
+            e.deleteSync();
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      debugPrint('Update cleanup failed: $e');
+    }
   }
 
   /// Downloads the update, checks it and starts the install (Android then
@@ -257,6 +294,15 @@ class AppUpdater extends ChangeNotifier {
     if (res.statusCode != 200) throw HttpException('APK: HTTP ${res.statusCode}');
     final total = res.contentLength;
     if (total != null && total > _maxApkBytes) throw const HttpException('APK too large');
+    // The manifest's size, when it has one, is what the hash is expected to
+    // cover: a server that says (or sends) anything else isn't serving that
+    // file.
+    final expected = d.size;
+    if (expected != null && total != null && total != expected) {
+      await res.stream.listen(null).cancel(); // release the connection unread
+      _error = UpdateError.hashMismatch;
+      return false;
+    }
     final digest = _DigestSink();
     final hasher = sha256.startChunkedConversion(digest);
     final out = file.openWrite();
@@ -265,6 +311,10 @@ class AppUpdater extends ChangeNotifier {
       await for (final chunk in res.stream.timeout(const Duration(seconds: 60))) {
         received += chunk.length;
         if (received > _maxApkBytes) throw const HttpException('APK too large');
+        if (expected != null && received > expected) {
+          _error = UpdateError.hashMismatch;
+          throw const HttpException('APK larger than the manifest says');
+        }
         hasher.add(chunk);
         out.add(chunk);
         if (total != null && total > 0) {
@@ -276,7 +326,7 @@ class AppUpdater extends ChangeNotifier {
       await out.close();
     }
     hasher.close();
-    if (digest.value.toString() != d.sha256) {
+    if ((expected != null && received != expected) || digest.value.toString() != d.sha256) {
       _error = UpdateError.hashMismatch;
       return false;
     }

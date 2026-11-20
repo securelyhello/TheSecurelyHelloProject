@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:securelyhello/core/config/app_version.dart';
 import 'package:securelyhello/core/update/app_updater.dart';
+import 'package:securelyhello/core/update/update_manifest.dart';
 import 'package:securelyhello/features/update/update_widgets.dart';
 import 'package:securelyhello/shared/theme/app_theme.dart';
 
@@ -74,11 +75,16 @@ void main() {
         enabled: enabled,
       );
 
-  Widget section(AppUpdater? u, {String distribution = ''}) => ChangeNotifierProvider<AppUpdater?>.value(
+  Widget section(AppUpdater? u, {String distribution = '', DateTime Function()? now}) =>
+      ChangeNotifierProvider<AppUpdater?>.value(
         value: u,
         child: MaterialApp(
           theme: AppTheme.dark,
-          home: Scaffold(body: SingleChildScrollView(child: AppUpdatesSection(distribution: distribution))),
+          home: Scaffold(
+              body: SingleChildScrollView(
+                  child: now == null
+                      ? AppUpdatesSection(distribution: distribution)
+                      : AppUpdatesSection(distribution: distribution, now: now))),
         ),
       );
 
@@ -290,6 +296,86 @@ void main() {
       expect(find.byKey(const ValueKey('update-now')), findsNothing);
     });
 
+
+    testWidgets('"checked N minutes ago" keeps up, once a minute, while the section is shown', (t) async {
+      SharedPreferences.setMockInitialValues({});
+      final u = sectionUpdater(body: manifest(code: AppVersion.code));
+      await t.runAsync(u.check);
+      var clock = DateTime.now();
+      await t.pumpWidget(section(u, now: () => clock));
+      await t.pumpAndSettle();
+      expect(find.text("You're up to date \u00b7 checked just now"), findsOneWidget);
+
+      clock = clock.add(const Duration(minutes: 5));
+      await t.pump(const Duration(seconds: 30));
+      expect(find.textContaining('just now'), findsOneWidget, reason: 'not before the minute is up');
+      await t.pump(const Duration(seconds: 31));
+      expect(find.text("You're up to date \u00b7 checked 5 minutes ago"), findsOneWidget);
+
+      clock = clock.add(const Duration(minutes: 56)); // 61 minutes since the check
+      await t.pump(const Duration(minutes: 1));
+      expect(find.text("You're up to date \u00b7 checked 1 hour ago"), findsOneWidget);
+    });
+
+    testWidgets('the refresh timer stops when the section goes away', (t) async {
+      final u = sectionUpdater(body: manifest(code: AppVersion.code));
+      await t.runAsync(u.check);
+      await t.pumpWidget(section(u));
+      await t.pumpAndSettle();
+      await t.pumpWidget(const SizedBox());
+      // A periodic timer left running would fail the test at its end; and
+      // time passing must not touch the disposed state.
+      await t.pump(const Duration(minutes: 3));
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('up to date with a leftover error: no Update button and no error text', (t) async {
+      final u = _StaleErrorUpdater(sectionUpdater());
+      await t.pumpWidget(section(u));
+      await t.pumpAndSettle();
+      expect(find.textContaining("You're up to date"), findsOneWidget);
+      expect(find.byKey(const ValueKey('update-now')), findsNothing);
+      expect(find.text(UpdateActions.message(UpdateError.installFailed)), findsNothing);
+    });
+
+    testWidgets('a failed install of an available update shows its error with the button', (t) async {
+      final u = sectionUpdater();
+      await t.runAsync(u.check);
+      await t.pumpWidget(section(u));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('update-now')));
+      await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('update-now')), findsOneWidget);
+      expect(find.text(UpdateActions.message(u.error!)), findsOneWidget);
+    });
+
+    testWidgets('Check for updates clears the old install error', (t) async {
+      var current = false;
+      final u = AppUpdater(
+        client: MockClient((r) async => http.Response(
+            jsonEncode(manifest(code: current ? AppVersion.code : 99)), 200)),
+        manifestUrl: source,
+        enabled: true,
+      );
+      await t.runAsync(u.check);
+      await t.pumpWidget(section(u));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('update-now')));
+      await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await t.pumpAndSettle();
+      expect(u.error, isNotNull);
+
+      current = true; // the site no longer has anything newer
+      await t.tap(find.byKey(const ValueKey('update-check')));
+      await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await t.pumpAndSettle();
+      expect(u.error, isNull);
+      expect(find.textContaining("You're up to date"), findsOneWidget);
+      expect(find.byType(Text).evaluate().map((e) => (e.widget as Text).data ?? ''),
+          isNot(contains(UpdateActions.message(UpdateError.hashMismatch))));
+    });
+
     testWidgets('Play builds: the version, and that Play does the updating', (t) async {
       final u = sectionUpdater(enabled: false);
       await t.pumpWidget(section(u, distribution: 'play'));
@@ -322,4 +408,21 @@ void main() {
       expect(t.takeException(), isNull);
     });
   });
+}
+
+/// An updater with nothing newer on offer but an old error still set.
+class _StaleErrorUpdater extends AppUpdater {
+  _StaleErrorUpdater(AppUpdater base)
+      : super(client: MockClient((_) async => http.Response('', 500)), manifestUrl: base.manifestUrl, enabled: true);
+
+  @override
+  UpdateError? get error => UpdateError.installFailed;
+  @override
+  int? get installedVersionCode => AppVersion.code;
+  @override
+  UpdateUrgency get urgency => UpdateUrgency.none;
+  @override
+  DateTime? get lastChecked => DateTime.now();
+  @override
+  UpdateManifest? get manifest => null;
 }

@@ -122,10 +122,12 @@ class _AddContactScreenState extends State<AddContactScreen> {
                   onChanged: _onChanged,
                 ),
               ),
-              AnimatedOpacity(
-                opacity: provider.isSearching ? 1 : 0,
-                duration: AppMotion.of(context, AppMotion.fast),
-                child: const LinearProgressIndicator(minHeight: 2),
+              // The bar exists only while searching (an invisible one would
+              // keep animating); the 2dp slot keeps the layout from jumping.
+              SizedBox(
+                key: const ValueKey('find-people-progress-slot'),
+                height: 2,
+                child: provider.isSearching ? const LinearProgressIndicator(minHeight: 2) : null,
               ),
               if (requests > 0)
                 Padding(

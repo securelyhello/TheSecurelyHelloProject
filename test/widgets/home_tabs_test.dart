@@ -202,78 +202,42 @@ void main() {
     });
   });
 
-  group('HomeTabScope', () {
-    testWidgets('maybeOf is null outside the home shell', (tester) async {
-      HomeTabSelector? found = _FakeSelector();
-      await tester.pumpWidget(_app(Builder(builder: (context) {
-        found = HomeTabScope.maybeOf(context);
-        return const SizedBox();
-      })));
-      expect(found, isNull);
+  group('HomeTabRegistry', () {
+    test('current is null when no shell is attached', () {
+      expect(HomeTabRegistry.current, isNull);
     });
 
-    testWidgets('an ancestor scope selects the tab', (tester) async {
+    test('a registered shell is found, and gone after detach', () {
       final fake = _FakeSelector();
-      late BuildContext inner;
-      await tester.pumpWidget(_app(HomeTabScope(
-        current: HomeTab.chats,
-        onSelect: fake.select,
-        child: Builder(builder: (context) {
-          inner = context;
-          return const SizedBox();
-        }),
-      )));
-      HomeTabScope.maybeOf(inner)!.select(HomeTab.findPeople);
-      expect(fake.picked, [HomeTab.findPeople]);
+      HomeTabRegistry.attach(fake);
+      addTearDown(() => HomeTabRegistry.detach(fake));
+      expect(HomeTabRegistry.current, same(fake));
+      HomeTabRegistry.detach(fake);
+      expect(HomeTabRegistry.current, isNull);
     });
 
-    testWidgets('a registered shell is found from a route pushed above it', (tester) async {
-      final fake = _FakeSelector();
-      HomeTabScope.attach(fake);
-      addTearDown(() => HomeTabScope.detach(fake));
-      HomeTabSelector? found;
-      await tester.pumpWidget(_app(Builder(builder: (context) {
-        found = HomeTabScope.maybeOf(context);
-        return const SizedBox();
-      })));
-      expect(found, same(fake));
-      HomeTabScope.detach(fake);
-      await tester.pumpWidget(_app(Builder(builder: (context) {
-        found = HomeTabScope.maybeOf(context);
-        return const SizedBox();
-      }), textScale: 1.1));
-      expect(found, isNull);
-    });
-
-    testWidgets('detach ignores a selector that is no longer the active one', (tester) async {
+    test('detach ignores a selector that is no longer the active one', () {
       final a = _FakeSelector();
       final b = _FakeSelector();
-      HomeTabScope.attach(a);
-      HomeTabScope.attach(b);
-      HomeTabScope.detach(a);
-      addTearDown(() => HomeTabScope.detach(b));
-      HomeTabSelector? found;
-      await tester.pumpWidget(_app(Builder(builder: (context) {
-        found = HomeTabScope.maybeOf(context);
-        return const SizedBox();
-      })));
-      expect(found, same(b));
+      HomeTabRegistry.attach(a);
+      HomeTabRegistry.attach(b);
+      HomeTabRegistry.detach(a);
+      addTearDown(() => HomeTabRegistry.detach(b));
+      expect(HomeTabRegistry.current, same(b));
     });
   });
 
   group('openFindPeople', () {
     testWidgets('inside the shell it switches tab and pushes nothing', (tester) async {
       final fake = _FakeSelector();
+      HomeTabRegistry.attach(fake);
+      addTearDown(() => HomeTabRegistry.detach(fake));
       var pushed = false;
       await tester.pumpWidget(_app(
-        HomeTabScope(
-          current: HomeTab.chats,
-          onSelect: fake.select,
-          child: Builder(
-            builder: (context) => TextButton(
-              onPressed: () => openFindPeople(context),
-              child: const Text('go'),
-            ),
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () => openFindPeople(context),
+            child: const Text('go'),
           ),
         ),
         routes: {'/add-contact': (_) {

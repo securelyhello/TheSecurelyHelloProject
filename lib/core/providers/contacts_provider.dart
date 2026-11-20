@@ -155,6 +155,9 @@ class ContactsProvider extends ChangeNotifier {
   Timer? _searchDebounce;
   String _lastSearch = '';
 
+  /// Bumped by [reset]: a search reply from before it is for another account.
+  int _generation = 0;
+
   ContactsProvider({
     required DirectoryService directoryService,
     required LocalStorage localStorage,
@@ -223,6 +226,8 @@ class ContactsProvider extends ChangeNotifier {
     }
     _subs.clear();
     _searchDebounce?.cancel();
+    _generation++;
+    _lastSearch = '';
     _myUserId = null;
     _contacts = [];
     _searchResults = [];
@@ -400,10 +405,11 @@ class ContactsProvider extends ChangeNotifier {
 
     final term = query.trim();
     _lastSearch = term;
+    final generation = _generation;
     _searchDebounce = Timer(const Duration(milliseconds: 400), () async {
       try {
         final results = await _directoryService.searchUsers(term);
-        if (_lastSearch != term) return; // a newer search superseded this one
+        if (generation != _generation || _lastSearch != term) return; // reset, or a newer search
         final contactIds = _contacts.map((c) => c.userId).toSet();
 
         _searchResults = results
@@ -437,7 +443,7 @@ class ContactsProvider extends ChangeNotifier {
             })
             .toList();
       } catch (e) {
-        if (_lastSearch != term) return;
+        if (generation != _generation || _lastSearch != term) return;
         _errorMessage = e is ApiException || e is NetworkException
             ? e.toString()
             : 'Search failed';

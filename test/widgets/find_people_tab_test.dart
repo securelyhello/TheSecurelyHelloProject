@@ -20,8 +20,9 @@ class _Contacts extends ChangeNotifier implements ContactsProvider {
   List<ContactRequest> get receivedRequests => requests;
   @override
   List<UserSearchResult> get searchResults => results;
+  bool searching = false;
   @override
-  bool get isSearching => false;
+  bool get isSearching => searching;
   @override
   String? get errorMessage => null;
   @override
@@ -111,6 +112,26 @@ void main() {
     final editable = tester.widget<EditableText>(
         find.descendant(of: search, matching: find.byType(EditableText)));
     expect(editable.autofocus, isTrue);
+  });
+
+  testWidgets('the progress bar is built only while searching, in a fixed 2dp slot', (tester) async {
+    await pump(tester, embedded: true);
+    final slot = find.byKey(const ValueKey('find-people-progress-slot'));
+    expect(find.byType(LinearProgressIndicator), findsNothing, reason: 'nothing ticking at opacity 0');
+    expect(tester.getSize(slot).height, 2);
+    final top = tester.getTopLeft(slot).dy;
+
+    contacts.searching = true;
+    contacts.notifyListeners();
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    expect(tester.getSize(slot).height, 2);
+    expect(tester.getTopLeft(slot).dy, top, reason: 'no layout jump');
+
+    contacts.searching = false;
+    contacts.notifyListeners();
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsNothing);
   });
 
   testWidgets('typing searches through the provider', (tester) async {

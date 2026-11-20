@@ -45,6 +45,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SITE = os.path.join(ROOT, 'website')
 DEFAULT_BASE = 'https://securelyhello.thenn.in'
+# The app refuses to download anything larger (UpdateManifest.maxApkBytes).
+MAX_APK_BYTES = 300 * 1024 * 1024
 
 
 def pubspec_version(path=os.path.join(ROOT, 'pubspec.yaml')):
@@ -136,6 +138,11 @@ def main(argv=None):
             sys.exit(f'--split wants ABI=APK with an existing file, got {item!r}')
         splits[abi] = path
     for apk in [args.apk, *splits.values()]:
+        if not os.path.isfile(apk):
+            sys.exit(f'{apk} does not exist')
+        if os.path.getsize(apk) > MAX_APK_BYTES:
+            sys.exit(f'{apk} is {os.path.getsize(apk)} bytes; the app refuses APKs over '
+                     f'{MAX_APK_BYTES} bytes (300 MB), so users could not update to it')
         found = apk_version_code(apk)
         if found is not None and found != code:
             sys.exit(f'{apk} has versionCode {found}, pubspec.yaml says {code} '

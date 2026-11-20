@@ -36,6 +36,10 @@ USER_AGENT = "SecurelyHello-build/1.0"
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# Limits, so a hijacked or broken download can't fill the disk.
+MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
+MAX_MEMBER_BYTES = 5 * 1024 * 1024
+
 LICENSE_MEMBER = "Chillax_Complete/License/FFL.txt"
 
 # (zip member, destination relative to the repo root, SHA-256)
@@ -98,7 +102,22 @@ def download(dest_zip):
     request = urllib.request.Request(URL, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=60) as response, open(dest_zip, "wb") as out:
-            shutil.copyfileobj(response, out)
+            declared = response.headers.get("Content-Length")
+            if declared is not None and declared.isdigit() and int(declared) > MAX_DOWNLOAD_BYTES:
+                raise SystemExit(
+                    f"fetch_fonts: the download is {declared} bytes; refusing more than {MAX_DOWNLOAD_BYTES}"
+                )
+            received = 0
+            while True:
+                chunk = response.read(1 << 16)
+                if not chunk:
+                    break
+                received += len(chunk)
+                if received > MAX_DOWNLOAD_BYTES:
+                    raise SystemExit(
+                        f"fetch_fonts: the download is larger than {MAX_DOWNLOAD_BYTES} bytes; aborted"
+                    )
+                out.write(chunk)
     except (urllib.error.URLError, OSError) as exc:
         raise SystemExit(f"fetch_fonts: download from {URL} failed: {exc}")
 
@@ -119,6 +138,11 @@ def extract_and_verify(zip_path, work_dir):
                 raise SystemExit(
                     f"fetch_fonts: {member} is missing from the Fontshare package; "
                     "the package layout may have changed"
+                )
+            size = archive.getinfo(member).file_size
+            if size > MAX_MEMBER_BYTES:
+                raise SystemExit(
+                    f"fetch_fonts: {member} is {size} bytes; refusing more than {MAX_MEMBER_BYTES}"
                 )
             # ZipFile.extract sanitises the member path, so it cannot escape work_dir.
             extracted = archive.extract(member, work_dir)

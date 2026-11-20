@@ -77,11 +77,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver imp
   @override
   void select(HomeTab tab) {
     if (!mounted) return;
-    final route = _route;
-    if (route != null && route.isActive) {
-      Navigator.of(context).popUntil((r) => r == route);
-    }
-    unawaited(_selectTab(tab));
+    unawaited(_selectFromAnywhere(tab));
+  }
+
+  Future<void> _selectFromAnywhere(HomeTab tab) async {
+    // Stays where it is (tab unchanged) when the call screen is showing on a
+    // locked phone and the user hasn't unlocked it.
+    if (!await popToShell(context, _route) || !mounted) return;
+    await _selectTab(tab);
   }
 
   Future<void> _selectTab(HomeTab tab) async {
@@ -118,14 +121,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver imp
     _notifications.onOpenChat = _openFromNotification;
     WidgetsBinding.instance.addObserver(this);
     _auth.addListener(_onAuthChanged);
-    HomeTabScope.attach(this);
+    HomeTabRegistry.attach(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _startSession());
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _route = ModalRoute.of(context);
   }
 
   /// The session ended without the user asking (token revoked or expired,
@@ -280,7 +277,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver imp
 
   @override
   void dispose() {
-    HomeTabScope.detach(this);
+    HomeTabRegistry.detach(this);
     _contacts.removeListener(_syncProfiles);
     _historySub?.cancel();
     _callLogSub?.cancel();
@@ -398,9 +395,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver imp
       (c) => c.receivedRequests.length,
     );
 
-    return wide
-        ? _buildWide(context, unread, requests)
-        : _buildNarrow(context, unread, requests);
+    // The probe, not this State, depends on the route: pushing or popping a
+    // page over the shell doesn't rebuild it.
+    return RouteProbe(
+      onRoute: (r) => _route = r,
+      child: wide ? _buildWide(context, unread, requests) : _buildNarrow(context, unread, requests),
+    );
   }
 
 

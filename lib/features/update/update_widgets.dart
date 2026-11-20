@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -218,12 +220,13 @@ Widget _unsupported(BuildContext context, AppUpdater u) {
 ///
 /// Where nothing updates the app itself (Google Play builds, desktop) it
 /// shows the version and where new ones come from.
-class AppUpdatesSection extends StatelessWidget {
+class AppUpdatesSection extends StatefulWidget {
   /// [distribution] is `play` for Google Play builds; defaults to this
-  /// build's own.
-  const AppUpdatesSection({super.key, this.distribution = AppUpdater.distribution});
+  /// build's own. [now] is the clock for "checked 5 minutes ago".
+  const AppUpdatesSection({super.key, this.distribution = AppUpdater.distribution, this.now = DateTime.now});
 
   final String distribution;
+  final DateTime Function() now;
 
   /// "90.0 MB" for [bytes]; KB below a tenth of a megabyte.
   @visibleForTesting
@@ -245,7 +248,30 @@ class AppUpdatesSection extends StatelessWidget {
   }
 
   @override
+  State<AppUpdatesSection> createState() => _AppUpdatesSectionState();
+}
+
+class _AppUpdatesSectionState extends State<AppUpdatesSection> {
+  Timer? _minute;
+
+  @override
+  void initState() {
+    super.initState();
+    // "checked 5 minutes ago" is only true if it keeps counting.
+    _minute = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _minute?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final distribution = widget.distribution;
     final u = context.watch<AppUpdater?>();
     final p = context.palette;
     final t = Theme.of(context).textTheme;
@@ -312,13 +338,13 @@ class AppUpdatesSection extends StatelessWidget {
       status = 'This version is no longer supported';
       icon = LucideIcons.triangleAlert;
     } else if (urgency == UpdateUrgency.available && m != null) {
-      status = 'Version ${m.versionName} is ready${size == null ? '' : ' \u00b7 ${formatSize(size)}'}';
+      status = 'Version ${m.versionName} is ready${size == null ? '' : ' \u00b7 ${AppUpdatesSection.formatSize(size)}'}';
       icon = LucideIcons.sparkles;
     } else if (u.lastCheckFailed) {
       status = "Couldn't check \u2014 check your connection";
       icon = LucideIcons.wifiOff;
     } else if (u.lastChecked != null) {
-      status = "You're up to date \u00b7 checked ${ago(u.lastChecked!, DateTime.now())}";
+      status = "You're up to date \u00b7 checked ${AppUpdatesSection.ago(u.lastChecked!, widget.now())}";
       icon = LucideIcons.check;
     } else {
       status = 'Not checked yet';
@@ -357,7 +383,9 @@ class AppUpdatesSection extends StatelessWidget {
             const SizedBox(height: 6),
             Text(m.notes, style: t.bodySmall),
           ],
-          if (showUpdate || u.busy || u.error != null) ...[
+          // Only for an update that exists (or one being fetched): a
+          // leftover error with nothing to update isn't worth showing.
+          if (showUpdate || u.busy || (newer && u.error != null)) ...[
             const SizedBox(height: 10),
             UpdateActions(updater: u),
           ],

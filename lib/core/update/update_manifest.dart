@@ -7,7 +7,8 @@
 /// ```
 ///
 /// `size` (bytes) is optional, at the top level and in each `abis` entry; it
-/// is only shown to the user ("90 MB"), never trusted for the download.
+/// is only shown to the user ("90 MB"); a malformed one (not an integer, not
+/// positive, over [maxApkBytes]) is read as absent.
 ///
 /// The download must come over HTTPS from the same host as the manifest; the
 /// hash and the APK's signing certificate are checked before installing.
@@ -43,7 +44,7 @@ class UpdateManifest {
 
   static const maxNotes = 2000;
 
-  /// The largest APK the app will take (also the largest `size` accepted).
+  /// The largest APK the app will take (also the largest `size` shown).
   static const maxApkBytes = 300 * 1024 * 1024;
 
   /// The APK for a phone whose preferred ABI is [abi]: its own split when
@@ -94,10 +95,10 @@ class UpdateManifest {
     if (uri == null || uri.scheme != 'https' || uri.host.isEmpty || uri.host != source.host) {
       throw const FormatException('url must be HTTPS on the manifest host');
     }
-    if (size != null && (size is! int || size <= 0 || size > maxApkBytes)) {
-      throw const FormatException('size');
-    }
-    return UpdateDownload(uri, hash.toLowerCase(), size as int?);
+    // The size is display-only: a malformed one is dropped rather than
+    // letting it reject a manifest that carries the minimum version.
+    final okSize = size is int && size > 0 && size <= maxApkBytes ? size : null;
+    return UpdateDownload(uri, hash.toLowerCase(), okSize);
   }
 }
 

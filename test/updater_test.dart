@@ -128,21 +128,23 @@ void main() {
       expect(m.downloadFor('arm64-v8a').size, isNull, reason: 'that split has no size of its own');
     });
 
-    test('a size that is not a positive integer up to 300 MB is rejected', () {
+    test('a size that is not a positive integer up to 300 MB is ignored, not fatal', () {
       const max = 300 * 1024 * 1024;
       expect(UpdateManifest.parse(manifestJson(size: max), source: source).size, max);
       for (final bad in [0, -1, max + 1, '1000', 1.5, true, <int>[]]) {
-        expect(() => UpdateManifest.parse(manifestJson(size: bad), source: source), throwsFormatException,
-            reason: 'top level $bad');
-        expect(
-            () => UpdateManifest.parse({
-                  ...manifestJson(),
-                  'abis': {
-                    'armeabi-v7a': {'url': 'https://securelyhello.thenn.in/x.apk', 'sha256': apkSha, 'size': bad},
-                  },
-                }, source: source),
-            throwsFormatException,
-            reason: 'per ABI $bad');
+        final top = UpdateManifest.parse(manifestJson(size: bad, min: 1), source: source);
+        expect(top.size, isNull, reason: 'top level $bad');
+        expect(top.versionCode, 2, reason: '$bad');
+        expect(top.minSupportedVersionCode, 1, reason: 'the minimum is still honoured: $bad');
+        final abi = UpdateManifest.parse({
+          ...manifestJson(min: 2),
+          'abis': {
+            'armeabi-v7a': {'url': 'https://securelyhello.thenn.in/x.apk', 'sha256': apkSha, 'size': bad},
+          },
+        }, source: source);
+        expect(abi.downloadFor('armeabi-v7a').size, isNull, reason: 'per ABI $bad');
+        expect(abi.downloadFor('armeabi-v7a').url.path, '/x.apk');
+        expect(abi.minSupportedVersionCode, 2, reason: 'per ABI $bad');
       }
     });
 
@@ -413,6 +415,133 @@ void main() {
       expect(u.error, UpdateError.hashMismatch);
       expect(nativeCalls.where((c) => c.method == 'install'), isEmpty);
       expect(dir.listSync(), isEmpty);
+    });
+
+    group('download size', () {
+      /// An updater whose APK comes back as [chunks] with the given
+      /// Content-Length; [pulled] counts the chunks the client read.
+      AppUpdater streaming(List<List<int>> chunks, {required int? size, int? contentLength, List<int>? pulled}) {
+        final client = MockClient.streaming((r, body) async {
+          if (r.url == source) {
+            final bytes = utf8.encode(jsonEncode(manifestJson(size: size)));
+            return http.StreamedResponse(Stream.value(bytes), 200, contentLength: bytes.length);
+          }
+          Stream<List<int>> gen() async* {
+            for (final c in chunks) {
+              pulled?.add(c.length);
+              yield c;
+              await Future<void>.delayed(Duration.zero);
+            }
+          }
+
+          return http.StreamedResponse(gen(), 200, contentLength: contentLength);
+        });
+        return AppUpdater(
+            client: client, manifestUrl: source, enabled: true, downloadDir: () async => dir, pinnedCertSha256: null);
+      }
+
+      List<List<int>> split(List<int> b, int n) =>
+          [for (var i = 0; i < b.length; i += n) b.sublist(i, i + n > b.length ? b.length : i + n)];
+
+      test('a download of exactly the stated size installs', () async {
+        final u = streaming(split(apkBytes, 1000), size: apkBytes.length, contentLength: apkBytes.length);
+        await u.check();
+        await u.downloadAndInstall();
+        expect(u.error, isNull);
+        expect(nativeCalls.map((c) => c.method), contains('install'));
+      });
+
+      test('a Content-Length that is not the stated size is refused before reading the body', () async {
+        final pulled = <int>[];
+        final u = streaming(split(apkBytes, 1000),
+            size: apkBytes.length, contentLength: apkBytes.length + 5, pulled: pulled);
+        await u.check();
+        await u.downloadAndInstall();
+        expect(u.error, UpdateError.hashMismatch);
+        expect(pulled.length, lessThanOrEqualTo(1), reason: 'the body is not downloaded');
+        expect(nativeCalls.where((c) => c.method == 'install'), isEmpty);
+        expect(dir.listSync(), isEmpty);
+      });
+
+      test('stops reading as soon as more than the stated size has arrived', () async {
+        final pulled = <int>[];
+        // Content-Length is absent (chunked), so only the running total can catch it.
+        final u = streaming(split(apkBytes, 1000), size: 2500, contentLength: null, pulled: pulled);
+        await u.check();
+        await u.downloadAndInstall();
+        expect(u.error, UpdateError.hashMismatch);
+        expect(pulled.length, lessThanOrEqualTo(4), reason: 'aborted right after passing 2500 bytes');
+        expect(nativeCalls.where((c) => c.method == 'install'), isEmpty);
+        expect(dir.listSync(), isEmpty);
+      });
+
+      test('a download shorter than the stated size is a hash mismatch, even with the right hash', () async {
+        final u = streaming(split(apkBytes, 1000), size: apkBytes.length + 1, contentLength: null);
+        await u.check();
+        await u.downloadAndInstall();
+        expect(u.error, UpdateError.hashMismatch);
+        expect(nativeCalls.where((c) => c.method == 'install'), isEmpty);
+        expect(dir.listSync(), isEmpty);
+      });
+
+      test('without a stated size nothing is checked (display-only field absent or malformed)', () async {
+        final u = streaming(split(apkBytes, 1000), size: null, contentLength: null);
+        await u.check();
+        await u.downloadAndInstall();
+        expect(u.error, isNull);
+      });
+    });
+
+    group('stale downloads', () {
+      File apk(String name) => File('${dir.path}/$name')..writeAsBytesSync([1, 2, 3]);
+
+      test('the first check deletes cached APKs that are not newer than the installed build', () async {
+        native['info'] = {'versionCode': 5, 'versionName': '1.0.0', 'certSha256': 'AA:BB'};
+        final old = apk('securelyhello-3.apk');
+        final same = apk('securelyhello-5.apk');
+        final newer = apk('securelyhello-6.apk');
+        final other = apk('other-1.apk');
+        final unrelated = apk('securelyhello-3.apk.part');
+        final u = updater();
+        await u.check();
+        await u.cleanupDone;
+        expect(old.existsSync(), isFalse);
+        expect(same.existsSync(), isFalse);
+        expect(newer.existsSync(), isTrue, reason: 'may be waiting for the install permission');
+        expect(other.existsSync(), isTrue);
+        expect(unrelated.existsSync(), isTrue);
+      });
+
+      test('it also happens when the 12-hour wait skips the request, and only once per run', () async {
+        native['info'] = {'versionCode': 5, 'versionName': '1.0.0', 'certSha256': 'AA:BB'};
+        await updater().check();
+        final u = updater();
+        final old = apk('securelyhello-2.apk');
+        await u.check();
+        await u.cleanupDone;
+        expect(old.existsSync(), isFalse);
+        final again = apk('securelyhello-1.apk');
+        await u.check();
+        await u.cleanupDone;
+        expect(again.existsSync(), isTrue, reason: 'cleanup is a start-up job, not on every check');
+      });
+    });
+
+    test('a forced check clears the error left by an earlier install attempt', () async {
+      final u = updater(apk: utf8.encode('tampered'));
+      await u.check();
+      await u.downloadAndInstall();
+      expect(u.error, UpdateError.hashMismatch);
+      await u.check(force: true);
+      expect(u.error, isNull);
+    });
+
+    test('a check that is not forced leaves the error alone', () async {
+      final u = updater(apk: utf8.encode('tampered'));
+      await u.check();
+      await u.downloadAndInstall();
+      await u.check();
+      expect(u.error, UpdateError.hashMismatch);
     });
 
     test('an APK signed by someone else is refused', () async {
