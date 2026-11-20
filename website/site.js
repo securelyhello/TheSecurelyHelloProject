@@ -45,7 +45,7 @@
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((m) => {
         if (typeof m.versionName === 'string') {
-          versionLine.textContent = `Version ${m.versionName} · for Android 7.0 and newer.`;
+          versionLine.textContent = `Version ${m.versionName}. For Android 7.0 and newer.`;
         }
       })
       .catch(() => {});

@@ -5,19 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
-  <title>Securely Hello · Private chats, calls and stories</title>
+  <title>Securely Hello, private chats, calls and stories</title>
   <meta name="description" content="Chats, calls and stories that only you and the people you choose can see. End-to-end encrypted, no ads, no tracking. Made in India.">
   <meta property="og:title" content="Securely Hello">
   <meta property="og:description" content="Private chats, calls and stories. End-to-end encrypted. Made in India.">
   <meta property="og:image" content="https://securelyhello.thenn.in/assets/og.png">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="theme-color" content="#0E0F1C">
+  <meta name="theme-color" content="#F7F5EC">
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
   <link rel="icon" href="assets/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-  <link rel="preload" href="assets/fonts/PlusJakartaSans-ExtraBold.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="assets/fonts/Inter-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/Chillax-Semibold.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/Chillax-Medium.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
   <script src="early.js"></script>
 </head>
@@ -25,208 +25,231 @@
   <a class="skip" href="#main">Skip to content</a>
 
   <header class="nav" id="nav">
-    <div class="wrap nav-inner">
-      <a class="brand" href="#top" aria-label="Securely Hello home">
-        <img src="assets/logo.svg" alt="" width="34" height="34">
-        <span>Securely Hello</span>
-      </a>
-      <nav aria-label="Sections" class="nav-links">
-        <a href="#features">Features</a>
-        <a href="#how">How it works</a>
-        <a href="#faq">FAQ</a>
-      </nav>
-      <a class="btn btn-small" href="#get">Download</a>
+    <div class="container">
+      <div class="nav-pill">
+        <a class="brand" href="#top" aria-label="Securely Hello home">
+          <img src="assets/logo.svg" alt="" width="32" height="32">
+          <span>Securely Hello</span>
+        </a>
+        <nav aria-label="Sections" class="nav-links">
+          <a href="#features">Features</a>
+          <a href="#how">How it works</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <a class="btn btn--primary btn--nav" href="#get">Download</a>
+      </div>
     </div>
   </header>
 
   <main id="main">
     <section class="hero" id="top">
-      <div class="blob blob-a" aria-hidden="true"></div>
-      <div class="blob blob-b" aria-hidden="true"></div>
-      <div class="wrap hero-grid">
+      <div class="container hero-grid">
         <div class="hero-copy">
-          <p class="eyebrow reveal">End-to-end encrypted</p>
-          <h1 class="reveal">Say hello<br><span class="grad">Keep it between you</span></h1>
-          <p class="lead reveal">Chats, calls and stories that only you and the people you choose can see. Not even we can.</p>
-          <div class="cta reveal">
-            <a class="btn btn-big" href="#get">Download for Android</a>
-            <a class="btn btn-ghost btn-big" href="#how">See how it works</a>
+          <h1>Say hello. Keep it between you.</h1>
+          <p class="lead">Chats, calls and stories only you and your people can see.</p>
+          <div class="actions">
+            <a class="btn btn--primary" href="#get">Download for Android</a>
+            <a class="textlink" href="#how">See how it works</a>
           </div>
-          <ul class="pills reveal" aria-label="Highlights">
-            <li>Free</li>
-            <li>No ads</li>
-            <li>No tracking</li>
-            <li>Made in India</li>
-          </ul>
         </div>
-        <div class="hero-stage" aria-hidden="true">
-          <div class="phone phone-hero">
-            <img src="assets/screens/10_chats_unread.webp" alt="" width="412" height="892" fetchpriority="high">
-          </div>
-          <div class="bubble b1">Hello 👋</div>
-          <div class="bubble b2 out">Hi! Is this private?</div>
-          <div class="bubble b3"><span class="lock-ico"></span> Only we can read it</div>
+        <div class="sheet hero-sheet">
+          <figure class="shot shot--hero" data-slot="hero" data-kind="product" data-alt="The chat list: your story, search, filters and one conversation with an unread count">
+            <img src="assets/screens/10_chats_unread.webp" alt="The chat list: your story, search, filters and one conversation with an unread count" width="412" height="892" fetchpriority="high">
+          </figure>
+          <p class="sticker"><span>Free</span><span>No ads</span></p>
         </div>
-      </div>
-    </section>
-
-    <section class="section" id="features">
-      <div class="wrap">
-        <h2 class="reveal">Everything you need<br>Nothing we can read</h2>
-        <div class="grid features">
-          <article class="card feature reveal">
-            <span class="ico ico-chat" aria-hidden="true"></span>
-            <h3>Private chats</h3>
-            <p>Texts, photos, files and voice notes, locked on your phone.</p>
-          </article>
-          <article class="card feature reveal">
-            <span class="ico ico-call" aria-hidden="true"></span>
-            <h3>Calls that sound close</h3>
-            <p>Voice and video, encrypted, even with the screen off.</p>
-          </article>
-          <article class="card feature reveal">
-            <span class="ico ico-story" aria-hidden="true"></span>
-            <h3>Stories that vanish</h3>
-            <p>Share a moment with the people you pick. Gone in 24 hours.</p>
-          </article>
-          <article class="card feature reveal">
-            <span class="ico ico-group" aria-hidden="true"></span>
-            <h3>Groups</h3>
-            <p>Plan the trip, share the photos. Only members can read along.</p>
-          </article>
-          <article class="card feature reveal">
-            <span class="ico ico-shield" aria-hidden="true"></span>
-            <h3>Only people you accept</h3>
-            <p>Strangers can't message you. Block and report in two taps.</p>
-          </article>
-          <article class="card feature reveal">
-            <span class="ico ico-devices" aria-hidden="true"></span>
-            <h3>All your devices</h3>
-            <p>Phone, tablet and computer, each with its own keys.</p>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <section class="section gallery-section" id="screens">
-      <div class="wrap">
-        <h2 class="reveal">Made to feel friendly</h2>
-      </div>
-      <div class="gallery" tabindex="0" aria-label="Screenshots">
-        <figure class="phone reveal"><img src="assets/screens/12c_reply_react_edit_delete.webp" alt="A chat with replies and reactions" width="412" height="892" loading="lazy"></figure>
-        <figure class="phone reveal"><img src="assets/screens/15c_group_chat.webp" alt="A group chat" width="412" height="892" loading="lazy"></figure>
-        <figure class="phone reveal"><img src="assets/screens/16d_story_viewer.webp" alt="A story from a contact" width="412" height="892" loading="lazy"></figure>
-        <figure class="phone reveal"><img src="assets/screens/13b_incoming_call.webp" alt="An incoming call" width="412" height="892" loading="lazy"></figure>
-        <figure class="phone reveal"><img src="assets/screens/16b_calls.webp" alt="The calls tab" width="412" height="892" loading="lazy"></figure>
-        <figure class="phone reveal"><img src="assets/screens/14_contact_info.webp" alt="Contact info with the safety number" width="412" height="892" loading="lazy"></figure>
       </div>
     </section>
 
     <section class="section how" id="how">
-      <div class="wrap">
+      <div class="container">
         <h2 class="reveal">How your hello stays private</h2>
-        <div class="flow reveal" aria-label="A message travels from your phone to theirs, locked the whole way">
-          <div class="node">
-            <div class="node-ico phone-ico" aria-hidden="true"></div>
-            <b>Your phone</b>
-            <span>locks it</span>
-          </div>
-          <div class="track" aria-hidden="true">
-            <div class="packet"><span class="lock-ico"></span></div>
-          </div>
-          <div class="node">
-            <div class="node-ico server-ico" aria-hidden="true"></div>
-            <b>Our server</b>
-            <span class="noise" id="noise">x9#Qf…</span>
-          </div>
-          <div class="track" aria-hidden="true">
-            <div class="packet late"><span class="lock-ico"></span></div>
-          </div>
-          <div class="node">
-            <div class="node-ico phone-ico" aria-hidden="true"></div>
-            <b>Their phone</b>
-            <span>unlocks it</span>
+        <div class="note-grid">
+          <figure class="sealed reveal">
+            <p class="msg">Hi! Is this private?</p>
+            <figcaption>
+              <span><b>Your phone</b> locks it.</span>
+              <span><b>Their phone</b> opens it.</span>
+            </figcaption>
+          </figure>
+          <div class="server reveal">
+            <h3>Our server</h3>
+            <p class="noise" id="noise" aria-hidden="true">x9#Qf…</p>
+            <p class="server-line">It passes along sealed envelopes it has no key for.</p>
           </div>
         </div>
-        <div class="grid facts">
+        <div class="facts">
           <div class="fact reveal"><b>A new key for every message</b><span>The Double Ratchet, as in Signal.</span></div>
-          <div class="fact reveal"><b>Check who you're talking to</b><span>Compare safety numbers in person.</span></div>
+          <div class="fact reveal"><b>Check who you’re talking to</b><span>Compare safety numbers in person.</span></div>
           <div class="fact reveal"><b>The server forgets</b><span>Waiting messages are gone within a day.</span></div>
         </div>
       </div>
     </section>
 
-    <section class="section" id="get">
-      <div class="wrap">
-        <div class="download reveal">
-          <div class="download-copy">
-            <img src="assets/logo.svg" alt="" width="72" height="72" class="download-logo">
-            <h2>Get Securely Hello</h2>
-            <p class="muted" id="version-line">For Android 7.0 and newer.</p>
-            <div class="cta" id="downloads">
-              <a class="btn btn-big" data-link="androidApk" href="#" download>Download for Android</a>
-              <a class="btn btn-ghost" data-link="playStore" href="#">Google Play</a>
-              <a class="btn btn-ghost" data-link="appStore" href="#">iPhone</a>
-              <a class="btn btn-ghost" data-link="desktop" href="#">Windows, macOS, Linux</a>
+    <section class="section features" id="features">
+      <div class="container">
+        <div class="head reveal">
+          <h2>Everything you need. Nothing we can read.</h2>
+          <p class="lead">Made to feel friendly.</p>
+        </div>
+        <div class="rows" id="screens">
+          <article class="row row--a reveal">
+            <div class="row-copy">
+              <h3>Private chats</h3>
+              <p>Texts, photos, files and voice notes, locked on your phone. Reply, react, edit or delete a message.</p>
             </div>
-            <div class="cta small-links">
-              <a class="link" data-link="androidApkArm64" href="#" download>Smaller 64-bit APK</a>
-              <a class="link" data-link="androidApkArm32" href="#" download>32-bit APK for older phones</a>
+            <div class="mat mat--sugar">
+              <figure class="shot" data-slot="chats" data-kind="product" data-alt="A chat with a reply, a reaction, an edited message and a deleted one">
+                <img src="assets/screens/12c_reply_react_edit_delete.webp" alt="A chat with replies and reactions" width="412" height="892" loading="lazy">
+              </figure>
             </div>
-            <p class="note" id="downloads-soon" hidden>Downloads are coming soon.</p>
-            <details class="cert" id="apk-note" hidden>
-              <summary>Check that it's genuine</summary>
-              <p>Our signing certificate's SHA-256 is</p>
-              <code id="apk-cert"></code>
-              <button class="btn btn-small btn-ghost" id="copy-cert" type="button">Copy</button>
-            </details>
-            <p class="note" id="apk-help" hidden>Android will ask to allow installing from your browser. The app then updates itself.</p>
-          </div>
-          <figure class="qr">
-            <img src="assets/download-qr.svg" alt="QR code linking to the Android download" width="200" height="200" loading="lazy">
-            <figcaption>Scan with your phone</figcaption>
-          </figure>
+          </article>
+          <article class="row row--b reveal">
+            <div class="row-copy">
+              <h3>Calls that sound close</h3>
+              <p>Voice and video, encrypted, even with the screen off.</p>
+            </div>
+            <div class="mat mat--leaf">
+              <figure class="shot" data-slot="calls" data-kind="product" data-alt="An incoming voice call with decline and accept">
+                <img src="assets/screens/13b_incoming_call.webp" alt="An incoming call" width="412" height="892" loading="lazy">
+              </figure>
+              <figure class="shot" data-slot="calls-tab" data-kind="product" data-alt="The calls tab with a recent call">
+                <img src="assets/screens/16b_calls.webp" alt="The calls tab" width="412" height="892" loading="lazy">
+              </figure>
+            </div>
+          </article>
+          <article class="row row--c reveal">
+            <div class="row-copy">
+              <h3>Stories that vanish</h3>
+              <p>Share a moment with the people you pick. Gone in 24 hours.</p>
+            </div>
+            <div class="mat mat--sand">
+              <figure class="shot" data-slot="stories" data-kind="product" data-alt="A story from a contact with reaction buttons and a reply field">
+                <img src="assets/screens/16d_story_viewer.webp" alt="A story from a contact" width="412" height="892" loading="lazy">
+              </figure>
+            </div>
+          </article>
+          <article class="row row--d reveal">
+            <div class="row-copy">
+              <h3>Groups</h3>
+              <p>Plan the trip, share the photos. Only members can read along.</p>
+            </div>
+            <div class="mat mat--sugar">
+              <figure class="shot" data-slot="groups" data-kind="product" data-alt="A group chat called Weekend trip">
+                <img src="assets/screens/15c_group_chat.webp" alt="A group chat" width="412" height="892" loading="lazy">
+              </figure>
+            </div>
+          </article>
+          <article class="row row--e reveal">
+            <div class="row-copy">
+              <h3>Only people you accept</h3>
+              <p>Strangers can’t message you. Block and report in two taps.</p>
+            </div>
+            <div class="mat mat--leaf">
+              <figure class="shot" data-slot="people" data-kind="product" data-alt="The Find people tab: search, requests and invite friends">
+                <img src="assets/screens/14_contact_info.webp" alt="Contact info with the safety number" width="412" height="892" loading="lazy">
+              </figure>
+            </div>
+          </article>
         </div>
       </div>
     </section>
 
-    <section class="section" id="faq">
-      <div class="wrap narrow">
+    <section class="band" aria-labelledby="needs">
+      <div class="container">
+        <h2 class="visually-hidden" id="needs">What it needs</h2>
+        <div class="band-grid">
+        <p class="statement reveal">Free. No ads. No tracking.<br>Made in India.</p>
+        <div class="needs">
+          <div class="reveal"><b>Android 7.0 and newer</b><span>The APK is signed with our key, and the app checks every update before installing it.</span></div>
+          <div class="reveal"><b>Its own keys on every device</b><span>Phone, tablet and computer.</span></div>
+        </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section faqs" id="faq">
+      <div class="container faq-grid">
         <h2 class="reveal">Questions</h2>
-        <details class="faq reveal">
-          <summary>Can Securely Hello read my messages?</summary>
-          <p>No. Messages, calls, files and stories are locked on your phone and unlocked only on the phones of the people you send them to. Our server passes along sealed envelopes it has no key for.</p>
-        </details>
-        <details class="faq reveal">
-          <summary>What does it cost?</summary>
-          <p>Nothing. There are no ads and no tracking, and we never sell data.</p>
-        </details>
-        <details class="faq reveal">
-          <summary>Who can message me?</summary>
-          <p>Only people you accept as contacts, or who share a group with you. Everyone else needs to send a request first.</p>
-        </details>
-        <details class="faq reveal">
-          <summary>What if I lose my phone?</summary>
-          <p>Sign in on your new phone and approve it from another of your devices, or restore an encrypted backup. Without either, old chats can't be recovered, because we never had them.</p>
-        </details>
-        <details class="faq reveal">
-          <summary>Why isn't it on Google Play yet?</summary>
-          <p>It's coming. Until then the APK here is signed with our key, and the app checks that every update is signed with the same key before installing it.</p>
-        </details>
+        <div class="faq-list">
+          <details class="faq reveal">
+            <summary>Can Securely Hello read my messages?</summary>
+            <p>No. Messages, calls, files and stories are locked on your phone and unlocked only on the phones of the people you send them to. Our server passes along sealed envelopes it has no key for.</p>
+          </details>
+          <details class="faq reveal">
+            <summary>What does it cost?</summary>
+            <p>Nothing. There are no ads and no tracking, and we never sell data.</p>
+          </details>
+          <details class="faq reveal">
+            <summary>Who can message me?</summary>
+            <p>Only people you accept as contacts, or who share a group with you. Everyone else needs to send a request first.</p>
+          </details>
+          <details class="faq reveal">
+            <summary>What if I lose my phone?</summary>
+            <p>Sign in on your new phone and approve it from another of your devices, or restore an encrypted backup. Without either, old chats can’t be recovered, because we never had them.</p>
+          </details>
+          <details class="faq reveal">
+            <summary>Why isn’t it on Google Play yet?</summary>
+            <p>It’s coming. Until then the APK here is signed with our key, and the app checks that every update is signed with the same key before installing it.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="section get" id="get">
+      <div class="container get-grid">
+        <div class="get-copy reveal">
+          <h2>Get Securely Hello</h2>
+          <p class="version" id="version-line">For Android 7.0 and newer.</p>
+          <div class="actions downloads" id="downloads">
+            <a class="btn btn--primary" data-link="androidApk" href="#" download>Download for Android</a>
+            <a class="btn btn--quiet" data-link="playStore" href="#">Google Play</a>
+            <a class="btn btn--quiet" data-link="appStore" href="#">iPhone</a>
+            <a class="btn btn--quiet" data-link="desktop" href="#">Windows, macOS, Linux</a>
+          </div>
+          <p class="cpu-links">
+            <a class="textlink" data-link="androidApkArm64" href="#" download>Smaller 64-bit APK</a>
+            <a class="textlink" data-link="androidApkArm32" href="#" download>32-bit APK for older phones</a>
+          </p>
+          <p class="note" id="downloads-soon" hidden>Downloads are coming soon.</p>
+          <details class="cert" id="apk-note" hidden>
+            <summary>Check that it’s genuine</summary>
+            <p>Our signing certificate’s SHA-256 is</p>
+            <code id="apk-cert"></code>
+            <button class="btn btn--quiet btn--small" id="copy-cert" type="button">Copy</button>
+          </details>
+          <p class="note" id="apk-help" hidden>Android will ask to allow installing from your browser. The app then updates itself.</p>
+        </div>
+        <div class="get-visual reveal">
+          <div class="mat mat--sugar">
+            <figure class="shot shot--crop" data-slot="get" data-kind="product" data-alt="The chat list, shown beside the download code">
+              <img src="assets/screens/10_chats_unread.webp" alt="The chat list" width="412" height="892" loading="lazy">
+            </figure>
+            <figure class="qr">
+              <img src="assets/download-qr.svg" alt="QR code linking to the Android download" width="160" height="160" loading="lazy">
+              <figcaption>Scan with your phone</figcaption>
+            </figure>
+          </div>
+        </div>
       </div>
     </section>
   </main>
 
   <footer class="footer">
-    <div class="wrap footer-inner">
-      <a class="brand" href="#top"><img src="assets/logo.svg" alt="" width="28" height="28"><span>Securely Hello</span></a>
-      <nav aria-label="Footer">
-        <a href="privacy.html">Privacy</a>
-        <a href="terms.html">Terms</a>
-        <a data-link="source" href="#">Source code</a>
-        <span class="contact-email"></span>
-      </nav>
-      <p class="muted small">© <span id="year">2026</span> Thenn · Made in India · <span id="stats-line"></span></p>
+    <div class="footer-ink">
+    <div class="container footer-inner">
+      <p class="footer-statement">Not even we can read your chats.</p>
+      <div class="footer-bar">
+        <a class="brand" href="#top"><img src="assets/logo.svg" alt="" width="28" height="28"><span>Securely Hello</span></a>
+        <nav aria-label="Footer">
+          <a href="privacy.html">Privacy</a>
+          <a href="terms.html">Terms</a>
+          <a data-link="source" href="#">Source code</a>
+          <span class="contact-email"></span>
+        </nav>
+        <p class="legal-line"><span>© <span id="year">2026</span> Thenn</span> <span>Made in India</span> <span id="stats-line"></span></p>
+      </div>
+    </div>
     </div>
   </footer>
 

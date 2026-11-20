@@ -101,28 +101,63 @@ PAGE = """<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
-  <title>{title} · Securely Hello</title>
-  <meta name="theme-color" content="#0E0F1C">
+  <title>{title}, Securely Hello</title>
+  <meta name="description" content="{description}">
+  <meta name="theme-color" content="#F7F5EC">
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="preload" href="assets/fonts/Chillax-Semibold.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="nav scrolled"><div class="wrap nav-inner">
-    <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" width="34" height="34"><span>Securely Hello</span></a>
-    <nav aria-label="Legal" class="nav-links"><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a></nav>
-    <a class="btn btn-small" href="index.html#get">Download</a>
-  </div></header>
-  <main class="page"><div class="wrap narrow">
+  <header class="nav" id="nav">
+    <div class="container">
+      <div class="nav-pill">
+        <a class="brand" href="index.html" aria-label="Securely Hello home"><img src="assets/logo.svg" alt="" width="32" height="32"><span>Securely Hello</span></a>
+        <nav aria-label="Legal" class="nav-links"><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a></nav>
+        <a class="btn btn--primary btn--nav" href="index.html#get">Download</a>
+      </div>
+    </div>
+  </header>
+  <main class="page container" id="main">
 <!-- Generated from {source} by tools/build_site.py. Edit the Markdown, not this file. -->
 {body}
-  </div></main>
-  <footer class="footer"><div class="wrap footer-inner">
-    <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" width="28" height="28"><span>Securely Hello</span></a>
-    <nav aria-label="Footer"><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="mailto:hello@thenn.in">hello@thenn.in</a></nav>
-  </div></footer>
+  </main>
+  <footer class="footer">
+    <div class="footer-ink">
+    <div class="container footer-inner">
+      <p class="footer-statement">Not even we can read your chats.</p>
+      <div class="footer-bar">
+        <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" width="28" height="28"><span>Securely Hello</span></a>
+        <nav aria-label="Footer"><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="mailto:hello@thenn.in">hello@thenn.in</a></nav>
+      </div>
+    </div>
+    </div>
+  </footer>
 </body>
 </html>
 """
+
+DESCRIPTIONS = {
+    'privacy': 'What the Securely Hello app and server keep, why, and for how long.',
+    'terms': 'The rules for using Securely Hello.',
+}
+
+
+def layout_legal(body):
+    """Lays the document out as one article: a head (the title and what comes before the first
+    heading) and one row per section: its heading, then its text. Tables get a
+    scrolling wrapper so they never widen the page on a phone."""
+    body = re.sub(r'(<table>.*?</table>)',
+                  r'<div class="table-wrap" role="region" aria-label="Table" tabindex="0">\1</div>',
+                  body, flags=re.S)
+    head, *sections = re.split(r'(?=<h2>)', body)
+    out = ['<article class="legal">', '<header class="legal-head">', head.strip(), '</header>']
+    for sec in sections:
+        h2, _, rest = sec.partition('</h2>')
+        out.append(f'<div class="legal-sec">{h2}</h2>\n<div class="legal-body">\n{rest.strip()}\n</div></div>')
+    out.append('</article>')
+    return '\n'.join(out)
 
 
 def build_legal():
@@ -131,7 +166,8 @@ def build_legal():
         with open(src, encoding='utf-8') as f:
             body = markdown_to_html(f.read())
         with open(os.path.join(SITE, f'{name}.html'), 'w', encoding='utf-8') as f:
-            f.write(PAGE.format(title=title, source=f'docs/legal/{name}.md', body=body))
+            f.write(PAGE.format(title=title, source=f'docs/legal/{name}.md',
+                                description=DESCRIPTIONS[name], body=layout_legal(body)))
         print(f'wrote website/{name}.html')
 
 

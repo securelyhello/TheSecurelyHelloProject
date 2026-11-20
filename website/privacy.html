@@ -5,27 +5,40 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
-  <title>Privacy policy · Securely Hello</title>
-  <meta name="theme-color" content="#0E0F1C">
+  <title>Privacy policy, Securely Hello</title>
+  <meta name="description" content="What the Securely Hello app and server keep, why, and for how long.">
+  <meta name="theme-color" content="#F7F5EC">
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="preload" href="assets/fonts/Chillax-Semibold.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="nav scrolled"><div class="wrap nav-inner">
-    <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" width="34" height="34"><span>Securely Hello</span></a>
-    <nav aria-label="Legal" class="nav-links"><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a></nav>
-    <a class="btn btn-small" href="index.html#get">Download</a>
-  </div></header>
-  <main class="page"><div class="wrap narrow">
+  <header class="nav" id="nav">
+    <div class="container">
+      <div class="nav-pill">
+        <a class="brand" href="index.html" aria-label="Securely Hello home"><img src="assets/logo.svg" alt="" width="32" height="32"><span>Securely Hello</span></a>
+        <nav aria-label="Legal" class="nav-links"><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a></nav>
+        <a class="btn btn--primary btn--nav" href="index.html#get">Download</a>
+      </div>
+    </div>
+  </header>
+  <main class="page container" id="main">
 <!-- Generated from docs/legal/privacy.md by tools/build_site.py. Edit the Markdown, not this file. -->
+<article class="legal">
+<header class="legal-head">
 <h1>Privacy Policy</h1>
 <p>Last updated: 20 November 2026</p>
 <p>Securely Hello is run by Thenn (Tirth Joshi), India. You can reach us at hello@thenn.in. This policy explains what the app and our server process, why, and for how long.</p>
 <p><strong>In short: we cannot read your messages, listen to your calls, or see your files and stories.</strong> They are encrypted on your phone and can only be opened by the people you send them to.</p>
-<h2>What stays on your devices</h2>
+</header>
+<div class="legal-sec"><h2>What stays on your devices</h2>
+<div class="legal-body">
 <ul><li>The content of your messages, calls, files, voice notes and stories. They are encrypted before they leave your device and decrypted only on the devices of the people you are talking to, and on your own other devices.</li><li>Your private keys and your chat history.</li><li>Your notification settings, mutes and drafts.</li></ul>
-<h2>What our server keeps</h2>
-<table><thead><tr><th>What</th><th>Why</th><th>For how long</th></tr></thead><tbody>
+</div></div>
+<div class="legal-sec"><h2>What our server keeps</h2>
+<div class="legal-body">
+<div class="table-wrap" role="region" aria-label="Table" tabindex="0"><table><thead><tr><th>What</th><th>Why</th><th>For how long</th></tr></thead><tbody>
 <tr><td>Your e-mail address</td><td>Signing in, verification and password-reset codes</td><td>Until you delete your account</td></tr>
 <tr><td>Your password</td><td>Signing in. We keep only a one-way scrypt hash, never the password</td><td>Until you change it or delete your account</td></tr>
 <tr><td>Username and display name</td><td>So your contacts can find and recognise you</td><td>Until you change them or delete your account</td></tr>
@@ -44,25 +57,46 @@
 <tr><td>Your push-notification token, if notifications are on</td><td>Waking your phone when something arrives</td><td>Until you sign out or turn notifications off</td></tr>
 <tr><td>Online status and last-seen time</td><td>Showing your contacts whether you are around</td><td>Online: while connected; last seen: 90 days</td></tr>
 <tr><td>Technical logs: time, request path, result and account id, never content, e-mail addresses or searches</td><td>Security and keeping the service running</td><td>30 days</td></tr>
-</tbody></table>
+</tbody></table></div>
 <p>We hold no key that could decrypt your messages, stories or files.</p>
-<h2>Who else is involved</h2>
+</div></div>
+<div class="legal-sec"><h2>Who else is involved</h2>
+<div class="legal-body">
 <ul><li><strong>Hosting:</strong> our server runs on a VPS from Manage Server in India; the database is hosted by Neon in Singapore.</li><li><strong>E-mail:</strong> Resend sends verification and reset codes, so it receives your address and the code.</li><li><strong>Push notifications</strong> (only if turned on): Google Firebase Cloud Messaging and Apple's push service learn that something arrived for your device and when. They never receive content, the sender or the chat.</li><li><strong>Calls:</strong> when two phones cannot connect directly, our own relay server passes the call along. It stays end-to-end encrypted.</li><li><strong>Updates:</strong> the Android app downloaded from our website checks securelyhello.thenn.in for new versions about twice a day. Like any website, ours sees the address the request comes from.</li></ul>
 <p>The app has no ads, no analytics and no tracking. Its fonts come with the app, so it makes no requests to font services. We do not sell or share your data.</p>
-<h2>Your rights</h2>
+</div></div>
+<div class="legal-sec"><h2>Your rights</h2>
+<div class="legal-body">
 <p>In the app you can see and change your profile, remove devices, and delete your account (Settings → Delete account), which deletes everything our server holds about you. To ask for a copy of your data, a correction, or anything else, write to hello@thenn.in. If you are not satisfied with our answer, you may complain to the Data Protection Board of India.</p>
-<h2>Children</h2>
+</div></div>
+<div class="legal-sec"><h2>Children</h2>
+<div class="legal-body">
 <p>Securely Hello is not meant for people under 18 without the verifiable consent of a parent or lawful guardian.</p>
-<h2>Security</h2>
+</div></div>
+<div class="legal-sec"><h2>Security</h2>
+<div class="legal-body">
 <p>Messages, calls, files and stories are end-to-end encrypted with the Signal protocol design (X3DH and the Double Ratchet). Connections to our server use TLS. You can compare safety numbers with a contact to be sure nobody is in between.</p>
-<h2>Changes to this policy</h2>
+</div></div>
+<div class="legal-sec"><h2>Changes to this policy</h2>
+<div class="legal-body">
 <p>If we change this policy in a way that matters, we will tell you in the app before the change takes effect.</p>
-<h2>Contact and grievances</h2>
+</div></div>
+<div class="legal-sec"><h2>Contact and grievances</h2>
+<div class="legal-body">
 <p>Write to hello@thenn.in. Our Grievance Officer is Tirth Joshi, at the same address. We acknowledge complaints within 24 hours and resolve them within 15 days.</p>
-  </div></main>
-  <footer class="footer"><div class="wrap footer-inner">
-    <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" width="28" height="28"><span>Securely Hello</span></a>
-    <nav aria-label="Footer"><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="mailto:hello@thenn.in">hello@thenn.in</a></nav>
-  </div></footer>
+</div></div>
+</article>
+  </main>
+  <footer class="footer">
+    <div class="footer-ink">
+    <div class="container footer-inner">
+      <p class="footer-statement">Not even we can read your chats.</p>
+      <div class="footer-bar">
+        <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" width="28" height="28"><span>Securely Hello</span></a>
+        <nav aria-label="Footer"><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="mailto:hello@thenn.in">hello@thenn.in</a></nav>
+      </div>
+    </div>
+    </div>
+  </footer>
 </body>
 </html>
