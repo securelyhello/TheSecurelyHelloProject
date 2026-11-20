@@ -59,7 +59,7 @@ dependencies:
   share_plus: ^13.3.1
   app_links: ^7.2.2
   flutter_contacts: ^2.6.0
-  record: 7.1.2
+  record: 7.2.0
   audioplayers: 6.8.1
   image: 4.12.0
   video_player: ^2.14.1
