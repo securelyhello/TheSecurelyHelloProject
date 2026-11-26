@@ -13,7 +13,7 @@
     "test": "node --env-file-if-exists=.env --test --test-concurrency=1 \"test/**/*.test.js\""
   },
   "dependencies": {
-    "ioredis": "^6.0.0",
+    "ioredis": "^6.1.0",
     "nodemailer": "10.3.1",
     "pg": "^8.23.1",
     "ws": "^8.22.2"
